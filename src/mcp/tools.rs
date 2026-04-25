@@ -28,7 +28,12 @@ pub(super) async fn fetch_page(
         .map_err(|e| ErrorData::internal_error(format!("{e:#}"), None))
 }
 
-pub(super) fn extract(page: &bridge::ServoPage, url: &str, json: bool, selector: Option<&str>) -> Result<String, ErrorData> {
+pub(super) fn extract(
+    page: &bridge::ServoPage,
+    url: &str,
+    json: bool,
+    selector: Option<&str>,
+) -> Result<String, ErrorData> {
     let mut input = ExtractInput::new(&page.html, url);
     input.layout_json = page.layout_json.as_deref();
     input.inner_text = page.inner_text.as_deref();

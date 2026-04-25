@@ -206,8 +206,7 @@ mod tests {
 
     #[test]
     fn fetch_params_accepts_selector() {
-        let p: FetchParams =
-            serde_json::from_str(r#"{"url":"https://example.com","selector":"article"}"#).unwrap();
+        let p: FetchParams = serde_json::from_str(r#"{"url":"https://example.com","selector":"article"}"#).unwrap();
         assert_eq!(p.selector.as_deref(), Some("article"));
     }
 

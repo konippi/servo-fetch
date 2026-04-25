@@ -58,7 +58,10 @@ async fn fetch_rejects_missing_url() {
 async fn screenshot_rejects_private_ip() {
     let client = connect().await;
     let result = client
-        .call_tool(call_params("screenshot", &serde_json::json!({"url": "http://127.0.0.1/"})))
+        .call_tool(call_params(
+            "screenshot",
+            &serde_json::json!({"url": "http://127.0.0.1/"}),
+        ))
         .await;
     assert!(result.is_err());
 }

@@ -206,11 +206,7 @@ fn parse_article(html: &str, url: &str, layout_json: Option<&str>, inner_text: O
     }
 }
 
-fn extract_by_selector(
-    html: &str,
-    layout_json: Option<&str>,
-    selector: &str,
-) -> String {
+fn extract_by_selector(html: &str, layout_json: Option<&str>, selector: &str) -> String {
     let filtered = filter(html, layout_json);
     let doc = Document::from(filtered.as_ref());
     let selected = doc.select(selector);
@@ -218,9 +214,7 @@ fn extract_by_selector(
     if fragment.is_empty() {
         return String::new();
     }
-    let converter = HtmlToMarkdown::builder()
-        .skip_tags(vec!["script", "style"])
-        .build();
+    let converter = HtmlToMarkdown::builder().skip_tags(vec!["script", "style"]).build();
     let markdown = converter
         .convert(&fragment)
         .unwrap_or_else(|_| selected.text().to_string());
@@ -268,7 +262,9 @@ mod tests {
 
     #[test]
     fn is_nextjs_error_page_detects_nextjs() {
-        assert!(is_nextjs_error_page("Application error: a client-side exception has occurred"));
+        assert!(is_nextjs_error_page(
+            "Application error: a client-side exception has occurred"
+        ));
     }
 
     #[test]

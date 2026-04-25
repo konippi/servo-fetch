@@ -23,8 +23,7 @@ pub fn sanitize(input: &str) -> Cow<'_, str> {
         match c {
             '\t' | '\n' | ' '..='~' => out.push(c),
             '\x1b' | '\u{009b}' => consume_escape_sequence(&mut chars, c == '\u{009b}'),
-            c if c > '\x7f' && !('\u{0080}'..='\u{009f}').contains(&c)
-                && !is_bidi_control(c) => out.push(c),
+            c if c > '\x7f' && !('\u{0080}'..='\u{009f}').contains(&c) && !is_bidi_control(c) => out.push(c),
             _ => {}
         }
     }
@@ -161,10 +160,7 @@ mod tests {
 
     #[test]
     fn strips_osc_hyperlink() {
-        assert_eq!(
-            sanitize("a\x1b]8;;https://evil.com\x07click\x1b]8;;\x07b"),
-            "aclickb"
-        );
+        assert_eq!(sanitize("a\x1b]8;;https://evil.com\x07click\x1b]8;;\x07b"), "aclickb");
     }
 
     #[test]

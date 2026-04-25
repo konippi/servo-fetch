@@ -5,8 +5,7 @@ mod tools;
 
 use rmcp::ServiceExt as _;
 use rmcp::transport::streamable_http_server::{
-    StreamableHttpService, StreamableHttpServerConfig,
-    session::local::LocalSessionManager,
+    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
 
 /// Start the MCP server on stdio or Streamable HTTP transport.
@@ -43,7 +42,9 @@ async fn run_http(port: u16) -> anyhow::Result<()> {
     eprintln!("MCP server listening on http://{addr}/mcp");
 
     axum::serve(listener, router)
-        .with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); })
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.ok();
+        })
         .await?;
     Ok(())
 }

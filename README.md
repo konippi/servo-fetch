@@ -3,7 +3,7 @@
   <p align="center">Web rendering for your terminal and AI agents — no Chromium, no browser download.</p>
   <p>
     <a href="https://github.com/konippi/servo-fetch/actions"><img src="https://github.com/konippi/servo-fetch/workflows/CI/badge.svg" alt="CI"></a>
-    <a href="https://crates.io/crates/servo-fetch"><img src="https://img.shields.io/crates/v/servo-fetch.svg" alt="crates.io"></a>
+    <img src="https://img.shields.io/badge/Rust-1.86.0-blue?color=fc8d62&logo=rust" alt="MSRV">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT">
   </p>
 </div>
@@ -11,7 +11,7 @@
 **servo-fetch** is a single-binary CLI and MCP server that renders web pages using the [Servo](https://servo.org/) browser engine. It executes JavaScript, computes CSS layout, captures screenshots, and extracts clean content — all without downloading a browser.
 
 ```bash
-servo-fetch "https://example.com"                    # Clean Markdown
+servo-fetch "https://example.com"                        # Clean Markdown
 servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot, no GPU needed
 servo-fetch "https://example.com" --js "document.title"  # Run JS in the page
 ```
@@ -30,15 +30,10 @@ servo-fetch "https://example.com" --js "document.title"  # Run JS in the page
 
 ## Install
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/konippi/servo-fetch/main/install.sh | sh
-```
-
-Or via [GitHub Releases](https://github.com/konippi/servo-fetch/releases), [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), or build from source:
+Build from source (requires Rust 1.86.0+):
 
 ```bash
-cargo binstall servo-fetch   # prebuilt binary
-cargo install servo-fetch    # build from source (see CONTRIBUTING.md)
+cargo install servo-fetch
 ```
 
 ```bash
@@ -58,6 +53,13 @@ servo-fetch "https://example.com" --js "[...document.querySelectorAll('h2')].map
 # Extract a specific section by CSS selector
 servo-fetch "https://example.com" --selector "article"
 
+# Raw HTML or plain text (bypass Readability)
+servo-fetch "https://example.com" --raw html
+servo-fetch "https://example.com" --raw text
+
+# PDF text extraction (auto-detected, no Servo needed)
+servo-fetch "https://example.com/report.pdf"
+
 # Pipe to other tools
 servo-fetch "https://docs.rs/tokio" | grep "async"
 servo-fetch "https://example.com" --json | jq .title
@@ -71,6 +73,7 @@ servo-fetch "https://example.com" --json | jq .title
 | `--screenshot <FILE>` | Save a PNG screenshot |
 | `--js <EXPR>` | Execute JavaScript and print the result |
 | `--selector <CSS>` | Extract a specific section by CSS selector |
+| `--raw <MODE>` | Output raw `html` or plain `text` (bypasses Readability) |
 | `-t`, `--timeout <SECS>` | Page load timeout (default: 30) |
 | `--help` | Show help |
 | `--version` | Show version |
@@ -98,6 +101,8 @@ Fields marked `?` are omitted when not detected.
 3. Navbars, sidebars, and footers are stripped using CSS layout data
 4. Mozilla's [Readability](https://github.com/mozilla/readability) algorithm extracts the main content
 5. Content is output as Markdown, JSON, or PNG
+
+PDF URLs are auto-detected via `Content-Type` and extracted directly without Servo.
 
 ## MCP server
 

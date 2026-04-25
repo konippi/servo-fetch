@@ -1552,12 +1552,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dom_query"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "521e380c0c8afb8d9a1e83a1822ee03556fc3e3e7dbc1fd30be14e37f9cb3f89"
+dependencies = [
+ "bit-set",
+ "cssparser",
+ "foldhash 0.2.0",
+ "html5ever 0.38.0",
+ "precomputed-hash",
+ "selectors",
+ "tendril",
+]
+
+[[package]]
 name = "dom_smoothie"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bc8a68d2cb540ae0f9d8602a15f7549cc7addf3b52614d950af1a59c5c8784f"
 dependencies = [
- "dom_query",
+ "dom_query 0.26.0",
  "flagset",
  "foldhash 0.2.0",
  "gjson",
@@ -6393,7 +6408,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "clap",
- "dom_query",
+ "dom_query 0.27.0",
  "dom_smoothie",
  "dpi",
  "euclid 0.22.14",

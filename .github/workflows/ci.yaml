@@ -18,6 +18,12 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
+      CCACHE: sccache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -26,7 +32,7 @@ jobs:
         with:
           toolchain: "1.95.0"
           components: clippy
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Install servo build deps
         run: |
           sudo apt-get update
@@ -41,6 +47,12 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
+      CCACHE: sccache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -48,7 +60,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: "1.95.0"
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd # v2.52.4
         with:
           tool: cargo-nextest

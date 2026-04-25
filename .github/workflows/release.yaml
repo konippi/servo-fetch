@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   create-release:
@@ -22,14 +24,19 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           if [ "$VERSION" != "$CARGO_VERSION" ]; then
-            echo "Tag v$VERSION does not match Cargo.toml version $CARGO_VERSION" >&2
+            echo "::error::Tag v$VERSION does not match Cargo.toml version $CARGO_VERSION"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Generate release notes
+        id: notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api repos/${{ github.repository }}/releases/generate-notes -f tag_name="$GITHUB_REF_NAME" --jq .body > RELEASE_NOTES.md
       - name: Create GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md
     outputs:
       version: ${{ steps.version.outputs.version }}
 
@@ -51,6 +58,7 @@ jobs:
             os: windows-2022
     env:
       RUST_BACKTRACE: 1
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -61,9 +69,13 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          key: release-${{ matrix.target }}
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Configure sccache
+        shell: bash
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "CCACHE=sccache" >> "$GITHUB_ENV"
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -86,8 +98,7 @@ jobs:
 
       - name: Determine archive name
         shell: bash
-        run: |
-          echo "ARCHIVE=servo-fetch-v${{ needs.create-release.outputs.version }}-${{ matrix.target }}" >> "$GITHUB_ENV"
+        run: echo "ARCHIVE=servo-fetch-v${{ needs.create-release.outputs.version }}-${{ matrix.target }}" >> "$GITHUB_ENV"
 
       - name: Build archive (Unix)
         if: runner.os != 'Windows'
@@ -108,6 +119,18 @@ jobs:
           cp README.md LICENSE "$ARCHIVE"/
           7z a "$ARCHIVE.zip" "$ARCHIVE"
           certutil -hashfile "$ARCHIVE.zip" SHA256 > "$ARCHIVE.zip.sha256"
+
+      - name: Attest build provenance (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: ${{ env.ARCHIVE }}.tar.gz
+
+      - name: Attest build provenance (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: ${{ env.ARCHIVE }}.zip
 
       - name: Upload release archive
         env:
@@ -132,3 +155,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "$GITHUB_REF_NAME" --draft=false
+
+  publish-crate:
+    name: Publish to crates.io
+    needs: [publish-release]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked

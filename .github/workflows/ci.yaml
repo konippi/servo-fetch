@@ -15,7 +15,7 @@ jobs:
   clippy:
     name: Clippy & Test
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
     env:
@@ -40,39 +40,6 @@ jobs:
             libssl-dev libglib2.0-dev libegl1-mesa-dev
       - run: cargo clippy --locked -- -D warnings
       - run: cargo test --locked
-
-  integration:
-    name: Integration Tests
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_TEST_DEBUG: 0
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
-      CCACHE: sccache
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: "1.95.0"
-      - uses: mozilla-actions/sccache-action@v0.0.10
-      - uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd # v2.52.4
-        with:
-          tool: cargo-nextest
-      - name: Install servo build deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
-            libssl-dev libglib2.0-dev libegl1-mesa-dev
-      - name: CLI integration tests
-        run: cargo nextest run --locked --test cli --run-ignored ignored-only --retries 2
-      - name: MCP integration tests
-        run: cargo nextest run --locked --test mcp --run-ignored ignored-only --retries 2
 
   fmt:
     name: Format

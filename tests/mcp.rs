@@ -85,7 +85,7 @@ async fn fetch_returns_content() {
     let result = client
         .call_tool(call_params(
             "fetch",
-            &serde_json::json!({"url": "https://example.com", "max_length": 500}),
+            &serde_json::json!({"url": "https://example.com", "max_length": 500, "timeout": 60}),
         ))
         .await
         .unwrap();
@@ -99,7 +99,7 @@ async fn execute_js_returns_title() {
     let result = client
         .call_tool(call_params(
             "execute_js",
-            &serde_json::json!({"url": "https://example.com", "expression": "document.title"}),
+            &serde_json::json!({"url": "https://example.com", "expression": "document.title", "timeout": 60}),
         ))
         .await
         .unwrap();

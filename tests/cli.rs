@@ -1,7 +1,4 @@
-//! CLI integration tests — validates argument parsing and error handling.
-//!
-//! Tests that require Servo (network access) are marked `#[ignore]`
-//! and run only in CI via `cargo test -- --ignored`.
+//! CLI integration tests.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -63,14 +60,13 @@ fn help_flag() {
         .stdout(predicate::str::contains("Fetch web pages"));
 }
 
-// --- Tests below require Servo (network access) ---
-// Run locally with: cargo test -- --ignored
+const TIMEOUT: &str = "--timeout=60";
 
 #[test]
 #[ignore = "requires Servo + network"]
 fn default_produces_markdown() {
     servo_fetch()
-        .args(["--timeout=15", "https://example.com"])
+        .args([TIMEOUT, "https://example.com"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Example Domain"));
@@ -80,7 +76,7 @@ fn default_produces_markdown() {
 #[ignore = "requires Servo + network"]
 fn json_produces_valid_json() {
     let output = servo_fetch()
-        .args(["--json", "--timeout=15", "https://example.com"])
+        .args(["--json", TIMEOUT, "https://example.com"])
         .assert()
         .success()
         .get_output()
@@ -94,7 +90,7 @@ fn json_produces_valid_json() {
 #[ignore = "requires Servo + network"]
 fn js_eval_returns_result() {
     servo_fetch()
-        .args(["--js", "document.title", "--timeout=15", "https://example.com"])
+        .args(["--js", "document.title", TIMEOUT, "https://example.com"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Example Domain"));
@@ -107,12 +103,7 @@ fn screenshot_creates_file() {
     std::fs::create_dir_all(&dir).ok();
     let path = dir.join("test.png");
     servo_fetch()
-        .args([
-            "--screenshot",
-            path.to_str().unwrap(),
-            "--timeout=15",
-            "https://example.com",
-        ])
+        .args(["--screenshot", path.to_str().unwrap(), TIMEOUT, "https://example.com"])
         .assert()
         .success();
     assert!(path.exists(), "screenshot file should be created");

@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      patch-updates:
+        update-types: ["patch"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

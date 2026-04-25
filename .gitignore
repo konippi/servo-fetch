@@ -1,0 +1,13 @@
+# Rust
+/target
+debug/
+**/*.rs.bk
+*.pdb
+
+# Editors
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store

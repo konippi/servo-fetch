@@ -41,7 +41,7 @@ pub struct Cli {
     pub timeout: u64,
 
     /// CSS selector to extract a specific section
-    #[arg(long, value_name = "SELECTOR")]
+    #[arg(long, value_name = "CSS")]
     pub selector: Option<String>,
 
     /// Output raw HTML or plain text instead of Readability extraction (html or text)

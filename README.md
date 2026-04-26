@@ -9,7 +9,7 @@
   </p>
 </div>
 
-servo-fetch embeds the [Servo](https://servo.org/) browser engine into a single binary. It executes JavaScript via SpiderMonkey, computes CSS layout with Servo's parallel engine, captures screenshots with a software renderer, and extracts clean content — as a CLI tool or an [MCP](https://modelcontextprotocol.io/) server for AI agents.
+servo-fetch embeds the [Servo](https://servo.org/) browser engine into a single, lightweight binary. It executes JavaScript via SpiderMonkey, computes CSS layout with Servo's parallel engine, captures screenshots with a software renderer, and extracts clean content — as a CLI tool or an [MCP](https://modelcontextprotocol.io/) server for AI agents.
 
 ```bash
 servo-fetch "https://example.com"                        # Clean Markdown

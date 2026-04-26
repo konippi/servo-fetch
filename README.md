@@ -3,6 +3,7 @@
   <p align="center">Web rendering for your terminal and AI agents — no Chromium, no browser download.</p>
   <p>
     <a href="https://github.com/konippi/servo-fetch/actions"><img src="https://github.com/konippi/servo-fetch/workflows/CI/badge.svg" alt="CI"></a>
+    <a href="https://crates.io/crates/servo-fetch"><img src="https://img.shields.io/crates/v/servo-fetch.svg" alt="crates.io"></a>
     <img src="https://img.shields.io/badge/Rust-1.86.0-blue?color=fc8d62&logo=rust" alt="MSRV">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT">
   </p>
@@ -30,11 +31,18 @@ servo-fetch "https://example.com" --js "document.title"  # Run JS in the page
 
 ## Install
 
-Build from source (requires Rust 1.86.0+):
+```bash
+curl -fsSL https://raw.githubusercontent.com/konippi/servo-fetch/main/install.sh | sh
+```
+
+Or download from [GitHub Releases](https://github.com/konippi/servo-fetch/releases), or build from source (requires Rust 1.86.0+):
 
 ```bash
-cargo install servo-fetch
+cargo binstall servo-fetch   # prebuilt binary
+cargo install servo-fetch    # build from source
 ```
+
+## Usage
 
 ```bash
 # Readable Markdown (default)
@@ -48,21 +56,12 @@ servo-fetch "https://example.com" --screenshot page.png
 
 # Execute JavaScript in the page context
 servo-fetch "https://example.com" --js "document.title"
-servo-fetch "https://example.com" --js "[...document.querySelectorAll('h2')].map(e => e.textContent)"
 
 # Extract a specific section by CSS selector
 servo-fetch "https://example.com" --selector "article"
 
-# Raw HTML or plain text (bypass Readability)
-servo-fetch "https://example.com" --raw html
-servo-fetch "https://example.com" --raw text
-
-# PDF text extraction (auto-detected, no Servo needed)
+# PDF text extraction (auto-detected)
 servo-fetch "https://example.com/report.pdf"
-
-# Pipe to other tools
-servo-fetch "https://docs.rs/tokio" | grep "async"
-servo-fetch "https://example.com" --json | jq .title
 ```
 
 ## Options

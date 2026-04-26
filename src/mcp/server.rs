@@ -20,13 +20,15 @@ pub(super) enum OutputFormat {
     Json,
     Html,
     Text,
+    #[serde(rename = "accessibility_tree")]
+    AccessibilityTree,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(super) struct FetchParams {
     #[schemars(description = "URL to fetch (http/https only)")]
     url: String,
-    #[schemars(description = "Output format. Default: markdown")]
+    #[schemars(description = "Output format: markdown (default), json, html, text, or accessibility_tree")]
     format: Option<OutputFormat>,
     #[schemars(description = "Max characters to return. Default: 5000")]
     max_length: Option<usize>,
@@ -71,7 +73,7 @@ impl ServoMcp {
     }
 
     #[tool(
-        description = "Fetch a URL and extract readable content using the Servo browser engine (JS execution + CSS layout). Navbars, sidebars, and footers are stripped automatically. Use `selector` to extract a specific CSS-selected section instead of full-page Readability extraction. Long content is truncated at max_length; use start_index to paginate."
+        description = "Fetch a URL and extract readable content using the Servo browser engine (JS execution + CSS layout). Navbars, sidebars, and footers are stripped automatically. Use `selector` to extract a specific CSS-selected section instead of full-page Readability extraction. Set format to `accessibility_tree` to get the page's accessibility tree with bounding boxes. Long content is truncated at max_length; use start_index to paginate."
     )]
     async fn fetch(&self, Parameters(p): Parameters<FetchParams>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
@@ -86,7 +88,8 @@ impl ServoMcp {
             ));
         }
 
-        let page = tools::fetch_page(&url, timeout, false, None).await?;
+        let need_a11y = matches!(p.format, Some(OutputFormat::AccessibilityTree));
+        let page = tools::fetch_page(&url, timeout, false, need_a11y, None).await?;
         let full = if let Some(ref pdf_bytes) = page.pdf_data {
             servo_fetch::extract::extract_pdf(pdf_bytes)
         } else {
@@ -96,6 +99,7 @@ impl ServoMcp {
                 OutputFormat::Text => page.inner_text.clone().unwrap_or_default(),
                 OutputFormat::Json => tools::extract(&page, &url, true, p.selector.as_deref())?,
                 OutputFormat::Markdown => tools::extract(&page, &url, false, p.selector.as_deref())?,
+                OutputFormat::AccessibilityTree => page.accessibility_tree.clone().unwrap_or_default(),
             }
         };
         Ok(CallToolResult::success(vec![Content::text(tools::paginate(
@@ -113,7 +117,7 @@ impl ServoMcp {
     }
 
     #[tool(
-        description = "Evaluate a JavaScript expression in a loaded page. Examples: document.title, [...document.querySelectorAll('h2')].map(e => e.textContent)"
+        description = "Evaluate a JavaScript expression in a loaded page. Console messages (log, warn, error) are appended to the result. Examples: document.title, [...document.querySelectorAll('h2')].map(e => e.textContent)"
     )]
     async fn execute_js(&self, Parameters(p): Parameters<ExecuteJsParams>) -> Result<CallToolResult, ErrorData> {
         if p.expression.len() > MAX_JS_LEN {
@@ -125,11 +129,19 @@ impl ServoMcp {
         let url = tools::validated_url(&p.url)?;
         let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
 
-        let page = tools::fetch_page(&url, timeout, false, Some(&p.expression)).await?;
+        let page = tools::fetch_page(&url, timeout, false, false, Some(&p.expression)).await?;
         let mut result = page.js_result.unwrap_or_default();
         if result.len() > MAX_JS_OUTPUT_LEN {
             result.truncate(tools::floor_char_boundary(&result, MAX_JS_OUTPUT_LEN));
             result.push_str("\n<output truncated>");
+        }
+        // Append console messages if any were captured.
+        if !page.console_messages.is_empty() {
+            result.push_str("\n\n--- console output ---\n");
+            for msg in &page.console_messages {
+                use std::fmt::Write as _;
+                let _ = writeln!(result, "[{}] {}", msg.level, msg.message);
+            }
         }
         Ok(CallToolResult::success(vec![Content::text(
             servo_fetch::sanitize::sanitize(&result).into_owned(),

@@ -16,14 +16,6 @@ cargo build
 
 > First build takes several minutes due to Servo compilation.
 
-### Pre-commit hooks (optional)
-
-Install [pre-commit](https://pre-commit.com/#install), then:
-
-```sh
-pre-commit install --install-hooks
-```
-
 ### Useful commands
 
 ```sh
@@ -48,7 +40,7 @@ cargo llvm-cov --lib --tests
 
 ## Commit conventions
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/). The `committed` tool enforces this via a pre-commit hook.
+This project uses [Conventional Commits](https://www.conventionalcommits.org/).
 
 ```text
 feat: add PDF output support

@@ -1,6 +1,6 @@
 <div align="center">
   <h1 align="center">servo-fetch</h1>
-  <p align="center">Web rendering for your terminal and AI agents — no Chromium, no browser download.</p>
+  <p align="center">A browser engine in a binary — fetch, render, and extract web content without installing a browser.</p>
   <p>
     <a href="https://github.com/konippi/servo-fetch/actions"><img src="https://github.com/konippi/servo-fetch/workflows/CI/badge.svg" alt="CI"></a>
     <a href="https://crates.io/crates/servo-fetch"><img src="https://img.shields.io/crates/v/servo-fetch.svg" alt="crates.io"></a>
@@ -9,7 +9,7 @@
   </p>
 </div>
 
-**servo-fetch** is a single-binary CLI and MCP server that renders web pages using the [Servo](https://servo.org/) browser engine. It executes JavaScript, computes CSS layout, captures screenshots, and extracts clean content — all without downloading a browser.
+servo-fetch embeds the [Servo](https://servo.org/) browser engine into a single binary. It executes JavaScript via SpiderMonkey, computes CSS layout with Servo's parallel engine, captures screenshots with a software renderer, and extracts clean content — as a CLI tool or an [MCP](https://modelcontextprotocol.io/) server for AI agents.
 
 ```bash
 servo-fetch "https://example.com"                        # Clean Markdown
@@ -17,25 +17,13 @@ servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot, no GP
 servo-fetch "https://example.com" --js "document.title"  # Run JS in the page
 ```
 
-## Why servo-fetch?
-
-- **Screenshots without a browser runtime.** Servo renders pages to PNG with a software renderer. No GPU, no Xvfb, no Chromium download. Drop the binary into Docker or CI and it just works.
-
-- **Reads JavaScript-heavy pages.** SPAs, React, Vue — servo-fetch executes JS via SpiderMonkey and extracts the rendered content. Plain HTTP fetchers return empty HTML; servo-fetch returns the real page.
-
-- **Strips navigation noise using CSS layout.** Most tools guess page structure from HTML tags. servo-fetch uses `getComputedStyle()` and `getBoundingClientRect()` to detect fixed navbars, sidebars, and footers — then removes them before extraction.
-
-- **Single binary, zero runtime dependencies.** `cargo install` or download a prebuilt binary. No Node.js, no `npx playwright install`, no `apt-get install chromium`.
-
-- **Built-in MCP server for AI agents.** Three tools (`fetch`, `screenshot`, `execute_js`) over stdio or Streamable HTTP. AI agents can read SPAs and take screenshots without any browser setup.
-
 ## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/konippi/servo-fetch/main/install.sh | sh
 ```
 
-Or download from [GitHub Releases](https://github.com/konippi/servo-fetch/releases), or build from source (requires Rust 1.86.0+):
+Or via [GitHub Releases](https://github.com/konippi/servo-fetch/releases), or with Cargo (requires Rust 1.86.0+):
 
 ```bash
 cargo binstall servo-fetch   # prebuilt binary
@@ -63,6 +51,47 @@ servo-fetch "https://example.com" --selector "article"
 # PDF text extraction (auto-detected)
 servo-fetch "https://example.com/report.pdf"
 ```
+
+## MCP server
+
+servo-fetch includes a built-in MCP server with three tools — `fetch`, `screenshot`, and `execute_js` — over stdio or Streamable HTTP.
+
+```json
+{
+  "mcpServers": {
+    "servo-fetch": {
+      "command": "servo-fetch",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+For Streamable HTTP transport:
+
+```bash
+servo-fetch mcp --port 8080
+```
+
+## What makes it different
+
+**Servo is a real browser engine.** Written in Rust by the [Servo project](https://servo.org/) (Linux Foundation), Servo executes JavaScript via SpiderMonkey and computes CSS layout with a parallel engine. servo-fetch embeds this engine so you get browser-grade rendering without a browser runtime.
+
+**CSS layout strips navigation noise.** Most extraction tools guess page structure from HTML tags. servo-fetch calls `getComputedStyle()` and `getBoundingClientRect()` inside the engine to detect fixed navbars, sidebars, and footers — then removes them before extraction.
+
+**Screenshots without GPU or display server.** Servo renders to PNG with a software renderer. No GPU, no Xvfb, no display server. Drop the binary into Docker or CI and it just works.
+
+**Reads JavaScript-heavy pages.** SPAs, React, Vue — servo-fetch executes JS and extracts the rendered DOM. Plain HTTP fetchers return empty `<div id="root"></div>`; servo-fetch returns the real page.
+
+## How it works
+
+1. Servo loads the page and executes JavaScript via SpiderMonkey
+2. CSS is computed with Servo's parallel layout engine — `getComputedStyle()` and `getBoundingClientRect()` identify page structure
+3. Navbars, sidebars, and footers are stripped using CSS layout data
+4. Mozilla's [Readability](https://github.com/mozilla/readability) algorithm extracts the main content
+5. Content is output as Markdown, JSON, or PNG
+
+PDF URLs are auto-detected via `Content-Type` and extracted directly without Servo.
 
 ## Options
 
@@ -93,41 +122,6 @@ servo-fetch "https://example.com/report.pdf"
 
 Fields marked `?` are omitted when not detected.
 
-## How it works
-
-1. Servo loads the page and executes JavaScript via SpiderMonkey
-2. CSS is computed with Servo's parallel layout engine — `getComputedStyle()` and `getBoundingClientRect()` identify page structure
-3. Navbars, sidebars, and footers are stripped using CSS layout data
-4. Mozilla's [Readability](https://github.com/mozilla/readability) algorithm extracts the main content
-5. Content is output as Markdown, JSON, or PNG
-
-PDF URLs are auto-detected via `Content-Type` and extracted directly without Servo.
-
-## MCP server
-
-servo-fetch includes a built-in [MCP](https://modelcontextprotocol.io/) server for AI agents with three tools: `fetch`, `screenshot`, and `execute_js`.
-
-```bash
-# stdio transport (default)
-servo-fetch mcp
-
-# Streamable HTTP transport
-servo-fetch mcp --port 8080
-```
-
-Add to your MCP client config (Claude Code, Codex, Cursor, etc.):
-
-```json
-{
-  "mcpServers": {
-    "servo-fetch": {
-      "command": "servo-fetch",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
 ## Security
 
 servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatracker.ietf.org/doc/html/rfc6890)), strips credentials from URLs, validates redirect targets, and sanitizes all output against terminal escape injection ([CVE-2021-42574](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-42574)). See [SECURITY.md](./SECURITY.md) for details.
@@ -137,6 +131,10 @@ servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatr
 - Best suited for documentation, blogs, and SSR sites
 - Some SPAs with complex client-side rendering may not fully render
 - Servo's web compatibility is [improving monthly](https://servo.org/blog/)
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, commit conventions, and PR guidelines.
 
 ## License
 

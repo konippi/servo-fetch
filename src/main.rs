@@ -76,7 +76,7 @@ fn run(args: &cli::Cli) -> anyhow::Result<()> {
         let _ = std::io::Write::flush(&mut std::io::stderr());
     }
 
-    let page = bridge::fetch_page(url.as_str(), args.timeout, need_screenshot, args.js.as_deref());
+    let page = bridge::fetch_page(url.as_str(), args.timeout, need_screenshot, false, args.js.as_deref());
 
     if is_tty {
         eprint!("\r\x1b[K");

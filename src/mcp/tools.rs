@@ -18,11 +18,12 @@ pub(super) async fn fetch_page(
     url: &str,
     timeout: u64,
     screenshot: bool,
+    need_a11y: bool,
     js: Option<&str>,
 ) -> Result<bridge::ServoPage, ErrorData> {
     let url = url.to_string();
     let js = js.map(String::from);
-    tokio::task::spawn_blocking(move || bridge::fetch_page(&url, timeout, screenshot, js.as_deref()))
+    tokio::task::spawn_blocking(move || bridge::fetch_page(&url, timeout, screenshot, need_a11y, js.as_deref()))
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
         .map_err(|e| ErrorData::internal_error(format!("{e:#}"), None))
@@ -47,7 +48,7 @@ pub(super) fn extract(
 }
 
 pub(super) async fn take_screenshot(url: &str, timeout: u64) -> Result<CallToolResult, ErrorData> {
-    let page = fetch_page(url, timeout, true, None).await?;
+    let page = fetch_page(url, timeout, true, false, None).await?;
     let img = page
         .screenshot
         .ok_or_else(|| ErrorData::internal_error("screenshot capture failed", None))?;

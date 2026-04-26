@@ -101,6 +101,8 @@ mod tests {
             screenshot: None,
             js_result: None,
             pdf_data: None,
+            accessibility_tree: None,
+            console_messages: Vec::new(),
         }
     }
 

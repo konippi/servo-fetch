@@ -37,7 +37,7 @@ pub struct Cli {
     pub js: Option<String>,
 
     /// Timeout in seconds for page load
-    #[arg(short = 't', long, default_value_t = 30, value_name = "SECS")]
+    #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..), value_name = "SECS")]
     pub timeout: u64,
 
     /// CSS selector to extract a specific section

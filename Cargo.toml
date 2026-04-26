@@ -2,7 +2,7 @@
 name = "servo-fetch"
 version = "0.1.0"
 edition = "2024"
-description = "Fetch web pages with JS execution, no Chromium required. Powered by Servo."
+description = "A browser engine in a binary. Fetch, render, and extract web content powered by Servo."
 license = "MIT"
 rust-version = "1.86.0"
 repository = "https://github.com/konippi/servo-fetch"

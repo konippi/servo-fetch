@@ -1,4 +1,4 @@
-//! servo-fetch — Fetch web pages with JS execution, no Chromium required.
+//! servo-fetch — A browser engine in a binary.
 
 #![deny(unsafe_code)]
 

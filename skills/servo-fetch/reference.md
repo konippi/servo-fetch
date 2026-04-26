@@ -20,6 +20,7 @@ fetch(url: "https://...", start_index: 5000)
 | ---- | ------ |
 | Read content, summarize, answer questions | `markdown` |
 | Extract title, byline, excerpt, language | `json` |
+| Get page structure with roles and bounding boxes | `accessibility_tree` |
 
 ## Troubleshooting
 

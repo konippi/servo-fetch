@@ -198,7 +198,7 @@ fn parse_article(html: &str, url: &str, layout_json: Option<&str>, inner_text: O
                     text_content: markdown,
                     byline: article.byline.clone(),
                     excerpt: article.excerpt.clone(),
-                    lang: article.lang.clone(),
+                    lang: article.lang,
                 };
             }
         }

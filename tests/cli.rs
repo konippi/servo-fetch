@@ -118,5 +118,5 @@ fn timeout_produces_error() {
         .args(["--timeout=0", "https://example.com"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("timed out"));
+        .stderr(predicate::str::contains("invalid value '0'"));
 }

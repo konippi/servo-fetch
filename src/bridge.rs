@@ -42,7 +42,10 @@ impl WebViewDelegate for Delegate {
         let is_http = matches!(navigation_request.url.scheme(), "http" | "https");
         match navigation_request.url.host_str() {
             Some(host) if is_http && !crate::net::is_private_host(host) => navigation_request.allow(),
-            _ => navigation_request.deny(),
+            _ => {
+                eprintln!("warning: blocked navigation to {}", navigation_request.url);
+                navigation_request.deny();
+            }
         }
     }
 

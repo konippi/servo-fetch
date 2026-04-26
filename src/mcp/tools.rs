@@ -63,6 +63,7 @@ pub(super) async fn take_screenshot(url: &str, timeout: u64) -> Result<CallToolR
 }
 
 pub(super) fn paginate(content: &str, start: usize, max_len: usize) -> String {
+    let max_len = max_len.max(1);
     let total = content.len();
     let start = floor_char_boundary(content, start);
     if start >= total {

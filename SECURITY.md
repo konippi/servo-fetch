@@ -34,4 +34,6 @@ servo-fetch processes untrusted web content. The following areas are in scope:
 
 - Servo's `evaluate_javascript` runs in the page context (no isolated world)
 - DNS rebinding attacks are not mitigated at the URL validation layer
+- Sub-resource requests (images, scripts, iframes) loaded by the page are not subject to SSRF validation — only the initial navigation URL is checked
+- JavaScript executed via `--js` or `execute_js` can make secondary network requests (e.g. `fetch()`) that bypass URL validation, constrained only by the browser's Same-Origin Policy
 - Process isolation (seccomp-bpf) is not yet implemented

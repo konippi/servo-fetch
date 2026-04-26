@@ -95,11 +95,11 @@ impl ServoMcp {
         } else {
             let fmt = p.format.unwrap_or_default();
             match fmt {
-                OutputFormat::Html => page.html.clone(),
-                OutputFormat::Text => page.inner_text.clone().unwrap_or_default(),
+                OutputFormat::Html => page.html,
+                OutputFormat::Text => page.inner_text.unwrap_or_default(),
                 OutputFormat::Json => tools::extract(&page, &url, true, p.selector.as_deref())?,
                 OutputFormat::Markdown => tools::extract(&page, &url, false, p.selector.as_deref())?,
-                OutputFormat::AccessibilityTree => page.accessibility_tree.clone().unwrap_or_default(),
+                OutputFormat::AccessibilityTree => page.accessibility_tree.unwrap_or_default(),
             }
         };
         Ok(CallToolResult::success(vec![Content::text(tools::paginate(

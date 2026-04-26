@@ -54,6 +54,8 @@ module_name_repetitions = { level = "allow", priority = 1 }
 implicit_clone = "warn"
 redundant_type_annotations = "warn"
 use_self = "warn"
+missing_assert_message = "warn"
+redundant_clone = "warn"
 
 [dev-dependencies]
 assert_cmd = "2"

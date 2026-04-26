@@ -14,10 +14,10 @@ pub struct Markdown<'a> {
 
 impl Markdown<'_> {
     pub fn execute(&self) -> Result<()> {
-        let mut input = servo_fetch::extract::ExtractInput::new(&self.page.html, self.url);
-        input.layout_json = self.page.layout_json.as_deref();
-        input.inner_text = self.page.inner_text.as_deref();
-        input.selector = self.selector;
+        let input = servo_fetch::extract::ExtractInput::new(&self.page.html, self.url)
+            .with_layout_json(self.page.layout_json.as_deref())
+            .with_inner_text(self.page.inner_text.as_deref())
+            .with_selector(self.selector);
         let text = servo_fetch::extract::extract_text(&input)?;
         write!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&text))?;
         Ok(())
@@ -32,10 +32,10 @@ pub struct Json<'a> {
 
 impl Json<'_> {
     pub fn execute(&self) -> Result<()> {
-        let mut input = servo_fetch::extract::ExtractInput::new(&self.page.html, self.url);
-        input.layout_json = self.page.layout_json.as_deref();
-        input.inner_text = self.page.inner_text.as_deref();
-        input.selector = self.selector;
+        let input = servo_fetch::extract::ExtractInput::new(&self.page.html, self.url)
+            .with_layout_json(self.page.layout_json.as_deref())
+            .with_inner_text(self.page.inner_text.as_deref())
+            .with_selector(self.selector);
         let json = servo_fetch::extract::extract_json(&input)?;
         writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&json))?;
         Ok(())
@@ -67,15 +67,14 @@ pub struct JsEval<'a> {
 
 pub struct Raw<'a> {
     pub page: &'a ServoPage,
-    pub mode: &'a str,
+    pub mode: &'a crate::cli::RawMode,
 }
 
 impl Raw<'_> {
     pub fn execute(&self) -> Result<()> {
         let content = match self.mode {
-            "html" => &self.page.html,
-            "text" => self.page.inner_text.as_deref().unwrap_or(""),
-            other => bail!("unknown raw mode '{other}'; use 'html' or 'text'"),
+            crate::cli::RawMode::Html => &self.page.html,
+            crate::cli::RawMode::Text => self.page.inner_text.as_deref().unwrap_or(""),
         };
         write!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(content))?;
         Ok(())
@@ -96,13 +95,7 @@ mod tests {
     fn mock_page(html: &str) -> ServoPage {
         ServoPage {
             html: html.to_string(),
-            inner_text: None,
-            layout_json: None,
-            screenshot: None,
-            js_result: None,
-            pdf_data: None,
-            accessibility_tree: None,
-            console_messages: Vec::new(),
+            ..ServoPage::default()
         }
     }
 

@@ -44,9 +44,18 @@ pub struct Cli {
     #[arg(long, value_name = "CSS")]
     pub selector: Option<String>,
 
-    /// Output raw HTML or plain text instead of Readability extraction (html or text)
-    #[arg(long, value_name = "MODE", conflicts_with_all = ["json", "screenshot", "js", "selector"])]
-    pub raw: Option<String>,
+    /// Output raw HTML or plain text instead of Readability extraction
+    #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["json", "screenshot", "js", "selector"])]
+    pub raw: Option<RawMode>,
+}
+
+/// Raw output mode.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum RawMode {
+    /// Raw HTML
+    Html,
+    /// Plain text (document.body.innerText)
+    Text,
 }
 
 /// Available subcommands.
@@ -129,6 +138,14 @@ mod tests {
                 .to_string()
                 .contains("not allowed")
         );
+    }
+
+    #[test]
+    fn raw_mode_from_str() {
+        use clap::ValueEnum;
+        assert!(RawMode::from_str("html", true).is_ok());
+        assert!(RawMode::from_str("text", true).is_ok());
+        assert!(RawMode::from_str("xml", true).is_err());
     }
 }
 

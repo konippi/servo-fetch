@@ -23,10 +23,18 @@ pub(super) async fn fetch_page(
 ) -> Result<bridge::ServoPage, ErrorData> {
     let url = url.to_string();
     let js = js.map(String::from);
-    tokio::task::spawn_blocking(move || bridge::fetch_page(&url, timeout, screenshot, need_a11y, js.as_deref()))
-        .await
-        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
-        .map_err(|e| ErrorData::internal_error(format!("{e:#}"), None))
+    tokio::task::spawn_blocking(move || {
+        bridge::fetch_page(&bridge::FetchOptions {
+            url: &url,
+            timeout_secs: timeout,
+            screenshot,
+            accessibility_tree: need_a11y,
+            js: js.as_deref(),
+        })
+    })
+    .await
+    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+    .map_err(|e| ErrorData::internal_error(format!("{e:#}"), None))
 }
 
 pub(super) fn extract(
@@ -35,10 +43,10 @@ pub(super) fn extract(
     json: bool,
     selector: Option<&str>,
 ) -> Result<String, ErrorData> {
-    let mut input = ExtractInput::new(&page.html, url);
-    input.layout_json = page.layout_json.as_deref();
-    input.inner_text = page.inner_text.as_deref();
-    input.selector = selector;
+    let input = ExtractInput::new(&page.html, url)
+        .with_layout_json(page.layout_json.as_deref())
+        .with_inner_text(page.inner_text.as_deref())
+        .with_selector(selector);
     if json {
         extract::extract_json(&input)
     } else {

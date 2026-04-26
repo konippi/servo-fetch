@@ -87,6 +87,27 @@ impl<'a> ExtractInput<'a> {
             selector: None,
         }
     }
+
+    /// Set the layout JSON data.
+    #[must_use]
+    pub fn with_layout_json(mut self, layout_json: Option<&'a str>) -> Self {
+        self.layout_json = layout_json;
+        self
+    }
+
+    /// Set the inner text fallback.
+    #[must_use]
+    pub fn with_inner_text(mut self, inner_text: Option<&'a str>) -> Self {
+        self.inner_text = inner_text;
+        self
+    }
+
+    /// Set the CSS selector for targeted extraction.
+    #[must_use]
+    pub fn with_selector(mut self, selector: Option<&'a str>) -> Self {
+        self.selector = selector;
+        self
+    }
 }
 
 /// Extract readable content as Markdown text.
@@ -302,5 +323,16 @@ mod tests {
         let result = filter(html, Some(layout));
         assert!(!result.contains("<footer"));
         assert!(result.contains("content"));
+    }
+
+    #[test]
+    fn extract_input_builder() {
+        let input = ExtractInput::new("<html></html>", "https://example.com")
+            .with_layout_json(Some("[]"))
+            .with_inner_text(Some("hello"))
+            .with_selector(Some("article"));
+        assert_eq!(input.layout_json, Some("[]"));
+        assert_eq!(input.inner_text, Some("hello"));
+        assert_eq!(input.selector, Some("article"));
     }
 }

@@ -73,17 +73,13 @@ For Streamable HTTP transport:
 servo-fetch mcp --port 8080
 ```
 
-## What makes it different
+## Why servo-fetch
 
 **Servo is a real browser engine.** Written in Rust by the [Servo project](https://servo.org/) (Linux Foundation), Servo executes JavaScript via SpiderMonkey and computes CSS layout with a parallel engine. servo-fetch embeds this engine so you get browser-grade rendering without a browser runtime.
 
 **CSS layout strips navigation noise.** Most extraction tools guess page structure from HTML tags. servo-fetch calls `getComputedStyle()` and `getBoundingClientRect()` inside the engine to detect fixed navbars, sidebars, and footers — then removes them before extraction. Common cookie banners and newsletter popups are also stripped via injected user stylesheets.
 
 **Accessibility tree with bounding boxes.** servo-fetch can return the page's accessibility tree via Servo's AccessKit integration. Each node includes its role, name, and bounding box — combining semantic structure with visual layout in a single output. Use `format: "accessibility_tree"` in the MCP fetch tool.
-
-**Screenshots without GPU or display server.** Servo renders to PNG with a software renderer. No GPU, no Xvfb, no display server. Drop the binary into Docker or CI and it just works.
-
-**Reads JavaScript-heavy pages.** SPAs, React, Vue — servo-fetch executes JS and extracts the rendered DOM. Plain HTTP fetchers return empty `<div id="root"></div>`; servo-fetch returns the real page.
 
 ## How it works
 

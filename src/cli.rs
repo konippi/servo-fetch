@@ -6,7 +6,7 @@ use clap::Parser;
 #[command(
     name = "servo-fetch",
     version,
-    about = "Fetch web pages with JS execution, no Chromium required.",
+    about = "A browser engine in a binary — fetch, render, and extract web content.",
     after_help = "\
 Examples:
   servo-fetch https://example.com              Readable Markdown (default)

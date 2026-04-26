@@ -57,7 +57,7 @@ fn help_flag() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Fetch web pages"));
+        .stdout(predicate::str::contains("browser engine in a binary"));
 }
 
 const TIMEOUT: &str = "--timeout=60";

@@ -36,4 +36,6 @@ servo-fetch processes untrusted web content. The following areas are in scope:
 - DNS rebinding attacks are not mitigated at the URL validation layer
 - Sub-resource requests (images, scripts, iframes) loaded by the page are not subject to SSRF validation — only the initial navigation URL is checked
 - JavaScript executed via `--js` or `execute_js` can make secondary network requests (e.g. `fetch()`) that bypass URL validation, constrained only by the browser's Same-Origin Policy
+- The accessibility tree output masks values of password input fields, but other sensitive form data (e.g. credit card numbers in text inputs) is not filtered
+- User stylesheets for noise removal are injected at the user origin; they do not execute scripts but may trigger `url()` resource loads for matched elements
 - Process isolation (seccomp-bpf) is not yet implemented

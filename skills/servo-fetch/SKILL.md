@@ -1,6 +1,6 @@
 ---
 name: servo-fetch
-description: "Use when you need to fetch content from JavaScript-heavy sites, take screenshots without GPU, or run DOM queries — all from a single binary with no Chromium. Powered by the Servo browser engine with full JS execution and CSS rendering."
+description: "Use when you need to fetch content from JavaScript-heavy sites, take screenshots without GPU, or run DOM queries — all from a single binary. Powered by the Servo browser engine with full JS execution, CSS rendering, and accessibility tree support."
 ---
 
 # servo-fetch
@@ -26,11 +26,11 @@ Start the MCP server: `servo-fetch mcp`
 
 Extract readable content from a URL. JavaScript is executed, CSS layout is computed, and navigation noise (navbars, sidebars, footers) is stripped automatically.
 
-```
+```text
 fetch(url: "https://docs.rs/tokio", format: "markdown")
 ```
 
-- `format`: `"markdown"` (default) for readable text, `"json"` for structured data with title/byline/excerpt/language
+- `format`: `"markdown"` (default) for readable text, `"json"` for structured data with title/byline/excerpt/language, `"accessibility_tree"` for the page's accessibility tree with bounding boxes
 - `max_length`: max characters to return (default 5000)
 - `start_index`: character offset for pagination — check the `next start_index` value in truncated responses
 
@@ -38,15 +38,15 @@ fetch(url: "https://docs.rs/tokio", format: "markdown")
 
 Capture a PNG screenshot. Uses Servo's software renderer — works in Docker, CI, and headless servers without GPU.
 
-```
+```text
 screenshot(url: "https://example.com")
 ```
 
 ### execute_js
 
-Evaluate a JavaScript expression after the page loads. Use for DOM queries and data extraction.
+Evaluate a JavaScript expression after the page loads. Use for DOM queries and data extraction. Console messages (log, warn, error) are appended to the result.
 
-```
+```text
 execute_js(url: "https://example.com", expression: "document.title")
 execute_js(url: "https://example.com", expression: "[...document.querySelectorAll('h2')].map(e => e.textContent)")
 ```

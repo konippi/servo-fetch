@@ -77,7 +77,9 @@ servo-fetch mcp --port 8080
 
 **Servo is a real browser engine.** Written in Rust by the [Servo project](https://servo.org/) (Linux Foundation), Servo executes JavaScript via SpiderMonkey and computes CSS layout with a parallel engine. servo-fetch embeds this engine so you get browser-grade rendering without a browser runtime.
 
-**CSS layout strips navigation noise.** Most extraction tools guess page structure from HTML tags. servo-fetch calls `getComputedStyle()` and `getBoundingClientRect()` inside the engine to detect fixed navbars, sidebars, and footers — then removes them before extraction.
+**CSS layout strips navigation noise.** Most extraction tools guess page structure from HTML tags. servo-fetch calls `getComputedStyle()` and `getBoundingClientRect()` inside the engine to detect fixed navbars, sidebars, and footers — then removes them before extraction. Common cookie banners and newsletter popups are also stripped via injected user stylesheets.
+
+**Accessibility tree with bounding boxes.** servo-fetch can return the page's accessibility tree via Servo's AccessKit integration. Each node includes its role, name, and bounding box — combining semantic structure with visual layout in a single output. Use `format: "accessibility_tree"` in the MCP fetch tool.
 
 **Screenshots without GPU or display server.** Servo renders to PNG with a software renderer. No GPU, no Xvfb, no display server. Drop the binary into Docker or CI and it just works.
 
@@ -86,10 +88,11 @@ servo-fetch mcp --port 8080
 ## How it works
 
 1. Servo loads the page and executes JavaScript via SpiderMonkey
-2. CSS is computed with Servo's parallel layout engine — `getComputedStyle()` and `getBoundingClientRect()` identify page structure
-3. Navbars, sidebars, and footers are stripped using CSS layout data
-4. Mozilla's [Readability](https://github.com/mozilla/readability) algorithm extracts the main content
-5. Content is output as Markdown, JSON, or PNG
+2. User stylesheets strip cookie banners and common noise elements
+3. CSS is computed with Servo's parallel layout engine — `getComputedStyle()` and `getBoundingClientRect()` identify page structure
+4. Navbars, sidebars, and footers are stripped using CSS layout data
+5. Mozilla's [Readability](https://github.com/mozilla/readability) algorithm extracts the main content
+6. Content is output as Markdown, JSON, accessibility tree, or PNG
 
 PDF URLs are auto-detected via `Content-Type` and extracted directly without Servo.
 

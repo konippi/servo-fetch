@@ -37,7 +37,7 @@ jobs:
               - 'clippy.toml'
               - '.rustfmt.toml'
               - 'rust-toolchain.toml'
-              - '.github/workflows/ci.yaml'
+              - '.github/workflows/ci.yml'
 
   clippy:
     name: Clippy & Test

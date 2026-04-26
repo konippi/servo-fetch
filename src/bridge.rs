@@ -41,10 +41,35 @@ struct Delegate {
 }
 
 /// A captured console message from the page.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 pub(crate) struct ConsoleMessage {
-    pub level: String,
+    pub level: ConsoleLevel,
     pub message: String,
+}
+
+/// Console message severity level.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ConsoleLevel {
+    Log,
+    Debug,
+    Info,
+    Warn,
+    Error,
+    Trace,
+}
+
+impl std::fmt::Display for ConsoleLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Log => f.write_str("log"),
+            Self::Debug => f.write_str("debug"),
+            Self::Info => f.write_str("info"),
+            Self::Warn => f.write_str("warn"),
+            Self::Error => f.write_str("error"),
+            Self::Trace => f.write_str("trace"),
+        }
+    }
 }
 
 impl WebViewDelegate for Delegate {
@@ -80,18 +105,15 @@ impl WebViewDelegate for Delegate {
     fn show_console_message(&self, _webview: WebView, level: ConsoleLogLevel, message: String) {
         let mut msgs = self.console_messages.borrow_mut();
         if msgs.len() < MAX_CONSOLE_MESSAGES {
-            let level_str = match level {
-                ConsoleLogLevel::Log => "log",
-                ConsoleLogLevel::Debug => "debug",
-                ConsoleLogLevel::Info => "info",
-                ConsoleLogLevel::Warn => "warn",
-                ConsoleLogLevel::Error => "error",
-                ConsoleLogLevel::Trace => "trace",
+            let level = match level {
+                ConsoleLogLevel::Log => ConsoleLevel::Log,
+                ConsoleLogLevel::Debug => ConsoleLevel::Debug,
+                ConsoleLogLevel::Info => ConsoleLevel::Info,
+                ConsoleLogLevel::Warn => ConsoleLevel::Warn,
+                ConsoleLogLevel::Error => ConsoleLevel::Error,
+                ConsoleLogLevel::Trace => ConsoleLevel::Trace,
             };
-            msgs.push(ConsoleMessage {
-                level: level_str.to_string(),
-                message,
-            });
+            msgs.push(ConsoleMessage { level, message });
         }
     }
 
@@ -150,6 +172,7 @@ impl WebViewDelegate for Delegate {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct ServoPage {
     pub html: String,
     pub inner_text: Option<String>,
@@ -159,6 +182,15 @@ pub(crate) struct ServoPage {
     pub pdf_data: Option<Vec<u8>>,
     pub accessibility_tree: Option<String>,
     pub console_messages: Vec<ConsoleMessage>,
+}
+
+/// Options for fetching a page via Servo.
+pub(crate) struct FetchOptions<'a> {
+    pub url: &'a str,
+    pub timeout_secs: u64,
+    pub screenshot: bool,
+    pub accessibility_tree: bool,
+    pub js: Option<&'a str>,
 }
 
 struct FetchRequest {
@@ -171,13 +203,7 @@ struct FetchRequest {
 }
 
 /// Fetch a page via Servo. First call spawns a persistent Servo thread.
-pub(crate) fn fetch_page(
-    url: &str,
-    timeout_secs: u64,
-    take_screenshot: bool,
-    need_a11y: bool,
-    custom_js: Option<&str>,
-) -> Result<ServoPage> {
+pub(crate) fn fetch_page(opts: &FetchOptions<'_>) -> Result<ServoPage> {
     static SENDER: std::sync::OnceLock<mpsc::Sender<FetchRequest>> = std::sync::OnceLock::new();
 
     // Suppress stderr before Servo init to avoid OpenGL driver noise.
@@ -197,11 +223,11 @@ pub(crate) fn fetch_page(
     let (reply_tx, reply_rx) = mpsc::channel();
     sender
         .send(FetchRequest {
-            url: url.to_string(),
-            timeout_secs,
-            take_screenshot,
-            need_a11y,
-            custom_js: custom_js.map(String::from),
+            url: opts.url.to_string(),
+            timeout_secs: opts.timeout_secs,
+            take_screenshot: opts.screenshot,
+            need_a11y: opts.accessibility_tree,
+            custom_js: opts.js.map(String::from),
             reply: reply_tx,
         })
         .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
@@ -456,6 +482,82 @@ fn jsvalue_to_json(val: &JSValue) -> Result<serde_json::Value> {
         })
     }
     convert(val, 0)
+}
+
+// macOS's Apple Silicon OpenGL driver writes noise to fd 2 via fprintf.
+// Temporarily redirect fd 2 → /dev/null using POSIX dup/dup2 save-restore.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn console_level_display() {
+        assert_eq!(ConsoleLevel::Log.to_string(), "log");
+        assert_eq!(ConsoleLevel::Error.to_string(), "error");
+        assert_eq!(ConsoleLevel::Trace.to_string(), "trace");
+    }
+
+    #[test]
+    fn console_level_serializes_lowercase() {
+        let json = serde_json::to_string(&ConsoleLevel::Warn).unwrap();
+        assert_eq!(json, "\"warn\"");
+    }
+
+    #[test]
+    fn console_message_serializes() {
+        let msg = ConsoleMessage {
+            level: ConsoleLevel::Error,
+            message: "test".into(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"level\":\"error\""));
+        assert!(json.contains("\"message\":\"test\""));
+    }
+
+    #[test]
+    fn servo_page_default_is_empty() {
+        let page = ServoPage::default();
+        assert!(page.html.is_empty());
+        assert!(page.inner_text.is_none());
+        assert!(page.screenshot.is_none());
+        assert!(page.accessibility_tree.is_none());
+        assert!(page.console_messages.is_empty());
+    }
+
+    #[test]
+    fn jsvalue_to_json_primitives() {
+        assert_eq!(jsvalue_to_json(&JSValue::Null).unwrap(), serde_json::Value::Null);
+        assert_eq!(jsvalue_to_json(&JSValue::Undefined).unwrap(), serde_json::Value::Null);
+        assert_eq!(
+            jsvalue_to_json(&JSValue::Boolean(true)).unwrap(),
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            jsvalue_to_json(&JSValue::Number(42.0)).unwrap(),
+            serde_json::json!(42.0)
+        );
+        assert_eq!(
+            jsvalue_to_json(&JSValue::String("hello".into())).unwrap(),
+            serde_json::json!("hello")
+        );
+    }
+
+    #[test]
+    fn jsvalue_to_json_array() {
+        let val = JSValue::Array(vec![JSValue::Number(1.0), JSValue::String("two".into())]);
+        let result = jsvalue_to_json(&val).unwrap();
+        assert_eq!(result, serde_json::json!([1.0, "two"]));
+    }
+
+    #[test]
+    fn jsvalue_to_json_nested_depth_limit() {
+        let mut val = JSValue::Null;
+        for _ in 0..65 {
+            val = JSValue::Array(vec![val]);
+        }
+        assert!(jsvalue_to_json(&val).is_err());
+    }
 }
 
 // macOS's Apple Silicon OpenGL driver writes noise to fd 2 via fprintf.

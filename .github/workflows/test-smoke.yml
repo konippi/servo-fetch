@@ -42,16 +42,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
-          toolchain: stable
+          toolchain: "1.95.0"
           targets: ${{ matrix.target }}
 
       - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - name: Configure sccache
         shell: bash
         run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
-          echo "CCACHE=sccache" >> "$GITHUB_ENV"
+          {
+            echo "SCCACHE_GHA_ENABLED=true"
+            echo "RUSTC_WRAPPER=sccache"
+            echo "CCACHE=sccache"
+          } >> "$GITHUB_ENV"
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -65,7 +67,7 @@ jobs:
       - name: Set LIBCLANG_PATH (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+        run: printf 'LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin\n' >> "$GITHUB_ENV"
 
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}

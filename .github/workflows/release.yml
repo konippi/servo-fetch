@@ -6,14 +6,19 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -21,22 +26,17 @@ jobs:
       - name: Validate tag matches Cargo.toml version
         id: version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           if [ "$VERSION" != "$CARGO_VERSION" ]; then
-            echo "::error::Tag v$VERSION does not match Cargo.toml version $CARGO_VERSION"
+            echo "::error::Tag $TAG does not match Cargo.toml version $CARGO_VERSION"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Generate release notes
-        id: notes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api repos/${{ github.repository }}/releases/generate-notes -f tag_name="$GITHUB_REF_NAME" --jq .body > RELEASE_NOTES.md
+        run: gh api "repos/$REPO/releases/generate-notes" -f tag_name="$TAG" --jq .body > RELEASE_NOTES.md
       - name: Create GitHub release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md
+        run: gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file RELEASE_NOTES.md
     outputs:
       version: ${{ steps.version.outputs.version }}
 
@@ -44,6 +44,11 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: [create-release]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +66,13 @@ jobs:
     env:
       RUST_BACKTRACE: 1
       CARGO_INCREMENTAL: 0
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      CCACHE: sccache
+      TARGET: ${{ matrix.target }}
+      VERSION: ${{ needs.create-release.outputs.version }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -68,16 +80,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
-          toolchain: stable
+          toolchain: "1.95.0"
           targets: ${{ matrix.target }}
 
       - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
-      - name: Configure sccache
-        shell: bash
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
-          echo "CCACHE=sccache" >> "$GITHUB_ENV"
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -91,10 +97,10 @@ jobs:
       - name: Set LIBCLANG_PATH (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+        run: printf 'LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin\n' >> "$GITHUB_ENV"
 
       - name: Build release binary
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET"
 
       - name: Bundle Windows ANGLE DLLs
         if: runner.os == 'Windows'
@@ -102,7 +108,7 @@ jobs:
         run: |
           set -eu
           shopt -s failglob
-          BIN_DIR="target/${{ matrix.target }}/release"
+          BIN_DIR="target/$TARGET/release"
           cp "$BIN_DIR"/build/mozangle-*/out/libEGL.dll "$BIN_DIR"/
           cp "$BIN_DIR"/build/mozangle-*/out/libGLESv2.dll "$BIN_DIR"/
 
@@ -110,25 +116,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BIN=target/${{ matrix.target }}/release/servo-fetch
+          BIN="target/$TARGET/release/servo-fetch"
           [[ "${{ runner.os }}" == "Windows" ]] && BIN="$BIN.exe"
           "$BIN" --version | grep -q '^servo-fetch '
           "$BIN" --help >/dev/null
 
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
-        run: strip target/${{ matrix.target }}/release/servo-fetch
+        run: strip "target/$TARGET/release/servo-fetch"
 
       - name: Determine archive name
         shell: bash
-        run: echo "ARCHIVE=servo-fetch-v${{ needs.create-release.outputs.version }}-${{ matrix.target }}" >> "$GITHUB_ENV"
+        run: echo "ARCHIVE=servo-fetch-v${VERSION}-${TARGET}" >> "$GITHUB_ENV"
 
       - name: Build archive (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
+          set -eu
           mkdir "$ARCHIVE"
-          cp target/${{ matrix.target }}/release/servo-fetch "$ARCHIVE"/
+          cp "target/$TARGET/release/servo-fetch" "$ARCHIVE"/
           cp README.md LICENSE "$ARCHIVE"/
           tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
           shasum -a 256 "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
@@ -137,10 +144,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
+          set -eu
           mkdir "$ARCHIVE"
-          cp target/${{ matrix.target }}/release/servo-fetch.exe "$ARCHIVE"/
-          cp target/${{ matrix.target }}/release/libEGL.dll "$ARCHIVE"/
-          cp target/${{ matrix.target }}/release/libGLESv2.dll "$ARCHIVE"/
+          cp "target/$TARGET/release/servo-fetch.exe" "$ARCHIVE"/
+          cp "target/$TARGET/release/libEGL.dll" "$ARCHIVE"/
+          cp "target/$TARGET/release/libGLESv2.dll" "$ARCHIVE"/
           cp README.md LICENSE "$ARCHIVE"/
           7z a "$ARCHIVE.zip" "$ARCHIVE"
           certutil -hashfile "$ARCHIVE.zip" SHA256 > "$ARCHIVE.zip.sha256"
@@ -158,33 +166,34 @@ jobs:
           subject-path: ${{ env.ARCHIVE }}.zip
 
       - name: Upload release archive
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
+          set -eu
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            gh release upload "$GITHUB_REF_NAME" "$ARCHIVE.zip" "$ARCHIVE.zip.sha256"
+            gh release upload "$TAG" "$ARCHIVE.zip" "$ARCHIVE.zip.sha256"
           else
-            gh release upload "$GITHUB_REF_NAME" "$ARCHIVE.tar.gz" "$ARCHIVE.tar.gz.sha256"
+            gh release upload "$TAG" "$ARCHIVE.tar.gz" "$ARCHIVE.tar.gz.sha256"
           fi
 
   publish-release:
     name: Publish Release
     needs: [create-release, build-release]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
       - name: Mark release as non-draft
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+        run: gh release edit "$TAG" --draft=false
 
   publish-crate:
     name: Publish to crates.io
     needs: [publish-release]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       id-token: write
     steps:
@@ -193,8 +202,12 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
-          toolchain: stable
+          toolchain: "1.95.0"
+      - name: Dry-run package (gate for --no-verify below)
+        run: cargo package --locked --list >/dev/null
       - uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
         id: auth
       - name: Publish to crates.io
-        run: cargo publish --locked --no-verify --token ${{ steps.auth.outputs.token }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked --no-verify

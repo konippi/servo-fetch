@@ -100,6 +100,7 @@ jobs:
         run: printf 'LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin\n' >> "$GITHUB_ENV"
 
       - name: Build release binary
+        shell: bash
         run: cargo build --release --locked --target "$TARGET"
 
       - name: Bundle Windows ANGLE DLLs
@@ -123,6 +124,7 @@ jobs:
 
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
+        shell: bash
         run: strip "target/$TARGET/release/servo-fetch"
 
       - name: Determine archive name

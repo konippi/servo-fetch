@@ -1,6 +1,6 @@
 [package]
 name = "servo-fetch"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "A browser engine in a binary. Fetch, render, and extract web content powered by Servo."
 license = "MIT"

@@ -78,7 +78,7 @@ servo-fetch mcp --port 8080
 servo-fetch ships with an [Agent Skills](https://agentskills.io/) package for AI coding agents. Install with [`npx skills`](https://github.com/vercel-labs/skills):
 
 ```bash
-npx skills add konippi/servo-fetch
+npx skills add https://github.com/konippi/servo-fetch/tree/main/skills/servo-fetch
 ```
 
 ## Why servo-fetch

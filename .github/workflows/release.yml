@@ -175,23 +175,9 @@ jobs:
             gh release upload "$TAG" "$ARCHIVE.tar.gz" "$ARCHIVE.tar.gz.sha256"
           fi
 
-  publish-release:
-    name: Publish Release
-    needs: [create-release, build-release]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.ref_name }}
-    steps:
-      - name: Mark release as non-draft
-        run: gh release edit "$TAG" --draft=false
-
   publish-crate:
     name: Publish to crates.io
-    needs: [publish-release]
+    needs: [create-release, build-release]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -211,3 +197,17 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --locked --no-verify
+
+  publish-release:
+    name: Publish Release
+    needs: [create-release, build-release, publish-crate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Mark release as non-draft
+        run: gh release edit "$TAG" --draft=false

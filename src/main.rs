@@ -19,6 +19,10 @@ fn main() {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let args = cli::Cli::parse();
 
     // All paths use process::exit to avoid C++ static destructor races with SpiderMonkey.

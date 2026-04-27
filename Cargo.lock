@@ -6403,6 +6403,7 @@ dependencies = [
  "pdf-extract",
  "predicates",
  "rmcp",
+ "rustls",
  "schemars",
  "serde",
  "serde_json",

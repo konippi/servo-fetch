@@ -206,9 +206,6 @@ struct FetchRequest {
 pub(crate) fn fetch_page(opts: &FetchOptions<'_>) -> Result<ServoPage> {
     static SENDER: std::sync::OnceLock<mpsc::Sender<FetchRequest>> = std::sync::OnceLock::new();
 
-    // Suppress stderr before Servo init to avoid OpenGL driver noise.
-    let guard = stderr_guard::StderrGuard::suppress();
-
     let sender = SENDER.get_or_init(|| {
         let (tx, rx) = mpsc::channel::<FetchRequest>();
         std::thread::Builder::new()
@@ -232,13 +229,9 @@ pub(crate) fn fetch_page(opts: &FetchOptions<'_>) -> Result<ServoPage> {
         })
         .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
 
-    let result = reply_rx
+    reply_rx
         .recv()
-        .map_err(|_| anyhow!("Servo engine crashed while processing this page. Try a different URL."))?;
-
-    drop(guard);
-
-    result
+        .map_err(|_| anyhow!("Servo engine crashed while processing this page. Try a different URL."))?
 }
 
 #[expect(clippy::needless_pass_by_value)]
@@ -372,9 +365,14 @@ fn handle_request(
 
 fn build_servo() -> Result<(Rc<SoftwareRenderingContext>, servo::Servo)> {
     let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
-    let ctx = SoftwareRenderingContext::new(size).map_err(|e| anyhow!("failed to create rendering context: {e:?}"))?;
-    ctx.make_current()
-        .map_err(|e| anyhow!("failed to make context current: {e:?}"))?;
+    let ctx = {
+        let _guard = stderr_guard::StderrGuard::suppress();
+        let ctx =
+            SoftwareRenderingContext::new(size).map_err(|e| anyhow!("failed to create rendering context: {e:?}"))?;
+        ctx.make_current()
+            .map_err(|e| anyhow!("failed to make context current: {e:?}"))?;
+        ctx
+    };
 
     let prefs = Preferences {
         accessibility_enabled: true,
@@ -483,9 +481,6 @@ fn jsvalue_to_json(val: &JSValue) -> Result<serde_json::Value> {
     }
     convert(val, 0)
 }
-
-// macOS's Apple Silicon OpenGL driver writes noise to fd 2 via fprintf.
-// Temporarily redirect fd 2 → /dev/null using POSIX dup/dup2 save-restore.
 
 #[cfg(test)]
 mod tests {

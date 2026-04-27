@@ -37,16 +37,17 @@ axum = "0.8"
 base64 = "0.22"
 pdf-extract = "0.10"
 ureq = "3"
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [profile.release]
-strip = true
 lto = true
 codegen-units = 1
 opt-level = "s"
 panic = "abort"
+debug = "line-tables-only"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

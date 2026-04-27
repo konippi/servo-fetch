@@ -92,6 +92,14 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      - name: Smoke test (non-cross)
+        if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'aarch64-unknown-linux-musl'
+        shell: bash
+        run: |
+          BIN=target/${{ matrix.target }}/release/servo-fetch
+          [[ "${{ runner.os }}" == "Windows" ]] && BIN="$BIN.exe"
+          "$BIN" https://example.com > /dev/null
+
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
         run: strip target/${{ matrix.target }}/release/servo-fetch

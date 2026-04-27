@@ -209,7 +209,8 @@ jobs:
       contents: write
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
       TAG: ${{ github.ref_name }}
     steps:
       - name: Mark release as non-draft
-        run: gh release edit "$TAG" --draft=false
+        run: gh release edit "$TAG" --repo "$REPO" --draft=false

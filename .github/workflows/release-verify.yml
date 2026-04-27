@@ -85,8 +85,9 @@ jobs:
           [[ "$RUNNER_OS" == "Linux" ]] && RUN=(xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" "$BIN")
 
           pass=0 fail=0 total=0
+          last_err=""
           ok()  { total=$((total + 1)); pass=$((pass + 1)); echo "  [PASS] $1"; }
-          bad() { total=$((total + 1)); fail=$((fail + 1)); echo "  [FAIL] $1"; }
+          bad() { total=$((total + 1)); fail=$((fail + 1)); echo "  [FAIL] $1"; [ -n "$last_err" ] && echo "    stderr: $last_err"; }
 
           echo "=== Scenarios on $TARGET ($RUNNER_OS) ==="
 
@@ -95,34 +96,36 @@ jobs:
           "$BIN" 'file:///etc/passwd' >/dev/null 2>&1 && bad 'S3 file:// rejected' || ok 'S3 file:// rejected'
           "$BIN" 'http://127.0.0.1' >/dev/null 2>&1 && bad 'S4 SSRF 127.0.0.1 blocked' || ok 'S4 SSRF 127.0.0.1 blocked'
 
-          out=$(mktemp)
-          if "${RUN[@]}" 'https://example.com' >"$out" 2>/dev/null && grep -q 'Example Domain' "$out"; then
-            ok 'S5 markdown fetch'; else bad 'S5 markdown fetch'; fi
-          rm -f "$out"
+          out=$(mktemp) err=$(mktemp)
+          if "${RUN[@]}" 'https://example.com' >"$out" 2>"$err" && grep -q 'Example Domain' "$out"; then
+            ok 'S5 markdown fetch'; else last_err=$(tr '\n' '|' <"$err" | head -c 500); bad 'S5 markdown fetch'; fi
+          rm -f "$out" "$err"; last_err=""
 
-          out=$(mktemp)
-          if "${RUN[@]}" --json 'https://example.com' >"$out" 2>/dev/null && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$out" 2>/dev/null; then
-            ok 'S6 --json valid'; else bad 'S6 --json valid'; fi
-          rm -f "$out"
+          out=$(mktemp) err=$(mktemp)
+          if "${RUN[@]}" --json 'https://example.com' >"$out" 2>"$err" && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$out" 2>/dev/null; then
+            ok 'S6 --json valid'; else last_err=$(tr '\n' '|' <"$err" | head -c 500); bad 'S6 --json valid'; fi
+          rm -f "$out" "$err"; last_err=""
 
-          png="$(mktemp).png"
-          if "${RUN[@]}" --screenshot "$png" 'https://example.com' >/dev/null 2>&1 \
+          png="$(mktemp).png" err=$(mktemp)
+          if "${RUN[@]}" --screenshot "$png" 'https://example.com' >/dev/null 2>"$err" \
             && python3 -c "import sys; assert open(sys.argv[1],'rb').read(8) == b'\x89PNG\r\n\x1a\n'" "$png" 2>/dev/null; then
-            ok 'S7 --screenshot PNG'; else bad 'S7 --screenshot PNG'; fi
-          rm -f "$png"
+            ok 'S7 --screenshot PNG'; else last_err=$(tr '\n' '|' <"$err" | head -c 500); bad 'S7 --screenshot PNG'; fi
+          rm -f "$png" "$err"; last_err=""
 
-          out=$(mktemp)
-          if "${RUN[@]}" --selector 'h1' 'https://example.com' >"$out" 2>/dev/null && grep -q 'Example Domain' "$out"; then
-            ok 'S8 --selector h1'; else bad 'S8 --selector h1'; fi
-          rm -f "$out"
+          out=$(mktemp) err=$(mktemp)
+          if "${RUN[@]}" --selector 'h1' 'https://example.com' >"$out" 2>"$err" && grep -q 'Example Domain' "$out"; then
+            ok 'S8 --selector h1'; else last_err=$(tr '\n' '|' <"$err" | head -c 500); bad 'S8 --selector h1'; fi
+          rm -f "$out" "$err"; last_err=""
 
-          out=$(mktemp)
-          if "${RUN[@]}" --js 'document.title' 'https://example.com' >"$out" 2>/dev/null && grep -q 'Example Domain' "$out"; then
-            ok 'S9 --js'; else bad 'S9 --js'; fi
-          rm -f "$out"
+          out=$(mktemp) err=$(mktemp)
+          if "${RUN[@]}" --js 'document.title' 'https://example.com' >"$out" 2>"$err" && grep -q 'Example Domain' "$out"; then
+            ok 'S9 --js'; else last_err=$(tr '\n' '|' <"$err" | head -c 500); bad 'S9 --js'; fi
+          rm -f "$out" "$err"; last_err=""
 
-          if "${RUN[@]}" 'https://example.com' >/dev/null 2>&1 && "${RUN[@]}" 'https://example.com' >/dev/null 2>&1; then
-            ok 'S10 sequential fetch'; else bad 'S10 sequential fetch'; fi
+          err=$(mktemp)
+          if "${RUN[@]}" 'https://example.com' >/dev/null 2>"$err" && "${RUN[@]}" 'https://example.com' >/dev/null 2>>"$err"; then
+            ok 'S10 sequential fetch'; else last_err=$(tr '\n' '|' <"$err" | head -c 500); bad 'S10 sequential fetch'; fi
+          rm -f "$err"; last_err=""
 
           echo "=== Summary: $pass/$total passed, $fail failed ==="
           exit "$fail"

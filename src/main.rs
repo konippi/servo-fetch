@@ -25,7 +25,7 @@ fn main() {
 
     let args = cli::Cli::parse();
 
-    // All paths use process::exit to avoid C++ static destructor races with SpiderMonkey.
+    // All paths use flush_and_exit to avoid SpiderMonkey shutdown races on Linux.
     if let Some(cli::Command::Mcp { port }) = args.command {
         flush_and_exit(run_mcp(port));
     }
@@ -63,6 +63,21 @@ fn is_broken_pipe(err: &anyhow::Error) -> bool {
 fn flush_and_exit(code: i32) -> ! {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
+    // SpiderMonkey (bundled by the `servo` crate) registers C++ static destructors
+    // that race on `pthread_mutex_destroy` during process exit on Linux, producing
+    // `MutexImpl::~MutexImpl: pthread_mutex_destroy failed: Device or resource busy`
+    // followed by SIGSEGV (exit 139). Skip the atexit chain on Linux with `_exit`;
+    // macOS and Windows do not exhibit this and keep the regular `process::exit`.
+    // Firefox and Chromium use the same pattern for renderer/helper shutdown.
+    #[cfg(target_os = "linux")]
+    #[allow(unsafe_code)]
+    // SAFETY: `_exit` is async-signal-safe. Stdio is flushed above, and we hold
+    // no Rust allocations that require Drop for correctness (rustls/tokio/stdio
+    // register no atexit handlers we depend on).
+    unsafe {
+        libc::_exit(code);
+    }
+    #[cfg(not(target_os = "linux"))]
     std::process::exit(code);
 }
 

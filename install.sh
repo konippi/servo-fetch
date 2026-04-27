@@ -26,6 +26,7 @@ detect_target() {
     Linux)
       case "$arch" in
         x86_64) echo "x86_64-unknown-linux-gnu" ;;
+        aarch64|arm64) echo "aarch64-unknown-linux-gnu" ;;
         *) err "unsupported architecture: $arch" ;;
       esac ;;
     Darwin)
@@ -36,6 +37,24 @@ detect_target() {
       esac ;;
     *) err "unsupported OS: $os (use GitHub Releases for Windows)" ;;
   esac
+}
+
+check_linux_runtime_deps() {
+  missing=""
+  for lib in libEGL.so.1 libfontconfig.so.1 libfreetype.so.6; do
+    ldconfig -p 2>/dev/null | grep -q "$lib" || missing="$missing $lib"
+  done
+  [ -z "$missing" ] && return 0
+  say "warning: missing shared libraries:$missing"
+  if [ -f /etc/debian_version ]; then
+    say "  install with: sudo apt install -y libegl1 libfontconfig1 libfreetype6"
+  elif [ -f /etc/fedora-release ]; then
+    say "  install with: sudo dnf install -y mesa-libEGL fontconfig freetype"
+  elif [ -f /etc/arch-release ]; then
+    say "  install with: sudo pacman -S --needed mesa fontconfig freetype2"
+  else
+    say "  install EGL/fontconfig/freetype via your distro's package manager"
+  fi
 }
 
 verify_checksum() {

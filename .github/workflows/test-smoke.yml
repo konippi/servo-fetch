@@ -116,7 +116,7 @@ jobs:
         env:
           RUNNER_OS_NAME: ${{ runner.os }}
         run: |
-          set -euxo pipefail
+          set -eux -o pipefail
           BIN="target/${TARGET}/release/servo-fetch"
           [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
           if [[ "$RUNNER_OS_NAME" == "Linux" ]]; then
@@ -126,7 +126,7 @@ jobs:
           fi
 
           for i in 1 2 3; do
-            "${XVFB[@]}" "$BIN" 'https://example.com' | grep -q 'Example Domain' && exit 0
+            "${XVFB[@]+"${XVFB[@]}"}" "$BIN" 'https://example.com' | grep -q 'Example Domain' && exit 0
             echo "attempt $i failed; sleeping 15s" >&2
             sleep 15
           done
@@ -138,7 +138,7 @@ jobs:
         env:
           RUNNER_OS_NAME: ${{ runner.os }}
         run: |
-          set -euxo pipefail
+          set -eux -o pipefail
           BIN="target/${TARGET}/release/servo-fetch"
           [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
           if [[ "$RUNNER_OS_NAME" == "Linux" ]]; then
@@ -148,13 +148,13 @@ jobs:
           fi
           SHOT="$RUNNER_TEMP/shot.png"
 
-          "${XVFB[@]}" "$BIN" --json 'https://example.com' \
+          "${XVFB[@]+"${XVFB[@]}"}" "$BIN" --json 'https://example.com' \
             | python3 -c 'import json,sys; json.load(sys.stdin)'
           sleep 2
 
-          "${XVFB[@]}" "$BIN" --screenshot "$SHOT" 'https://example.com'
+          "${XVFB[@]+"${XVFB[@]}"}" "$BIN" --screenshot "$SHOT" 'https://example.com'
           head -c 8 "$SHOT" | cmp -s - <(printf '\x89PNG\r\n\x1a\n')
           sleep 2
 
-          "${XVFB[@]}" "$BIN" --js 'document.title' 'https://example.com' \
+          "${XVFB[@]+"${XVFB[@]}"}" "$BIN" --js 'document.title' 'https://example.com' \
             | grep -q 'Example Domain'

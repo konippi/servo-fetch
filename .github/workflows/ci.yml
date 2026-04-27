@@ -119,11 +119,28 @@ jobs:
   ci-passed:
     name: CI Passed
     if: always()
-    needs: [clippy, fmt, deny, typos]
+    needs: [changes, clippy, fmt, deny, typos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - run: |
-          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+      - name: Check required jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          # Any failure or cancellation is a hard fail.
+          if printf '%s' "$NEEDS" | grep -qE '"result": *"(failure|cancelled)"'; then
+            echo "::error::One or more required jobs failed or were cancelled"
+            printf '%s\n' "$NEEDS"
             exit 1
           fi
+          # `changes` and `typos` have no `if:` guard, so they must succeed
+          # (never legitimately skipped — skipped means GitHub error).
+          for job in changes typos; do
+            result=$(printf '%s' "$NEEDS" | python3 -c "import json,sys; print(json.loads(sys.stdin.read())['$job']['result'])")
+            if [ "$result" != "success" ]; then
+              echo "::error::Required job '$job' did not succeed (result=$result)"
+              exit 1
+            fi
+          done
+          echo "All required jobs passed (paths-filter skips are allowed for code-gated jobs)"

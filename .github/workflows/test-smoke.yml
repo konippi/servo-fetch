@@ -57,7 +57,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
+          sudo apt-get install -y cmake clang llvm pkg-config libfontconfig-dev libfreetype-dev \
             libssl-dev libglib2.0-dev libegl1-mesa-dev \
             xvfb libegl1 libgles2 libgl1-mesa-dri mesa-utils \
             libfontconfig1 libfreetype6 libharfbuzz0b libx11-6 libxcb1 libxcb-render0 libxcb-shape0 libxcb-xfixes0

@@ -73,6 +73,14 @@ For Streamable HTTP transport:
 servo-fetch mcp --port 8080
 ```
 
+## Agent Skills
+
+servo-fetch ships with an [Agent Skills](https://agentskills.io/) package for AI coding agents. Install with [`npx skills`](https://github.com/vercel-labs/skills):
+
+```bash
+npx skills add konippi/servo-fetch
+```
+
 ## Why servo-fetch
 
 **Servo is a real browser engine.** Written in Rust by the [Servo project](https://servo.org/) (Linux Foundation), Servo executes JavaScript via SpiderMonkey and computes CSS layout with a parallel engine. servo-fetch embeds this engine so you get browser-grade rendering without a browser runtime.

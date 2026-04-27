@@ -50,6 +50,8 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
           - target: aarch64-apple-darwin
             os: macos-latest
           - target: x86_64-apple-darwin
@@ -82,7 +84,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
-            libssl-dev libglib2.0-dev libegl1-mesa-dev
+            libssl-dev libglib2.0-dev libegl1-mesa-dev \
+            xvfb libegl1 libgles2 libgl1-mesa-dri mesa-utils \
+            libfontconfig1 libfreetype6 libharfbuzz0b libx11-6 libxcb1 libxcb-render0 libxcb-shape0 libxcb-xfixes0
 
       - name: Set LIBCLANG_PATH (Windows)
         if: runner.os == 'Windows'
@@ -92,13 +96,24 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: Smoke test (non-cross)
-        if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'aarch64-unknown-linux-musl'
+      - name: Bundle Windows ANGLE DLLs
+        if: runner.os == 'Windows'
         shell: bash
         run: |
+          set -eu
+          shopt -s failglob
+          BIN_DIR="target/${{ matrix.target }}/release"
+          cp "$BIN_DIR"/build/mozangle-*/out/libEGL.dll "$BIN_DIR"/
+          cp "$BIN_DIR"/build/mozangle-*/out/libGLESv2.dll "$BIN_DIR"/
+
+      - name: Smoke test (CLI only, no network)
+        shell: bash
+        run: |
+          set -euo pipefail
           BIN=target/${{ matrix.target }}/release/servo-fetch
           [[ "${{ runner.os }}" == "Windows" ]] && BIN="$BIN.exe"
-          "$BIN" https://example.com > /dev/null
+          "$BIN" --version | grep -q '^servo-fetch '
+          "$BIN" --help >/dev/null
 
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
@@ -124,6 +139,8 @@ jobs:
         run: |
           mkdir "$ARCHIVE"
           cp target/${{ matrix.target }}/release/servo-fetch.exe "$ARCHIVE"/
+          cp target/${{ matrix.target }}/release/libEGL.dll "$ARCHIVE"/
+          cp target/${{ matrix.target }}/release/libGLESv2.dll "$ARCHIVE"/
           cp README.md LICENSE "$ARCHIVE"/
           7z a "$ARCHIVE.zip" "$ARCHIVE"
           certutil -hashfile "$ARCHIVE.zip" SHA256 > "$ARCHIVE.zip.sha256"

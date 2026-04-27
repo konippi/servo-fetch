@@ -30,6 +30,27 @@ cargo binstall servo-fetch   # prebuilt binary
 cargo install servo-fetch    # build from source
 ```
 
+### Linux runtime dependencies
+
+The Linux binary dynamically links against system libraries. Install them with:
+
+```bash
+# Debian/Ubuntu
+sudo apt install -y libegl1 libfontconfig1 libfreetype6
+
+# Fedora
+sudo dnf install -y mesa-libEGL fontconfig freetype
+
+# Arch
+sudo pacman -S --needed mesa fontconfig freetype2
+```
+
+`servo-fetch` needs a working OpenGL ES context, so on headless servers (SSH/container) run it under a virtual display such as `xvfb-run --auto-servernum servo-fetch ...`.
+
+### Windows
+
+Windows releases ship as a `.zip` containing `servo-fetch.exe` alongside `libEGL.dll` and `libGLESv2.dll` — keep them in the same directory. Download from [Releases](https://github.com/konippi/servo-fetch/releases), extract, and put the folder on your `PATH`.
+
 ## Usage
 
 ```bash

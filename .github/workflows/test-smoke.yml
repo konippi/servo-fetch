@@ -1,0 +1,158 @@
+name: Smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or tag to validate"
+        required: true
+        default: "main"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+    env:
+      RUST_BACKTRACE: 1
+      CARGO_INCREMENTAL: 0
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - name: Configure sccache
+        shell: bash
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "CCACHE=sccache" >> "$GITHUB_ENV"
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
+            libssl-dev libglib2.0-dev libegl1-mesa-dev \
+            xvfb libegl1 libgles2 libgl1-mesa-dri mesa-utils \
+            libfontconfig1 libfreetype6 libharfbuzz0b libx11-6 libxcb1 libxcb-render0 libxcb-shape0 libxcb-xfixes0
+
+      - name: Set LIBCLANG_PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Bundle Windows ANGLE DLLs
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -eu
+          shopt -s failglob
+          BIN_DIR="target/${TARGET}/release"
+          cp "$BIN_DIR"/build/mozangle-*/out/libEGL.dll "$BIN_DIR"/
+          cp "$BIN_DIR"/build/mozangle-*/out/libGLESv2.dll "$BIN_DIR"/
+
+      - name: Smoke (L1 — CLI, deterministic, no network)
+        shell: bash
+        env:
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          set -euo pipefail
+          BIN="target/${TARGET}/release/servo-fetch"
+          [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
+          ERR="$RUNNER_TEMP/err.log"
+
+          "$BIN" --version | grep -q '^servo-fetch '
+          "$BIN" --help >/dev/null
+
+          # Each URL must be rejected *with a specific validation message* — not a crash.
+          # Messages mirror src/net.rs::validate_url exactly.
+          check() {
+            local url=$1 want=$2
+            if "$BIN" "$url" 2>"$ERR"; then
+              echo "FAIL: $url was accepted" >&2; cat "$ERR" >&2; exit 1
+            fi
+            grep -qE "$want" "$ERR" || {
+              echo "FAIL: $url rejected without expected message: $want" >&2
+              cat "$ERR" >&2; exit 1
+            }
+          }
+          check 'file:///etc/passwd'                          "scheme 'file' not allowed"
+          check 'http://127.0.0.1'                            'access to private/local addresses is not allowed: 127\.0\.0\.1'
+          check 'http://169.254.169.254/latest/meta-data/'    'access to private/local addresses is not allowed: 169\.254\.169\.254'
+
+      - name: Smoke (L2 — network, in-shell retry)
+        shell: bash
+        env:
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          set -euxo pipefail
+          BIN="target/${TARGET}/release/servo-fetch"
+          [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
+          if [[ "$RUNNER_OS_NAME" == "Linux" ]]; then
+            XVFB=(xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24")
+          else
+            XVFB=()
+          fi
+
+          for i in 1 2 3; do
+            "${XVFB[@]}" "$BIN" 'https://example.com' | grep -q 'Example Domain' && exit 0
+            echo "attempt $i failed; sleeping 15s" >&2
+            sleep 15
+          done
+          exit 1
+
+      - name: Smoke (L3 — full scenarios, non-blocking)
+        continue-on-error: true
+        shell: bash
+        env:
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          set -euxo pipefail
+          BIN="target/${TARGET}/release/servo-fetch"
+          [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
+          if [[ "$RUNNER_OS_NAME" == "Linux" ]]; then
+            XVFB=(xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24")
+          else
+            XVFB=()
+          fi
+          SHOT="$RUNNER_TEMP/shot.png"
+
+          "${XVFB[@]}" "$BIN" --json 'https://example.com' \
+            | python3 -c 'import json,sys; json.load(sys.stdin)'
+          sleep 2
+
+          "${XVFB[@]}" "$BIN" --screenshot "$SHOT" 'https://example.com'
+          head -c 8 "$SHOT" | cmp -s - <(printf '\x89PNG\r\n\x1a\n')
+          sleep 2
+
+          "${XVFB[@]}" "$BIN" --js 'document.title' 'https://example.com' \
+            | grep -q 'Example Domain'

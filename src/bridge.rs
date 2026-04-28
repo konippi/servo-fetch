@@ -312,6 +312,7 @@ fn handle_request(
 ) -> Result<ServoPage> {
     let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
     spin_until(servo, loaded, deadline, req.timeout_secs)?;
+    wait_for_ready_state(servo, webview, deadline);
 
     let html = eval_js(servo, webview, "document.documentElement.outerHTML")?;
     let inner_text = eval_js(servo, webview, "document.body.innerText").ok();
@@ -407,6 +408,23 @@ fn spin_until(servo: &servo::Servo, condition: &Cell<bool>, deadline: Instant, t
         std::thread::sleep(SPIN_INTERVAL);
     }
     Ok(())
+}
+
+/// Wait for `document.readyState` to reach `"complete"`, or the deadline elapses.
+///
+/// TODO(upstream): Servo's `LoadStatus::Complete` fires before the DOM is fully
+/// parsed on pages with heavy inline scripts (e.g. amazon.co.jp); see
+/// servo/servo#41972. Drop this function once upstream fires `LoadStatus::Complete`
+/// at `document.readyState == "complete"` — `spin_until` would then suffice.
+fn wait_for_ready_state(servo: &servo::Servo, webview: &WebView, deadline: Instant) {
+    while Instant::now() < deadline {
+        servo.spin_event_loop();
+        if matches!(eval_js(servo, webview, "document.readyState"), Ok(s) if s == "complete") {
+            return;
+        }
+        std::thread::sleep(SPIN_INTERVAL);
+    }
+    eprintln!("warning: document did not finish loading; content may be incomplete");
 }
 
 fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str) -> Result<String> {

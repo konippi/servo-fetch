@@ -270,9 +270,7 @@ fn servo_thread(rx: mpsc::Receiver<FetchRequest>) {
 
         // Set up user stylesheets for noise removal.
         let ucm = Rc::new(UserContentManager::new(&servo));
-        if let Some(stylesheet) = create_noise_removal_stylesheet() {
-            ucm.add_stylesheet(Rc::new(stylesheet));
-        }
+        ucm.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
 
         let webview = WebViewBuilder::new(&servo, rc_dyn)
             .url(parsed_url)
@@ -388,20 +386,9 @@ fn build_servo() -> Result<(Rc<SoftwareRenderingContext>, servo::Servo)> {
     Ok((rc, servo))
 }
 
-/// Create a user stylesheet for noise removal. Uses serde deserialization because
-/// `UserStyleSheet` does not expose a public constructor in servo v0.1.0.
-fn create_noise_removal_stylesheet() -> Option<servo::user_contents::UserStyleSheet> {
-    let result = serde_json::from_value(serde_json::json!({
-        "source": NOISE_REMOVAL_CSS,
-        "url": "servo-fetch://user-stylesheet/noise-removal"
-    }));
-    match result {
-        Ok(stylesheet) => Some(stylesheet),
-        Err(e) => {
-            eprintln!("warning: failed to create noise removal stylesheet: {e}");
-            None
-        }
-    }
+fn create_noise_removal_stylesheet() -> servo::user_contents::UserStyleSheet {
+    let url = url::Url::parse("servo-fetch://user-stylesheet/noise-removal").expect("static URL is well-formed");
+    servo::user_contents::UserStyleSheet::new(NOISE_REMOVAL_CSS.to_string(), url)
 }
 
 fn spin_until(servo: &servo::Servo, condition: &Cell<bool>, deadline: Instant, timeout_secs: u64) -> Result<()> {

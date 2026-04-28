@@ -9,7 +9,7 @@ use rmcp::transport::streamable_http_server::{
 };
 
 /// Start the MCP server on stdio or Streamable HTTP transport.
-pub async fn run(port: Option<u16>) -> anyhow::Result<()> {
+pub(crate) async fn run(port: Option<u16>) -> anyhow::Result<()> {
     if let Some(port) = port {
         run_http(port).await
     } else {

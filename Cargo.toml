@@ -52,14 +52,26 @@ opt-level = "s"
 panic = "abort"
 debug = "line-tables-only"
 
+[lints.rust]
+missing_docs = "warn"
+unreachable_pub = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+unused_qualifications = "warn"
+
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 module_name_repetitions = { level = "allow", priority = 1 }
 implicit_clone = "warn"
+redundant_clone = "warn"
 redundant_type_annotations = "warn"
 use_self = "warn"
 missing_assert_message = "warn"
-redundant_clone = "warn"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+cast_precision_loss = "warn"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 
 [dev-dependencies]
 assert_cmd = "2"

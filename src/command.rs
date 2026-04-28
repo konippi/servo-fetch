@@ -6,14 +6,14 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::bridge::ServoPage;
 
-pub struct Markdown<'a> {
+pub(crate) struct Markdown<'a> {
     pub page: &'a ServoPage,
     pub url: &'a str,
     pub selector: Option<&'a str>,
 }
 
 impl Markdown<'_> {
-    pub fn execute(&self) -> Result<()> {
+    pub(crate) fn execute(&self) -> Result<()> {
         let input = servo_fetch::extract::ExtractInput::new(&self.page.html, self.url)
             .with_layout_json(self.page.layout_json.as_deref())
             .with_inner_text(self.page.inner_text.as_deref())
@@ -24,14 +24,14 @@ impl Markdown<'_> {
     }
 }
 
-pub struct Json<'a> {
+pub(crate) struct Json<'a> {
     pub page: &'a ServoPage,
     pub url: &'a str,
     pub selector: Option<&'a str>,
 }
 
 impl Json<'_> {
-    pub fn execute(&self) -> Result<()> {
+    pub(crate) fn execute(&self) -> Result<()> {
         let input = servo_fetch::extract::ExtractInput::new(&self.page.html, self.url)
             .with_layout_json(self.page.layout_json.as_deref())
             .with_inner_text(self.page.inner_text.as_deref())
@@ -42,13 +42,13 @@ impl Json<'_> {
     }
 }
 
-pub struct Screenshot<'a> {
+pub(crate) struct Screenshot<'a> {
     pub page: &'a ServoPage,
     pub path: &'a str,
 }
 
 impl Screenshot<'_> {
-    pub fn execute(&self) -> Result<()> {
+    pub(crate) fn execute(&self) -> Result<()> {
         match self.page.screenshot {
             Some(ref img) => {
                 img.save(self.path)
@@ -61,17 +61,17 @@ impl Screenshot<'_> {
     }
 }
 
-pub struct JsEval<'a> {
+pub(crate) struct JsEval<'a> {
     pub result: &'a str,
 }
 
-pub struct Raw<'a> {
+pub(crate) struct Raw<'a> {
     pub page: &'a ServoPage,
     pub mode: &'a crate::cli::RawMode,
 }
 
 impl Raw<'_> {
-    pub fn execute(&self) -> Result<()> {
+    pub(crate) fn execute(&self) -> Result<()> {
         let content = match self.mode {
             crate::cli::RawMode::Html => &self.page.html,
             crate::cli::RawMode::Text => self.page.inner_text.as_deref().unwrap_or(""),
@@ -82,7 +82,7 @@ impl Raw<'_> {
 }
 
 impl JsEval<'_> {
-    pub fn execute(&self) -> Result<()> {
+    pub(crate) fn execute(&self) -> Result<()> {
         writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(self.result))?;
         Ok(())
     }

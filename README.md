@@ -30,7 +30,9 @@ cargo binstall servo-fetch   # prebuilt binary
 cargo install servo-fetch    # build from source
 ```
 
-### Linux runtime dependencies
+### Platform notes
+
+<details><summary><b>Linux</b> — runtime dependencies and headless setup</summary>
 
 The Linux binary dynamically links against system libraries. Install them with:
 
@@ -45,13 +47,29 @@ sudo dnf install -y mesa-libEGL fontconfig freetype
 sudo pacman -S --needed mesa fontconfig freetype2
 ```
 
-`servo-fetch` needs a working OpenGL ES context, so on headless servers (SSH/container) run it under a virtual display such as `xvfb-run --auto-servernum servo-fetch ...`.
+servo-fetch needs a working OpenGL ES context, so on headless servers (SSH/container) run it under a virtual display:
 
-### Windows
+```bash
+xvfb-run --auto-servernum servo-fetch "https://example.com"
+```
+
+</details>
+
+<details><summary><b>Windows</b> — zip layout</summary>
 
 Windows releases ship as a `.zip` containing `servo-fetch.exe` alongside `libEGL.dll` and `libGLESv2.dll` — keep them in the same directory. Download from [Releases](https://github.com/konippi/servo-fetch/releases), extract, and put the folder on your `PATH`.
 
+</details>
+
+<details><summary><b>macOS</b> — no extra setup</summary>
+
+No runtime dependencies. The release binary is ready to run.
+
+</details>
+
 ## Usage
+
+### Examples
 
 ```bash
 # Readable Markdown (default)
@@ -69,9 +87,52 @@ servo-fetch "https://example.com" --js "document.title"
 # Extract a specific section by CSS selector
 servo-fetch "https://example.com" --selector "article"
 
-# PDF text extraction (auto-detected)
+# Raw HTML or plain text (bypasses Readability)
+servo-fetch "https://example.com" --raw html
+servo-fetch "https://example.com" --raw text
+
+# PDF text extraction (auto-detected via Content-Type)
 servo-fetch "https://example.com/report.pdf"
 ```
+
+### Options
+
+| Flag | Description |
+| ---- | ----------- |
+| `--json` | Output as structured JSON |
+| `--screenshot <FILE>` | Save a PNG screenshot |
+| `--js <EXPR>` | Execute JavaScript and print the result |
+| `--selector <CSS>` | Extract a specific section by CSS selector |
+| `--raw <MODE>` | Output raw `html` or plain `text` (bypasses Readability) |
+| `-t`, `--timeout <SECS>` | Page load timeout (default: 30) |
+| `--help` | Show help |
+| `--version` | Show version |
+
+### JSON output
+
+`--json` returns an object with these fields:
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `title` | string | Page title |
+| `content` | string | Raw HTML extracted by Readability |
+| `text_content` | string | Readable text (Markdown) |
+| `byline` | string? | Author or byline |
+| `excerpt` | string? | Short excerpt or description |
+| `lang` | string? | Document language (e.g. `"en"`) |
+| `url` | string? | Canonical URL |
+
+Fields marked `?` are omitted when not detected.
+
+## Why servo-fetch
+
+**Servo is a real browser engine.** Written in Rust by the [Servo project](https://servo.org/), Servo executes JavaScript via SpiderMonkey and computes CSS layout with a parallel engine. servo-fetch embeds this engine so you get browser-grade rendering without a browser runtime.
+
+**CSS layout strips navigation noise.** Most extraction tools guess page structure from HTML tags. servo-fetch calls `getComputedStyle()` and `getBoundingClientRect()` inside the engine to detect fixed navbars, sidebars, and footers — then removes them before extraction. Common cookie banners and newsletter popups are also stripped via injected user stylesheets.
+
+**Accessibility tree with bounding boxes.** servo-fetch can return the page's accessibility tree via Servo's AccessKit integration. Each node includes its role, name, and bounding box — combining semantic structure with visual layout in a single output. Use `format: "accessibility_tree"` in the MCP fetch tool.
+
+**Main content via Readability.** After CSS-based structure removal, Mozilla's [Readability](https://github.com/mozilla/readability) algorithm extracts the main article. PDF URLs are auto-detected via `Content-Type` and extracted directly without the Servo engine.
 
 ## MCP server
 
@@ -94,6 +155,17 @@ For Streamable HTTP transport:
 servo-fetch mcp --port 8080
 ```
 
+The `fetch` tool accepts these parameters:
+
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| `url` | string | URL to fetch (http/https only) |
+| `format` | string? | `markdown` (default), `json`, `html`, `text`, or `accessibility_tree` |
+| `max_length` | number? | Max characters to return (default 5000) |
+| `start_index` | number? | Character offset for pagination (default 0) |
+| `timeout` | number? | Page load timeout in seconds (default 30) |
+| `selector` | string? | CSS selector to extract a specific section |
+
 ## Agent Skills
 
 servo-fetch ships with an [Agent Skills](https://agentskills.io/) package for AI coding agents. Install with [`npx skills`](https://github.com/vercel-labs/skills):
@@ -102,53 +174,7 @@ servo-fetch ships with an [Agent Skills](https://agentskills.io/) package for AI
 npx skills add https://github.com/konippi/servo-fetch/tree/main/skills/servo-fetch
 ```
 
-## Why servo-fetch
-
-**Servo is a real browser engine.** Written in Rust by the [Servo project](https://servo.org/) (Linux Foundation), Servo executes JavaScript via SpiderMonkey and computes CSS layout with a parallel engine. servo-fetch embeds this engine so you get browser-grade rendering without a browser runtime.
-
-**CSS layout strips navigation noise.** Most extraction tools guess page structure from HTML tags. servo-fetch calls `getComputedStyle()` and `getBoundingClientRect()` inside the engine to detect fixed navbars, sidebars, and footers — then removes them before extraction. Common cookie banners and newsletter popups are also stripped via injected user stylesheets.
-
-**Accessibility tree with bounding boxes.** servo-fetch can return the page's accessibility tree via Servo's AccessKit integration. Each node includes its role, name, and bounding box — combining semantic structure with visual layout in a single output. Use `format: "accessibility_tree"` in the MCP fetch tool.
-
-## How it works
-
-1. Servo loads the page and executes JavaScript via SpiderMonkey
-2. User stylesheets strip cookie banners and common noise elements
-3. CSS is computed with Servo's parallel layout engine — `getComputedStyle()` and `getBoundingClientRect()` identify page structure
-4. Navbars, sidebars, and footers are stripped using CSS layout data
-5. Mozilla's [Readability](https://github.com/mozilla/readability) algorithm extracts the main content
-6. Content is output as Markdown, JSON, accessibility tree, or PNG
-
 PDF URLs are auto-detected via `Content-Type` and extracted directly without Servo.
-
-## Options
-
-| Flag | Description |
-| ---- | ----------- |
-| `--json` | Output as structured JSON |
-| `--screenshot <FILE>` | Save a PNG screenshot |
-| `--js <EXPR>` | Execute JavaScript and print the result |
-| `--selector <CSS>` | Extract a specific section by CSS selector |
-| `--raw <MODE>` | Output raw `html` or plain `text` (bypasses Readability) |
-| `-t`, `--timeout <SECS>` | Page load timeout (default: 30) |
-| `--help` | Show help |
-| `--version` | Show version |
-
-## JSON output
-
-`--json` returns an object with these fields:
-
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `title` | string | Page title |
-| `content` | string | Raw HTML extracted by Readability |
-| `text_content` | string | Readable text (Markdown) |
-| `byline` | string? | Author or byline |
-| `excerpt` | string? | Short excerpt or description |
-| `lang` | string? | Document language (e.g. `"en"`) |
-| `url` | string? | Canonical URL |
-
-Fields marked `?` are omitted when not detected.
 
 ## Security
 

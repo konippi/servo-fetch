@@ -52,6 +52,12 @@ opt-level = "s"
 panic = "abort"
 debug = "line-tables-only"
 
+[profile.ci]
+inherits = "test"
+debug = 0
+strip = "debuginfo"
+incremental = false
+
 [lints.rust]
 missing_docs = "warn"
 unreachable_pub = "warn"

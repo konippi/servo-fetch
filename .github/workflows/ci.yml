@@ -40,16 +40,15 @@ jobs:
               - '.github/workflows/ci.yml'
 
   clippy:
-    name: Clippy & Test
+    name: Clippy
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 45
     permissions:
       contents: read
     env:
       CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_TEST_DEBUG: 0
       SCCACHE_GHA_ENABLED: true
       RUSTC_WRAPPER: sccache
       CCACHE: sccache
@@ -67,8 +66,45 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
             libssl-dev libglib2.0-dev libegl1-mesa-dev
-      - run: cargo clippy --locked -- -D warnings
-      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
+
+  test:
+    name: Test
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
+      CCACHE: sccache
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: "1.95.0"
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: taiki-e/install-action@481c34c1cf3a84c68b5e46f4eccfc82af798415a # v2.75.23
+        with:
+          tool: cargo-nextest
+      - name: Install servo build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
+            libssl-dev libglib2.0-dev libegl1-mesa-dev
+      - run: cargo nextest run --locked --cargo-profile ci --no-fail-fast
+      - run: cargo test --locked --profile ci --doc
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
 
   fmt:
     name: Format
@@ -119,7 +155,7 @@ jobs:
   ci-passed:
     name: CI Passed
     if: always()
-    needs: [changes, clippy, fmt, deny, typos]
+    needs: [changes, clippy, test, fmt, deny, typos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -134,8 +170,7 @@ jobs:
             printf '%s\n' "$NEEDS"
             exit 1
           fi
-          # `changes` and `typos` have no `if:` guard, so they must succeed
-          # (never legitimately skipped — skipped means GitHub error).
+          # `changes` and `typos` have no `if:` guard, so they must succeed.
           for job in changes typos; do
             result=$(printf '%s' "$NEEDS" | python3 -c "import json,sys; print(json.loads(sys.stdin.read())['$job']['result'])")
             if [ "$result" != "success" ]; then

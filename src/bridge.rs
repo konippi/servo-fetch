@@ -137,7 +137,7 @@ impl WebViewDelegate for Delegate {
         let agent = ureq::Agent::new_with_config(
             ureq::config::Config::builder()
                 .max_redirects(0)
-                .timeout_global(Some(std::time::Duration::from_secs(15)))
+                .timeout_global(Some(Duration::from_secs(15)))
                 .build(),
         );
         let Ok(head_resp) = agent.head(url.as_str()).call() else {

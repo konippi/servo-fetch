@@ -1,6 +1,7 @@
 msrv = "1.86.0"
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+allow-dbg-in-tests = true
 cognitive-complexity-threshold = 30
 too-many-arguments-threshold = 7
 doc-valid-idents = ["SpiderMonkey", "AccessKit", "JavaScript", "WebView", ".."]

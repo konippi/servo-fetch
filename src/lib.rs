@@ -10,7 +10,6 @@
 //!   from output strings.
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
 
 pub mod extract;
 pub mod layout;

@@ -1,7 +1,6 @@
 [advisories]
 version = 2
 yanked = "deny"
-# Servo's transitive dependencies have known advisories we cannot fix.
 ignore = [
     "RUSTSEC-2023-0071", # bincode unmaintained
     "RUSTSEC-2024-0436", # paste unmaintained
@@ -41,3 +40,4 @@ wildcards = "deny"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

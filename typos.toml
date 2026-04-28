@@ -1,2 +1,25 @@
 [files]
-extend-exclude = ["/target/", "Cargo.lock"]
+extend-exclude = [
+    "target/",
+    "Cargo.lock",
+    "tests/fixtures/",
+]
+
+[default]
+extend-ignore-identifiers-re = ["^[0-9a-f]{7,10}$"]
+
+[default.extend-identifiers]
+dom_smoothie = "dom_smoothie"
+dom_query = "dom_query"
+htmd = "htmd"
+rmcp = "rmcp"
+schemars = "schemars"
+thiserror = "thiserror"
+aws_lc_rs = "aws_lc_rs"
+
+[default.extend-words]
+servo = "servo"
+SpiderMonkey = "SpiderMonkey"
+AccessKit = "AccessKit"
+WebView = "WebView"
+JavaScript = "JavaScript"

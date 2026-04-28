@@ -17,7 +17,7 @@ Examples:
   servo-fetch https://example.com --selector article  Extract specific section
   servo-fetch mcp                              Start MCP server (stdio)"
 )]
-pub struct Cli {
+pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
 
@@ -51,7 +51,7 @@ pub struct Cli {
 
 /// Raw output mode.
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub enum RawMode {
+pub(crate) enum RawMode {
     /// Raw HTML
     Html,
     /// Plain text (document.body.innerText)
@@ -60,7 +60,7 @@ pub enum RawMode {
 
 /// Available subcommands.
 #[derive(clap::Subcommand)]
-pub enum Command {
+pub(crate) enum Command {
     /// Start MCP server (stdio transport by default, or HTTP with --port)
     Mcp {
         /// Port for Streamable HTTP transport. Omit for stdio.
@@ -72,7 +72,7 @@ pub enum Command {
 /// Validate and sanitize a URL for fetching.
 ///
 /// Delegates to [`crate::net::validate_url`].
-pub fn validate_url(input: &str) -> anyhow::Result<url::Url> {
+pub(crate) fn validate_url(input: &str) -> anyhow::Result<url::Url> {
     crate::net::validate_url(input)
 }
 

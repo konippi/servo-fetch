@@ -55,9 +55,17 @@ refactor: simplify bridge error handling
 - Run `cargo test -- --ignored` if your change affects Servo integration or network behavior
 - Update documentation if behavior changes
 
+## Use of AI
+
+AI tools (e.g. Claude Code, Kiro) can be useful for generating code. However, you remain responsible for any code you publish, and we are responsible for any code we merge and release. A few expectations:
+
+- **Human in the loop.** Do not submit pull requests created autonomously by AI agents. We will close any PR we believe was created without a human author who understands the change.
+- **Write PR descriptions and replies yourself.** Describe the change and reply to review comments in your own words. Do not paste AI output as a reply to maintainers. We may hide comments we believe are AI-generated.
+- **Disclose AI context when you quote it.** If you paste output from an AI tool into an issue or PR, put it in a `>` quote block and add your own commentary explaining why it is relevant.
+
 ## Reporting bugs
 
-Please use the [bug report template](https://github.com/konippi/servo-fetch/issues/new?template=bug_report.md) and include:
+Please use the [bug report template](https://github.com/konippi/servo-fetch/issues/new?template=bug_report.yml) and include:
 
 - Steps to reproduce
 - Expected vs actual behavior

@@ -178,7 +178,7 @@ PDF URLs are auto-detected via `Content-Type` and extracted directly without Ser
 
 ## Security
 
-servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatracker.ietf.org/doc/html/rfc6890)), strips credentials from URLs, validates redirect targets, and sanitizes all output against terminal escape injection ([CVE-2021-42574](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-42574)). See [SECURITY.md](./SECURITY.md) for details.
+servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatracker.ietf.org/doc/html/rfc6890)), strips credentials from URLs, disables HTTP redirects to prevent SSRF bypass, and sanitizes all output against terminal escape injection ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574)). See [SECURITY.md](./SECURITY.md) for details.
 
 ## Limitations
 

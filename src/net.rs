@@ -72,10 +72,9 @@ fn is_private_ipv6(ip: &std::net::Ipv6Addr) -> bool {
 
 /// Validate and sanitize a URL for fetching.
 ///
-/// # Security
-///
-/// This performs string-based host validation only. It does not resolve DNS,
-/// so DNS rebinding attacks are not mitigated at this layer.
+/// Only `http`/`https` schemes are accepted, embedded credentials are stripped,
+/// and hosts that resolve to private or reserved addresses are rejected. DNS is
+/// not resolved, so DNS rebinding attacks remain possible downstream.
 pub(crate) fn validate_url(input: &str) -> anyhow::Result<url::Url> {
     use anyhow::{Context as _, bail};
 

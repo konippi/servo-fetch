@@ -24,8 +24,7 @@ const LAYOUT_JS: &str = include_str!("js/layout.js");
 const MAX_PDF_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_CONSOLE_MESSAGES: usize = 100;
 
-/// CSS injected via user stylesheets to strip common noise elements.
-/// Uses the user origin with `!important` to override author styles.
+/// CSS injected as a user stylesheet to strip common noise elements.
 const NOISE_REMOVAL_CSS: &str = "\
 [aria-label*=\"cookie\" i], [aria-label*=\"consent\" i], \
 [class*=\"cookie-banner\" i], [class*=\"cookie-consent\" i], \
@@ -132,8 +131,7 @@ impl WebViewDelegate for Delegate {
             }
         }
 
-        // HEAD request to check Content-Type without downloading the body.
-        // Disable redirects to prevent SSRF via redirect to private IPs.
+        // HEAD first to check Content-Type; no redirects to prevent SSRF.
         let agent = ureq::Agent::new_with_config(
             ureq::config::Config::builder()
                 .max_redirects(0)
@@ -151,7 +149,7 @@ impl WebViewDelegate for Delegate {
             .is_some_and(|ct| ct.to_ascii_lowercase().starts_with("application/pdf"));
 
         if !is_pdf {
-            return; // Not a PDF — let Servo handle normally.
+            return; // Let Servo handle non-PDF responses normally.
         }
 
         // Fetch the PDF body with a size limit.
@@ -172,6 +170,7 @@ impl WebViewDelegate for Delegate {
     }
 }
 
+/// Captured output of a single page load.
 #[derive(Default)]
 pub(crate) struct ServoPage {
     pub html: String,
@@ -184,26 +183,49 @@ pub(crate) struct ServoPage {
     pub console_messages: Vec<ConsoleMessage>,
 }
 
-/// Options for fetching a page via Servo.
+/// Parameters for a [`fetch_page`] call.
 pub(crate) struct FetchOptions<'a> {
     pub url: &'a str,
     pub timeout_secs: u64,
-    pub screenshot: bool,
-    pub accessibility_tree: bool,
-    pub js: Option<&'a str>,
+    pub mode: FetchMode,
+}
+
+/// What to do once the page has loaded. Variants are mutually exclusive.
+pub(crate) enum FetchMode {
+    /// Capture HTML, inner text, and layout metadata for Readability extraction.
+    Content { include_a11y: bool },
+    /// Render a PNG screenshot of the viewport.
+    Screenshot,
+    /// Evaluate the given JavaScript expression and return its result.
+    ExecuteJs { expression: String },
+}
+
+impl FetchMode {
+    fn take_screenshot(&self) -> bool {
+        matches!(self, Self::Screenshot)
+    }
+
+    fn needs_accessibility_tree(&self) -> bool {
+        matches!(self, Self::Content { include_a11y: true })
+    }
+
+    fn custom_js(&self) -> Option<&str> {
+        match self {
+            Self::ExecuteJs { expression } => Some(expression.as_str()),
+            _ => None,
+        }
+    }
 }
 
 struct FetchRequest {
     url: String,
     timeout_secs: u64,
-    take_screenshot: bool,
-    need_a11y: bool,
-    custom_js: Option<String>,
+    mode: FetchMode,
     reply: mpsc::Sender<Result<ServoPage>>,
 }
 
 /// Fetch a page via Servo. First call spawns a persistent Servo thread.
-pub(crate) fn fetch_page(opts: &FetchOptions<'_>) -> Result<ServoPage> {
+pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
     static SENDER: std::sync::OnceLock<mpsc::Sender<FetchRequest>> = std::sync::OnceLock::new();
 
     let sender = SENDER.get_or_init(|| {
@@ -222,9 +244,7 @@ pub(crate) fn fetch_page(opts: &FetchOptions<'_>) -> Result<ServoPage> {
         .send(FetchRequest {
             url: opts.url.to_string(),
             timeout_secs: opts.timeout_secs,
-            take_screenshot: opts.screenshot,
-            need_a11y: opts.accessibility_tree,
-            custom_js: opts.js.map(String::from),
+            mode: opts.mode,
             reply: reply_tx,
         })
         .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
@@ -248,16 +268,11 @@ fn servo_thread(rx: mpsc::Receiver<FetchRequest>) {
 
     while let Ok(req) = rx.recv() {
         let rc_dyn: Rc<dyn RenderingContext> = rc_ctx.clone();
-        let loaded = Rc::new(Cell::new(false));
-        let pdf_data: Rc<RefCell<Option<Vec<u8>>>> = Rc::new(RefCell::new(None));
-        let a11y_nodes: Rc<RefCell<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>> =
-            Rc::new(RefCell::new(HashMap::new()));
-        let console_messages: Rc<RefCell<Vec<ConsoleMessage>>> = Rc::new(RefCell::new(Vec::new()));
         let delegate = Rc::new(Delegate {
-            loaded: loaded.clone(),
-            pdf_data: pdf_data.clone(),
-            a11y_nodes: a11y_nodes.clone(),
-            console_messages: console_messages.clone(),
+            loaded: Rc::new(Cell::new(false)),
+            pdf_data: Rc::new(RefCell::new(None)),
+            a11y_nodes: Rc::new(RefCell::new(HashMap::new())),
+            console_messages: Rc::new(RefCell::new(Vec::new())),
         });
 
         let parsed_url = match url::Url::parse(&req.url) {
@@ -274,44 +289,30 @@ fn servo_thread(rx: mpsc::Receiver<FetchRequest>) {
 
         let webview = WebViewBuilder::new(&servo, rc_dyn)
             .url(parsed_url)
-            .delegate(delegate)
+            .delegate(delegate.clone())
             .user_content_manager(ucm)
             .build();
 
-        // Only enable accessibility tree collection when explicitly requested,
-        // to avoid the overhead of building the a11y tree on every fetch.
-        if req.need_a11y {
+        // Collect the a11y tree only when requested — building it is expensive.
+        if req.mode.needs_accessibility_tree() {
             webview.set_accessibility_active(true);
         }
 
-        let result = handle_request(
-            &servo,
-            &webview,
-            &rc_ctx,
-            &loaded,
-            &pdf_data,
-            &a11y_nodes,
-            &console_messages,
-            &req,
-        );
+        let result = handle_request(&servo, &webview, &rc_ctx, &delegate, &req);
         drop(webview);
         let _ = req.reply.send(result);
     }
 }
 
-#[expect(clippy::too_many_arguments)]
 fn handle_request(
     servo: &servo::Servo,
     webview: &WebView,
     rc_ctx: &Rc<SoftwareRenderingContext>,
-    loaded: &Cell<bool>,
-    pdf_data: &RefCell<Option<Vec<u8>>>,
-    a11y_nodes: &RefCell<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>,
-    console_messages: &RefCell<Vec<ConsoleMessage>>,
+    delegate: &Delegate,
     req: &FetchRequest,
 ) -> Result<ServoPage> {
     let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
-    spin_until(servo, loaded, deadline, req.timeout_secs)?;
+    spin_until(servo, &delegate.loaded, deadline, req.timeout_secs)?;
     wait_for_ready_state(servo, webview, deadline);
 
     let html = eval_js(servo, webview, "document.documentElement.outerHTML")?;
@@ -319,7 +320,7 @@ fn handle_request(
     let layout_json = eval_js(servo, webview, LAYOUT_JS).ok();
 
     #[expect(clippy::cast_possible_wrap)]
-    let screenshot = if req.take_screenshot {
+    let screenshot = if req.mode.take_screenshot() {
         let rect = Box2D::new(
             Point2D::new(0, 0),
             Point2D::new(layout::VIEWPORT_WIDTH as i32, layout::VIEWPORT_HEIGHT as i32),
@@ -330,14 +331,14 @@ fn handle_request(
     };
 
     let js_result = req
-        .custom_js
-        .as_deref()
+        .mode
+        .custom_js()
         .map(|expr| eval_js(servo, webview, expr))
         .transpose()?;
 
     // Serialize the merged accessibility tree, masking password field values.
     let accessibility_tree = {
-        let mut nodes = a11y_nodes.borrow_mut();
+        let mut nodes = delegate.a11y_nodes.borrow_mut();
         if nodes.is_empty() {
             None
         } else {
@@ -356,9 +357,9 @@ fn handle_request(
         layout_json,
         screenshot,
         js_result,
-        pdf_data: pdf_data.borrow_mut().take(),
+        pdf_data: delegate.pdf_data.borrow_mut().take(),
         accessibility_tree,
-        console_messages: console_messages.borrow_mut().drain(..).collect(),
+        console_messages: delegate.console_messages.borrow_mut().drain(..).collect(),
     })
 }
 

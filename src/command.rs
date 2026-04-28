@@ -6,6 +6,7 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::bridge::ServoPage;
 
+/// Output an extracted article as Markdown to stdout.
 pub(crate) struct Markdown<'a> {
     pub page: &'a ServoPage,
     pub url: &'a str,
@@ -24,6 +25,7 @@ impl Markdown<'_> {
     }
 }
 
+/// Output an extracted article as JSON to stdout.
 pub(crate) struct Json<'a> {
     pub page: &'a ServoPage,
     pub url: &'a str,
@@ -42,6 +44,7 @@ impl Json<'_> {
     }
 }
 
+/// Save the rendered screenshot to a PNG file.
 pub(crate) struct Screenshot<'a> {
     pub page: &'a ServoPage,
     pub path: &'a str,
@@ -61,10 +64,12 @@ impl Screenshot<'_> {
     }
 }
 
+/// Print the result of an evaluated JavaScript expression to stdout.
 pub(crate) struct JsEval<'a> {
     pub result: &'a str,
 }
 
+/// Print raw HTML or inner text to stdout.
 pub(crate) struct Raw<'a> {
     pub page: &'a ServoPage,
     pub mode: &'a crate::cli::RawMode,

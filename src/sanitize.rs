@@ -6,8 +6,6 @@ const CSI_MAX_LEN: u16 = 256;
 const STRING_SEQ_MAX_LEN: u16 = 4096;
 
 /// Strip control characters and ANSI escape sequences, preserving printable text.
-///
-/// Returns `Cow::Borrowed` when the input is already clean (no allocation).
 #[must_use]
 pub fn sanitize(input: &str) -> Cow<'_, str> {
     let needs_sanitize = input

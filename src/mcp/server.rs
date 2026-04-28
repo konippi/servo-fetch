@@ -12,6 +12,7 @@ const MAX_JS_OUTPUT_LEN: usize = 1_000_000;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const MAX_SELECTOR_LEN: usize = 1_000;
 
+/// Output format requested by the MCP `fetch` tool.
 #[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum OutputFormat {
@@ -24,6 +25,7 @@ pub(super) enum OutputFormat {
     AccessibilityTree,
 }
 
+/// Parameters for the MCP `fetch` tool.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(super) struct FetchParams {
     #[schemars(description = "URL to fetch (http/https only)")]
@@ -40,6 +42,7 @@ pub(super) struct FetchParams {
     selector: Option<String>,
 }
 
+/// Parameters for the MCP `screenshot` tool.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(super) struct ScreenshotParams {
     #[schemars(description = "URL to capture (http/https only)")]
@@ -48,6 +51,7 @@ pub(super) struct ScreenshotParams {
     timeout: Option<u64>,
 }
 
+/// Parameters for the MCP `execute_js` tool.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(super) struct ExecuteJsParams {
     #[schemars(description = "URL to load before executing JS")]
@@ -58,6 +62,7 @@ pub(super) struct ExecuteJsParams {
     timeout: Option<u64>,
 }
 
+/// MCP handler that exposes servo-fetch's tools.
 #[derive(Debug, Clone)]
 pub(crate) struct ServoMcp {
     #[allow(dead_code)] // accessed by tool_router macro
@@ -66,6 +71,7 @@ pub(crate) struct ServoMcp {
 
 #[tool_router]
 impl ServoMcp {
+    /// Construct a new MCP handler with the tool router wired up.
     pub(crate) fn new() -> Self {
         Self {
             tool_router: Self::tool_router(),
@@ -88,8 +94,8 @@ impl ServoMcp {
             ));
         }
 
-        let need_a11y = matches!(p.format, Some(OutputFormat::AccessibilityTree));
-        let page = tools::fetch_page(&url, timeout, false, need_a11y, None).await?;
+        let include_a11y = matches!(p.format, Some(OutputFormat::AccessibilityTree));
+        let page = tools::fetch_page(&url, timeout, crate::bridge::FetchMode::Content { include_a11y }).await?;
         let full = if let Some(ref pdf_bytes) = page.pdf_data {
             servo_fetch::extract::extract_pdf(pdf_bytes)
         } else {
@@ -129,13 +135,19 @@ impl ServoMcp {
         let url = tools::validated_url(&p.url)?;
         let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
 
-        let page = tools::fetch_page(&url, timeout, false, false, Some(&p.expression)).await?;
+        let page = tools::fetch_page(
+            &url,
+            timeout,
+            crate::bridge::FetchMode::ExecuteJs {
+                expression: p.expression,
+            },
+        )
+        .await?;
         let mut result = page.js_result.unwrap_or_default();
         if result.len() > MAX_JS_OUTPUT_LEN {
             result.truncate(tools::floor_char_boundary(&result, MAX_JS_OUTPUT_LEN));
             result.push_str("\n<output truncated>");
         }
-        // Append console messages if any were captured.
         if !page.console_messages.is_empty() {
             result.push_str("\n\n--- console output ---\n");
             for msg in &page.console_messages {

@@ -46,9 +46,7 @@ pub struct ArticleData {
     pub url: Option<String>,
 }
 
-/// Extract text content from a PDF byte slice.
-///
-/// Returns the extracted text, or an empty string if extraction fails.
+/// Extract text content from a PDF byte slice, or an empty string on failure.
 #[must_use]
 pub fn extract_pdf(data: &[u8]) -> String {
     match pdf_extract::extract_text_from_mem(data) {
@@ -113,8 +111,7 @@ impl<'a> ExtractInput<'a> {
 /// Extract readable content as Markdown text.
 ///
 /// # Errors
-///
-/// Returns [`ExtractError::Fmt`] if the Markdown assembly fails.
+/// Returns [`ExtractError::Fmt`] if Markdown assembly fails.
 pub fn extract_text(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
     if let Some(selector) = input.selector {
         return Ok(extract_by_selector(input.html, input.layout_json, selector));
@@ -138,7 +135,6 @@ pub fn extract_text(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
 /// Extract readable content as JSON.
 ///
 /// # Errors
-///
 /// Returns [`ExtractError::Json`] if JSON serialization fails.
 pub fn extract_json(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
     if let Some(selector) = input.selector {

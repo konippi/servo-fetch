@@ -25,7 +25,6 @@ fn main() {
 
     let args = cli::Cli::parse();
 
-    // All paths use flush_and_exit to avoid SpiderMonkey shutdown races on Linux.
     if let Some(cli::Command::Mcp { port }) = args.command {
         flush_and_exit(run_mcp(port));
     }
@@ -63,17 +62,10 @@ fn is_broken_pipe(err: &anyhow::Error) -> bool {
 fn flush_and_exit(code: i32) -> ! {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
-    // SpiderMonkey (bundled by the `servo` crate) registers C++ static destructors
-    // that race on `pthread_mutex_destroy` during process exit on Linux, producing
-    // `MutexImpl::~MutexImpl: pthread_mutex_destroy failed: Device or resource busy`
-    // followed by SIGSEGV (exit 139). Skip the atexit chain on Linux with `_exit`;
-    // macOS and Windows do not exhibit this and keep the regular `process::exit`.
-    // Firefox and Chromium use the same pattern for renderer/helper shutdown.
+    // On Linux, SpiderMonkey's static destructors race on `pthread_mutex_destroy`
+    // during process exit, producing a post-exit SIGSEGV.
     #[cfg(target_os = "linux")]
     #[allow(unsafe_code)]
-    // SAFETY: `_exit` is async-signal-safe. Stdio is flushed above, and we hold
-    // no Rust allocations that require Drop for correctness (rustls/tokio/stdio
-    // register no atexit handlers we depend on).
     unsafe {
         libc::_exit(code);
     }
@@ -87,7 +79,6 @@ fn run(args: &cli::Cli) -> anyhow::Result<()> {
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("URL is required. Run with --help for usage."))?;
     let url = cli::validate_url(url_str)?;
-    let need_screenshot = args.screenshot.is_some();
 
     let is_tty = std::io::stderr().is_terminal();
     if is_tty {
@@ -95,12 +86,17 @@ fn run(args: &cli::Cli) -> anyhow::Result<()> {
         let _ = std::io::Write::flush(&mut std::io::stderr());
     }
 
-    let page = bridge::fetch_page(&bridge::FetchOptions {
+    let mode = if args.screenshot.is_some() {
+        bridge::FetchMode::Screenshot
+    } else if let Some(expr) = args.js.clone() {
+        bridge::FetchMode::ExecuteJs { expression: expr }
+    } else {
+        bridge::FetchMode::Content { include_a11y: false }
+    };
+    let page = bridge::fetch_page(bridge::FetchOptions {
         url: url.as_str(),
         timeout_secs: args.timeout,
-        screenshot: need_screenshot,
-        accessibility_tree: false,
-        js: args.js.as_deref(),
+        mode,
     });
 
     if is_tty {
@@ -109,7 +105,6 @@ fn run(args: &cli::Cli) -> anyhow::Result<()> {
 
     let page = page?;
 
-    // PDF detected by Servo's load_web_resource callback (Content-Type based)
     if let Some(ref pdf_bytes) = page.pdf_data {
         let text = servo_fetch::extract::extract_pdf(pdf_bytes);
         write!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&text))?;

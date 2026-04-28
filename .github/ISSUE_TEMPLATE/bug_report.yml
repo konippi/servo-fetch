@@ -1,0 +1,48 @@
+name: Bug Report
+description: Report a bug in servo-fetch
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear description of the bug. Include a minimal reproducible example if possible.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran.
+      render: bash
+      placeholder: servo-fetch "https://example.com"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include full stderr and any error messages.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `servo-fetch --version`.
+      placeholder: servo-fetch 0.2.1
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and architecture
+      placeholder: e.g. macOS 15 arm64, Ubuntu 24.04 x86_64, Windows 11
+    validations:
+      required: true

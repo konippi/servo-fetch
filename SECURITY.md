@@ -1,11 +1,5 @@
 # Security Policy
 
-## Supported versions
-
-| Version | Supported |
-| ------- | --------- |
-| 0.1.x   | ✅        |
-
 ## Reporting a vulnerability
 
 If you discover a security vulnerability, please report it responsibly by opening a [GitHub Security Advisory](https://github.com/konippi/servo-fetch/security/advisories/new).
@@ -26,16 +20,25 @@ servo-fetch processes untrusted web content. The following areas are in scope:
 
 - URL validation: only `http://` and `https://` schemes allowed
 - SSRF protection: all private, reserved, and special-purpose IP ranges from the [IANA Special-Purpose Address Registry (RFC 6890)](https://datatracker.ietf.org/doc/html/rfc6890) are blocked, including cloud metadata endpoints
+- HTTP redirects are disabled (`max_redirects: 0`) to block SSRF via redirect to a private IP after initial validation
+- In-page navigation is validated: Servo `NavigationRequest`s to private or reserved hosts are denied by the navigation delegate
 - Credentials are automatically stripped from URLs
-- All output is sanitized to remove ANSI escape sequences, control characters, and BiDi override characters (CVE-2021-42574)
+- All output is sanitized to remove ANSI escape sequences, control characters, and BiDi override characters ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574))
 - `--js` output is sanitized before printing to the terminal
+- MCP `execute_js` rejects scripts longer than 10,000 characters; MCP `fetch` output is bounded by `max_length` / `start_index` to limit response size
 
 ## Known limitations
 
 - Servo's `evaluate_javascript` runs in the page context (no isolated world)
-- DNS rebinding attacks are not mitigated at the URL validation layer
-- Sub-resource requests (images, scripts, iframes) loaded by the page are not subject to SSRF validation — only the initial navigation URL is checked
+- DNS rebinding: the initial URL is validated by hostname/IP, but a hostname that resolves to a public IP during validation and a private IP at fetch time could still be reached. This is partially mitigated because HTTP redirects are disabled (see Mitigations)
+- Sub-resource requests (images, scripts, iframes) loaded by the page are not subject to SSRF validation — only the initial navigation URL and in-page navigations are checked
 - JavaScript executed via `--js` or `execute_js` can make secondary network requests (e.g. `fetch()`) that bypass URL validation, constrained only by the browser's Same-Origin Policy
-- The accessibility tree output masks values of password input fields, but other sensitive form data (e.g. credit card numbers in text inputs) is not filtered
-- User stylesheets for noise removal are injected at the user origin; they do not execute scripts but may trigger `url()` resource loads for matched elements
+- Password input values in the accessibility tree output are cleared, but other sensitive form data (e.g. credit card numbers in text inputs) is not filtered
 - Process isolation (seccomp-bpf) is not yet implemented
+
+## Supported versions
+
+| Version | Supported   |
+| ------- | ----------- |
+| 0.2.x   | ✅ (0.2.1+) |
+| 0.1.x   | ❌ (yanked) |

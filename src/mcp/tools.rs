@@ -8,28 +8,25 @@ use crate::bridge;
 use crate::net;
 use servo_fetch::extract::{self, ExtractInput};
 
+/// Validate a URL and return it in canonical form as a string.
 pub(super) fn validated_url(url: &str) -> Result<String, ErrorData> {
     net::validate_url(url)
         .map(|u| u.to_string())
         .map_err(|e| ErrorData::invalid_params(format!("{e:#}"), None))
 }
 
+/// Run a Servo fetch on the blocking thread pool.
 pub(super) async fn fetch_page(
     url: &str,
     timeout: u64,
-    screenshot: bool,
-    need_a11y: bool,
-    js: Option<&str>,
+    mode: bridge::FetchMode,
 ) -> Result<bridge::ServoPage, ErrorData> {
     let url = url.to_string();
-    let js = js.map(String::from);
     tokio::task::spawn_blocking(move || {
-        bridge::fetch_page(&bridge::FetchOptions {
+        bridge::fetch_page(bridge::FetchOptions {
             url: &url,
             timeout_secs: timeout,
-            screenshot,
-            accessibility_tree: need_a11y,
-            js: js.as_deref(),
+            mode,
         })
     })
     .await
@@ -37,6 +34,7 @@ pub(super) async fn fetch_page(
     .map_err(|e| ErrorData::internal_error(format!("{e:#}"), None))
 }
 
+/// Run Readability-based extraction on a fetched page, as Markdown or JSON.
 pub(super) fn extract(
     page: &bridge::ServoPage,
     url: &str,
@@ -55,8 +53,9 @@ pub(super) fn extract(
     .map_err(|e| ErrorData::internal_error(e.to_string(), None))
 }
 
+/// Render the page and return its screenshot as a base64 PNG MCP content.
 pub(super) async fn take_screenshot(url: &str, timeout: u64) -> Result<CallToolResult, ErrorData> {
-    let page = fetch_page(url, timeout, true, false, None).await?;
+    let page = fetch_page(url, timeout, bridge::FetchMode::Screenshot).await?;
     let img = page
         .screenshot
         .ok_or_else(|| ErrorData::internal_error("screenshot capture failed", None))?;
@@ -71,6 +70,8 @@ pub(super) async fn take_screenshot(url: &str, timeout: u64) -> Result<CallToolR
     )]))
 }
 
+/// Return a char-aligned slice of `content` and a truncation notice when
+/// the slice does not cover the full content.
 pub(super) fn paginate(content: &str, start: usize, max_len: usize) -> String {
     let max_len = max_len.max(1);
     let total = content.len();
@@ -87,6 +88,7 @@ pub(super) fn paginate(content: &str, start: usize, max_len: usize) -> String {
     }
 }
 
+/// Return the nearest UTF-8 char boundary `<= index`.
 pub(super) fn floor_char_boundary(s: &str, index: usize) -> usize {
     if index >= s.len() {
         return s.len();

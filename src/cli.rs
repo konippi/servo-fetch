@@ -69,9 +69,7 @@ pub(crate) enum Command {
     },
 }
 
-/// Validate and sanitize a URL for fetching.
-///
-/// Delegates to [`crate::net::validate_url`].
+/// Validate and sanitize a URL for fetching. Forwards to [`crate::net::validate_url`].
 pub(crate) fn validate_url(input: &str) -> anyhow::Result<url::Url> {
     crate::net::validate_url(input)
 }

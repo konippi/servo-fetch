@@ -1,13 +1,15 @@
 # Rust
 /target
-debug/
 **/*.rs.bk
 *.pdb
+*.profraw
 
 # Editors
 *.swp
 *.swo
 *~
+.idea/
 
 # OS
 .DS_Store
+Thumbs.db

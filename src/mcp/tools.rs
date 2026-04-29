@@ -54,8 +54,8 @@ pub(super) fn extract(
 }
 
 /// Render the page and return its screenshot as a base64 PNG MCP content.
-pub(super) async fn take_screenshot(url: &str, timeout: u64) -> Result<CallToolResult, ErrorData> {
-    let page = fetch_page(url, timeout, bridge::FetchMode::Screenshot).await?;
+pub(super) async fn take_screenshot(url: &str, timeout: u64, full_page: bool) -> Result<CallToolResult, ErrorData> {
+    let page = fetch_page(url, timeout, bridge::FetchMode::Screenshot { full_page }).await?;
     let img = page
         .screenshot
         .ok_or_else(|| ErrorData::internal_error("screenshot capture failed", None))?;

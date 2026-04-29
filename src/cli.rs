@@ -32,6 +32,10 @@ pub(crate) struct Cli {
     #[arg(long, value_name = "FILE", conflicts_with_all = ["json", "js"])]
     pub screenshot: Option<String>,
 
+    /// Capture the full scrollable page instead of just the viewport.
+    #[arg(long, requires = "screenshot")]
+    pub full_page: bool,
+
     /// Execute JavaScript and print the result
     #[arg(long, value_name = "EXPR", conflicts_with_all = ["json", "screenshot"])]
     pub js: Option<String>,

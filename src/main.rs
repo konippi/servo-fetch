@@ -87,7 +87,9 @@ fn run(args: &cli::Cli) -> anyhow::Result<()> {
     }
 
     let mode = if args.screenshot.is_some() {
-        bridge::FetchMode::Screenshot
+        bridge::FetchMode::Screenshot {
+            full_page: args.full_page,
+        }
     } else if let Some(expr) = args.js.clone() {
         bridge::FetchMode::ExecuteJs { expression: expr }
     } else {

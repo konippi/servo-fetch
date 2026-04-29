@@ -47,6 +47,8 @@ pub(super) struct FetchParams {
 pub(super) struct ScreenshotParams {
     #[schemars(description = "URL to capture (http/https only)")]
     url: String,
+    #[schemars(description = "Capture the full scrollable page instead of just the viewport. Default: false")]
+    full_page: Option<bool>,
     #[schemars(description = "Page load timeout in seconds. Default: 30")]
     timeout: Option<u64>,
 }
@@ -115,11 +117,13 @@ impl ServoMcp {
         ))]))
     }
 
-    #[tool(description = "Capture a PNG screenshot of a web page. Uses Servo's software renderer — no GPU required.")]
+    #[tool(
+        description = "Capture a PNG screenshot of a web page. Uses Servo's software renderer — no GPU required. Set `full_page` to capture the full scrollable content instead of just the viewport."
+    )]
     async fn screenshot(&self, Parameters(p): Parameters<ScreenshotParams>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
         let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-        tools::take_screenshot(&url, timeout).await
+        tools::take_screenshot(&url, timeout, p.full_page.unwrap_or(false)).await
     }
 
     #[tool(

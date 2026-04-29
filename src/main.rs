@@ -7,6 +7,7 @@ mod cli;
 mod command;
 mod mcp;
 mod net;
+mod screenshot;
 
 use std::io::{IsTerminal, Write as _};
 

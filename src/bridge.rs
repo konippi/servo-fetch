@@ -8,18 +8,17 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use dpi::PhysicalSize;
-use euclid::{Box2D, Point2D};
 use image::RgbaImage;
 use servo::{
-    ConsoleLogLevel, DevicePixel, JSValue, LoadStatus, NavigationRequest, Preferences, RenderingContext, ServoBuilder,
-    SoftwareRenderingContext, UserContentManager, WebView, WebViewBuilder, WebViewDelegate, WebViewRect,
+    ConsoleLogLevel, JSValue, LoadStatus, NavigationRequest, Preferences, RenderingContext, ServoBuilder,
+    SoftwareRenderingContext, UserContentManager, WebView, WebViewBuilder, WebViewDelegate,
 };
 
 use servo_fetch::layout;
 
 const JS_EVAL_TIMEOUT: Duration = Duration::from_secs(10);
 const SETTLE_DURATION: Duration = Duration::from_millis(500);
-const SPIN_INTERVAL: Duration = Duration::from_millis(10);
+pub(crate) const SPIN_INTERVAL: Duration = Duration::from_millis(10);
 const LAYOUT_JS: &str = include_str!("js/layout.js");
 const MAX_PDF_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_CONSOLE_MESSAGES: usize = 100;
@@ -326,7 +325,7 @@ fn handle_request(
     let layout_json = eval_js(servo, webview, LAYOUT_JS).ok();
 
     let screenshot = if req.mode.take_screenshot() {
-        capture_screenshot(servo, webview, req.mode.full_page(), req.timeout_secs)
+        crate::screenshot::capture(servo, webview, req.mode.full_page(), req.timeout_secs)
     } else {
         None
     };
@@ -429,148 +428,7 @@ fn wait_for_ready_state(servo: &servo::Servo, webview: &WebView, deadline: Insta
     eprintln!("warning: document did not finish loading; content may be incomplete");
 }
 
-/// Capture a PNG screenshot of the page, temporarily resizing the viewport
-/// to the full content size when `full_page` is set.
-fn capture_screenshot(
-    servo: &servo::Servo,
-    webview: &WebView,
-    full_page: bool,
-    timeout_secs: u64,
-) -> Option<RgbaImage> {
-    /// 16,384 matches the GPU texture limit on most modern
-    /// hardware and caps the RGBA framebuffer at ~1 GB.
-    const MAX_PIXELS: u32 = 16_384;
-
-    let viewport = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
-
-    if !full_page {
-        return take_screenshot(servo, webview, None, timeout_secs);
-    }
-
-    let Some(measured) = measure_full_page(servo, webview) else {
-        eprintln!("warning: failed to measure full page size; falling back to viewport screenshot");
-        return take_screenshot(servo, webview, None, timeout_secs);
-    };
-
-    let Some(resized) = resolve_full_page_size(measured, viewport, MAX_PIXELS) else {
-        // Content already fits in the viewport; skip the resize round-trip.
-        return take_screenshot(servo, webview, None, timeout_secs);
-    };
-
-    if resized != measured {
-        eprintln!(
-            "warning: full-page dimensions clamped to {}x{} (content was {}x{})",
-            resized.width, resized.height, measured.width, measured.height
-        );
-    }
-
-    // Resize the viewport for capture, restoring it via a guard so the engine
-    // stays usable even if `take_screenshot` panics or times out.
-    let _restore = ViewportRestore {
-        webview,
-        size: viewport,
-    };
-    webview.resize(resized);
-    take_screenshot(servo, webview, Some(device_rect(resized)), timeout_secs)
-}
-
-/// RAII guard that restores the `WebView`'s viewport size on drop.
-struct ViewportRestore<'a> {
-    webview: &'a WebView,
-    size: PhysicalSize<u32>,
-}
-
-impl Drop for ViewportRestore<'_> {
-    fn drop(&mut self) {
-        self.webview.resize(self.size);
-    }
-}
-
-/// Invoke `WebView::take_screenshot` synchronously by spinning the event loop
-/// until the callback fires or the deadline elapses.
-fn take_screenshot(
-    servo: &servo::Servo,
-    webview: &WebView,
-    rect: Option<WebViewRect>,
-    timeout_secs: u64,
-) -> Option<RgbaImage> {
-    let result: Rc<RefCell<Option<Result<RgbaImage, servo::ScreenshotCaptureError>>>> = Rc::new(RefCell::new(None));
-    let cb_result = result.clone();
-    webview.take_screenshot(rect, move |r| {
-        *cb_result.borrow_mut() = Some(r);
-    });
-
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
-    loop {
-        servo.spin_event_loop();
-        if let Some(outcome) = result.borrow_mut().take() {
-            return outcome
-                .inspect_err(|e| eprintln!("warning: screenshot capture failed: {e:?}"))
-                .ok();
-        }
-        if Instant::now() > deadline {
-            eprintln!("warning: screenshot capture timed out after {timeout_secs}s");
-            return None;
-        }
-        std::thread::sleep(SPIN_INTERVAL);
-    }
-}
-
-#[expect(clippy::cast_precision_loss, reason = "dimensions stay well below 2^23")]
-fn device_rect(size: PhysicalSize<u32>) -> WebViewRect {
-    let rect = Box2D::<f32, DevicePixel>::new(
-        Point2D::new(0.0, 0.0),
-        Point2D::new(size.width as f32, size.height as f32),
-    );
-    WebViewRect::Device(rect)
-}
-
-fn resolve_full_page_size(
-    measured: PhysicalSize<u32>,
-    viewport: PhysicalSize<u32>,
-    max_pixels: u32,
-) -> Option<PhysicalSize<u32>> {
-    if measured.width <= viewport.width && measured.height <= viewport.height {
-        return None;
-    }
-    Some(PhysicalSize::new(
-        measured.width.clamp(viewport.width, max_pixels),
-        measured.height.clamp(viewport.height, max_pixels),
-    ))
-}
-
-/// Read the full scrollable content size via JS, saturating at [`u32::MAX`].
-fn measure_full_page(servo: &servo::Servo, webview: &WebView) -> Option<PhysicalSize<u32>> {
-    const SIZE_JS: &str = r"
-        JSON.stringify({
-            w: Math.max(document.body.scrollWidth, document.documentElement.scrollWidth),
-            h: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)
-        })
-    ";
-    #[derive(serde::Deserialize)]
-    struct Size {
-        w: f64,
-        h: f64,
-    }
-    let raw = eval_js(servo, webview, SIZE_JS).ok()?;
-    let size: Size = serde_json::from_str(&raw).ok()?;
-
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "saturating cast is the intended behavior"
-    )]
-    let width = size.w as u32;
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "saturating cast is the intended behavior"
-    )]
-    let height = size.h as u32;
-    Some(PhysicalSize::new(width, height))
-}
-
-fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str) -> Result<String> {
+pub(crate) fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str) -> Result<String> {
     let result: Rc<RefCell<Option<Result<String>>>> = Rc::new(RefCell::new(None));
     let cb_result = result.clone();
 
@@ -702,10 +560,6 @@ mod tests {
         assert!(jsvalue_to_json(&val).is_err());
     }
 
-    fn size(w: u32, h: u32) -> PhysicalSize<u32> {
-        PhysicalSize::new(w, h)
-    }
-
     #[test]
     fn fetch_mode_screenshot_flags() {
         let vp = FetchMode::Screenshot { full_page: false };
@@ -740,47 +594,6 @@ mod tests {
         assert!(!js.full_page());
         assert!(!js.needs_accessibility_tree());
         assert_eq!(js.custom_js(), Some("document.title"));
-    }
-
-    #[test]
-    fn resolve_full_page_skips_when_content_fits_viewport() {
-        let vp = size(1280, 800);
-        assert!(resolve_full_page_size(size(1000, 600), vp, 16_384).is_none());
-        assert!(resolve_full_page_size(size(1280, 800), vp, 16_384).is_none());
-    }
-
-    #[test]
-    fn resolve_full_page_expands_when_taller_than_viewport() {
-        let vp = size(1280, 800);
-        assert_eq!(
-            resolve_full_page_size(size(1280, 4000), vp, 16_384),
-            Some(size(1280, 4000)),
-        );
-    }
-
-    #[test]
-    fn resolve_full_page_clamps_to_max_pixels() {
-        let vp = size(1280, 800);
-        // Height exceeds the cap; width is left untouched.
-        assert_eq!(
-            resolve_full_page_size(size(1280, 50_000), vp, 16_384),
-            Some(size(1280, 16_384)),
-        );
-        // Both axes exceed the cap.
-        assert_eq!(
-            resolve_full_page_size(size(32_000, 50_000), vp, 16_384),
-            Some(size(16_384, 16_384)),
-        );
-    }
-
-    #[test]
-    fn resolve_full_page_never_shrinks_below_viewport() {
-        let vp = size(1280, 800);
-        // Narrow content must still fill the viewport width.
-        assert_eq!(
-            resolve_full_page_size(size(400, 4000), vp, 16_384),
-            Some(size(1280, 4000)),
-        );
     }
 }
 

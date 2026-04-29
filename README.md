@@ -1,6 +1,6 @@
 <div align="center">
   <h1 align="center">servo-fetch</h1>
-  <p align="center">A self-contained MCP server and CLI that fetches, renders, and extracts web content — no Chrome, no API key, no setup.</p>
+  <p align="center">A self-contained browser engine that fetches, renders, and extracts web content — no Chrome, no API key, no setup.</p>
   <p>
     <a href="https://github.com/konippi/servo-fetch/actions"><img src="https://github.com/konippi/servo-fetch/workflows/CI/badge.svg" alt="CI"></a>
     <a href="https://crates.io/crates/servo-fetch"><img src="https://img.shields.io/crates/v/servo-fetch.svg" alt="crates.io"></a>

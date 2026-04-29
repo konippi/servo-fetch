@@ -81,6 +81,9 @@ servo-fetch "https://example.com" --json
 # Screenshot — rendered to PNG without GPU
 servo-fetch "https://example.com" --screenshot page.png
 
+# Full-page screenshot (captures the entire scrollable page)
+servo-fetch "https://example.com" --screenshot page.png --full-page
+
 # Execute JavaScript in the page context
 servo-fetch "https://example.com" --js "document.title"
 
@@ -101,6 +104,7 @@ servo-fetch "https://example.com/report.pdf"
 | ---- | ----------- |
 | `--json` | Output as structured JSON |
 | `--screenshot <FILE>` | Save a PNG screenshot |
+| `--full-page` | Capture the full scrollable page (requires `--screenshot`) |
 | `--js <EXPR>` | Execute JavaScript and print the result |
 | `--selector <CSS>` | Extract a specific section by CSS selector |
 | `--raw <MODE>` | Output raw `html` or plain `text` (bypasses Readability) |

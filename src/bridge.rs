@@ -541,7 +541,7 @@ fn build_servo(waker: FlagWaker) -> Result<(Rc<SoftwareRenderingContext>, servo:
         user_agent: std::env::var("SERVO_FETCH_USER_AGENT")
             .ok()
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "Mozilla/5.0 (compatible; servo-fetch/0.4)".into()),
+            .unwrap_or_else(|| format!("Mozilla/5.0 (compatible; servo-fetch/{})", env!("CARGO_PKG_VERSION"))),
         ..Preferences::default()
     };
 

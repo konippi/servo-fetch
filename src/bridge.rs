@@ -1,29 +1,29 @@
-//! Servo engine bridge — persistent Servo thread with channel-based communication.
+//! Servo engine bridge.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use dpi::PhysicalSize;
 use image::RgbaImage;
 use servo::{
-    ConsoleLogLevel, JSValue, LoadStatus, NavigationRequest, Preferences, RenderingContext, ServoBuilder,
-    SoftwareRenderingContext, UserContentManager, WebView, WebViewBuilder, WebViewDelegate,
+    ConsoleLogLevel, EventLoopWaker, JSValue, LoadStatus, NavigationRequest, Preferences, RenderingContext,
+    ServoBuilder, SoftwareRenderingContext, UserContentManager, WebView, WebViewBuilder, WebViewDelegate, WebViewId,
 };
 
 use servo_fetch::layout;
 
 const JS_EVAL_TIMEOUT: Duration = Duration::from_secs(10);
-const SETTLE_DURATION: Duration = Duration::from_millis(500);
-pub(crate) const SPIN_INTERVAL: Duration = Duration::from_millis(10);
+/// Max wait before we re-check time-based conditions.
+pub(crate) const FALLBACK_WAIT: Duration = Duration::from_millis(5);
 const LAYOUT_JS: &str = include_str!("js/layout.js");
-const MAX_PDF_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_CONSOLE_MESSAGES: usize = 100;
+const MAX_CONSOLE_MESSAGE_LEN: usize = 4096;
+const MAX_A11Y_NODES: usize = 100_000;
 
-/// CSS injected as a user stylesheet to strip common noise elements.
 const NOISE_REMOVAL_CSS: &str = "\
 [aria-label*=\"cookie\" i], [aria-label*=\"consent\" i], \
 [class*=\"cookie-banner\" i], [class*=\"cookie-consent\" i], \
@@ -31,11 +31,90 @@ const NOISE_REMOVAL_CSS: &str = "\
 [class*=\"newsletter-popup\" i], [class*=\"subscribe-modal\" i] \
 { display: none !important; }";
 
-struct Delegate {
-    loaded: Rc<Cell<bool>>,
-    pdf_data: Rc<RefCell<Option<Vec<u8>>>>,
-    a11y_nodes: Rc<RefCell<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>>,
-    console_messages: Rc<RefCell<Vec<ConsoleMessage>>>,
+/// Shared wake signal — `notify_all` signals, `wait_and_take` consumes.
+#[derive(Default)]
+pub(crate) struct WakeFlag {
+    flag: Mutex<bool>,
+    cv: Condvar,
+}
+
+impl WakeFlag {
+    /// Block up to `timeout` for a signal, then clear the flag atomically.
+    fn wait_and_take(&self, timeout: Duration) -> bool {
+        let mut guard = self.flag.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !*guard {
+            let (next, _) = self
+                .cv
+                .wait_timeout(guard, timeout)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            guard = next;
+        }
+        std::mem::replace(&mut *guard, false)
+    }
+
+    fn signal(&self) {
+        *self.flag.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        self.cv.notify_all();
+    }
+}
+
+#[derive(Clone)]
+struct FlagWaker(Arc<WakeFlag>);
+
+impl EventLoopWaker for FlagWaker {
+    fn clone_box(&self) -> Box<dyn EventLoopWaker> {
+        Box::new(self.clone())
+    }
+
+    fn wake(&self) {
+        self.0.signal();
+    }
+}
+
+thread_local! {
+    /// Wake flag owned by `servo_thread`; exposed for `spin_loop` helpers.
+    static WAKE: RefCell<Option<Arc<WakeFlag>>> = const { RefCell::new(None) };
+}
+
+/// Block up to `timeout` for the next Servo wake.
+pub(crate) fn wait_for_wake(timeout: Duration) {
+    WAKE.with(|slot| {
+        if let Some(flag) = slot.borrow().as_ref() {
+            flag.wait_and_take(timeout);
+        } else {
+            std::thread::sleep(timeout);
+        }
+    });
+}
+
+#[derive(Default)]
+struct WebViewState {
+    loaded_at: Cell<Option<Instant>>,
+    a11y_truncated: Cell<bool>,
+    a11y_nodes: RefCell<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>,
+    console_messages: RefCell<Vec<ConsoleMessage>>,
+}
+
+#[derive(Default)]
+struct SharedDelegate {
+    states: RefCell<HashMap<WebViewId, Rc<WebViewState>>>,
+}
+
+impl SharedDelegate {
+    fn register(&self, id: WebViewId) -> Rc<WebViewState> {
+        let state = Rc::new(WebViewState::default());
+        self.states.borrow_mut().insert(id, state.clone());
+        state
+    }
+
+    fn remove(&self, id: WebViewId) -> Option<Rc<WebViewState>> {
+        self.states.borrow_mut().remove(&id)
+    }
+
+    fn with_state<R>(&self, id: WebViewId, f: impl FnOnce(&WebViewState) -> R) -> Option<R> {
+        let state = self.states.borrow().get(&id).cloned();
+        state.map(|s| f(&s))
+    }
 }
 
 /// A captured console message from the page.
@@ -70,10 +149,25 @@ impl std::fmt::Display for ConsoleLevel {
     }
 }
 
-impl WebViewDelegate for Delegate {
-    fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
+impl From<ConsoleLogLevel> for ConsoleLevel {
+    fn from(level: ConsoleLogLevel) -> Self {
+        match level {
+            ConsoleLogLevel::Log => Self::Log,
+            ConsoleLogLevel::Debug => Self::Debug,
+            ConsoleLogLevel::Info => Self::Info,
+            ConsoleLogLevel::Warn => Self::Warn,
+            ConsoleLogLevel::Error => Self::Error,
+            ConsoleLogLevel::Trace => Self::Trace,
+        }
+    }
+}
+
+impl WebViewDelegate for SharedDelegate {
+    fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
         if status == LoadStatus::Complete {
-            self.loaded.set(true);
+            self.with_state(webview.id(), |s| {
+                s.loaded_at.set(Some(Instant::now()));
+            });
         }
     }
 
@@ -92,80 +186,40 @@ impl WebViewDelegate for Delegate {
         }
     }
 
-    fn notify_accessibility_tree_update(&self, _webview: WebView, tree_update: servo::accesskit::TreeUpdate) {
-        // TreeUpdate is incremental — merge nodes into a single map to build the full tree.
-        let mut nodes = self.a11y_nodes.borrow_mut();
-        for (id, node) in tree_update.nodes {
-            nodes.insert(id, node);
-        }
-    }
-
-    fn show_console_message(&self, _webview: WebView, level: ConsoleLogLevel, message: String) {
-        let mut msgs = self.console_messages.borrow_mut();
-        if msgs.len() < MAX_CONSOLE_MESSAGES {
-            let level = match level {
-                ConsoleLogLevel::Log => ConsoleLevel::Log,
-                ConsoleLogLevel::Debug => ConsoleLevel::Debug,
-                ConsoleLogLevel::Info => ConsoleLevel::Info,
-                ConsoleLogLevel::Warn => ConsoleLevel::Warn,
-                ConsoleLogLevel::Error => ConsoleLevel::Error,
-                ConsoleLogLevel::Trace => ConsoleLevel::Trace,
-            };
-            msgs.push(ConsoleMessage { level, message });
-        }
-    }
-
-    fn load_web_resource(&self, _webview: WebView, load: servo::WebResourceLoad) {
-        let request = load.request();
-        if !request.is_for_main_frame {
-            return;
-        }
-
-        let url = request.url.clone();
-
-        // SSRF check: validate the host before making any request.
-        if let Some(host) = url.host_str() {
-            if crate::net::is_private_host(host) {
-                return;
+    fn notify_accessibility_tree_update(&self, webview: WebView, tree_update: servo::accesskit::TreeUpdate) {
+        self.with_state(webview.id(), |state| {
+            let mut nodes = state.a11y_nodes.borrow_mut();
+            for (id, node) in tree_update.nodes {
+                if nodes.len() >= MAX_A11Y_NODES && !nodes.contains_key(&id) {
+                    if !state.a11y_truncated.get() {
+                        state.a11y_truncated.set(true);
+                        eprintln!("warning: accessibility tree truncated at {MAX_A11Y_NODES} nodes");
+                    }
+                    continue;
+                }
+                nodes.insert(id, node);
             }
-        }
+        });
+    }
 
-        // HEAD first to check Content-Type; no redirects to prevent SSRF.
-        let agent = ureq::Agent::new_with_config(
-            ureq::config::Config::builder()
-                .max_redirects(0)
-                .timeout_global(Some(Duration::from_secs(15)))
-                .build(),
-        );
-        let Ok(head_resp) = agent.head(url.as_str()).call() else {
-            return;
-        };
-
-        let is_pdf = head_resp
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|ct| ct.to_ascii_lowercase().starts_with("application/pdf"));
-
-        if !is_pdf {
-            return; // Let Servo handle non-PDF responses normally.
-        }
-
-        // Fetch the PDF body with a size limit.
-        let Ok(get_resp) = agent.get(url.as_str()).call() else {
-            return;
-        };
-        let Ok(bytes) = get_resp.into_body().with_config().limit(MAX_PDF_BYTES).read_to_vec() else {
-            return;
-        };
-
-        *self.pdf_data.borrow_mut() = Some(bytes);
-
-        // Send empty HTML so Servo completes loading.
-        let resp = servo::WebResourceResponse::new(url);
-        let mut intercepted = load.intercept(resp);
-        intercepted.send_body_data(b"<html><body></body></html>".to_vec());
-        intercepted.finish();
+    fn show_console_message(&self, webview: WebView, level: ConsoleLogLevel, message: String) {
+        self.with_state(webview.id(), |state| {
+            let mut msgs = state.console_messages.borrow_mut();
+            if msgs.len() < MAX_CONSOLE_MESSAGES {
+                let message = if message.len() > MAX_CONSOLE_MESSAGE_LEN {
+                    let mut s = message;
+                    s.truncate(servo_fetch::sanitize::floor_char_boundary(&s, MAX_CONSOLE_MESSAGE_LEN));
+                    s.push_str("… (truncated)");
+                    s
+                } else {
+                    message
+                };
+                msgs.push(ConsoleMessage {
+                    level: level.into(),
+                    message,
+                });
+            }
+        });
     }
 }
 
@@ -177,7 +231,6 @@ pub(crate) struct ServoPage {
     pub layout_json: Option<String>,
     pub screenshot: Option<RgbaImage>,
     pub js_result: Option<String>,
-    pub pdf_data: Option<Vec<u8>>,
     pub accessibility_tree: Option<String>,
     pub console_messages: Vec<ConsoleMessage>,
 }
@@ -186,159 +239,265 @@ pub(crate) struct ServoPage {
 pub(crate) struct FetchOptions<'a> {
     pub url: &'a str,
     pub timeout_secs: u64,
+    /// Extra wait after Servo fires `LoadStatus::Complete`.
+    pub settle_ms: u64,
     pub mode: FetchMode,
 }
 
 /// What to do once the page has loaded. Variants are mutually exclusive.
 pub(crate) enum FetchMode {
-    /// Capture HTML, inner text, and layout metadata for Readability extraction.
     Content { include_a11y: bool },
-    /// Render a PNG screenshot.
     Screenshot { full_page: bool },
-    /// Evaluate the given JavaScript expression and return its result.
     ExecuteJs { expression: String },
-}
-
-impl FetchMode {
-    fn take_screenshot(&self) -> bool {
-        matches!(self, Self::Screenshot { .. })
-    }
-
-    fn full_page(&self) -> bool {
-        matches!(self, Self::Screenshot { full_page: true })
-    }
-
-    fn needs_accessibility_tree(&self) -> bool {
-        matches!(self, Self::Content { include_a11y: true })
-    }
-
-    fn custom_js(&self) -> Option<&str> {
-        match self {
-            Self::ExecuteJs { expression } => Some(expression.as_str()),
-            _ => None,
-        }
-    }
 }
 
 struct FetchRequest {
     url: String,
     timeout_secs: u64,
+    settle_ms: u64,
     mode: FetchMode,
     reply: mpsc::Sender<Result<ServoPage>>,
 }
 
+struct PendingFetch {
+    webview: WebView,
+    request: FetchRequest,
+    deadline: Instant,
+    state: Rc<WebViewState>,
+    dedicated_ctx: Option<Rc<SoftwareRenderingContext>>,
+}
+
+struct Engine {
+    requests: mpsc::SyncSender<FetchRequest>,
+    wake: Arc<WakeFlag>,
+}
+
+/// Servo engine — lives for the process lifetime. Shutdown is via process exit.
+static ENGINE: std::sync::OnceLock<Engine> = std::sync::OnceLock::new();
+
 /// Fetch a page via Servo. First call spawns a persistent Servo thread.
 pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
-    static SENDER: std::sync::OnceLock<mpsc::Sender<FetchRequest>> = std::sync::OnceLock::new();
+    /// Max outstanding requests queued toward the engine.
+    const PENDING_CAPACITY: usize = 64;
 
-    let sender = SENDER.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<FetchRequest>();
+    let engine = ENGINE.get_or_init(|| {
+        let (tx, rx) = mpsc::sync_channel::<FetchRequest>(PENDING_CAPACITY);
+        let wake = Arc::new(WakeFlag::default());
+        let wake_for_thread = wake.clone();
         std::thread::Builder::new()
             .name("servo-engine".into())
-            .spawn(move || {
-                servo_thread(rx);
-            })
+            .spawn(move || servo_thread(rx, wake_for_thread))
             .expect("failed to spawn servo thread");
-        tx
+        Engine { requests: tx, wake }
     });
 
     let (reply_tx, reply_rx) = mpsc::channel();
-    sender
+    let deadline =
+        Duration::from_secs(opts.timeout_secs) + Duration::from_millis(opts.settle_ms) + Duration::from_secs(2);
+    engine
+        .requests
         .send(FetchRequest {
             url: opts.url.to_string(),
             timeout_secs: opts.timeout_secs,
+            settle_ms: opts.settle_ms,
             mode: opts.mode,
             reply: reply_tx,
         })
         .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
+    // Nudge the engine so it checks the request queue even if it was idle.
+    engine.wake.signal();
 
-    reply_rx
-        .recv()
-        .map_err(|_| anyhow!("Servo engine crashed while processing this page. Try a different URL."))?
+    match reply_rx.recv_timeout(deadline) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            Err(anyhow!("Servo engine did not respond within {}s", deadline.as_secs()))
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(anyhow!("Servo engine crashed while processing this page")),
+    }
 }
 
 #[expect(
     clippy::needless_pass_by_value,
-    reason = "the thread owns the Receiver for its lifetime"
+    reason = "the thread owns its receiver for its lifetime"
 )]
-fn servo_thread(rx: mpsc::Receiver<FetchRequest>) {
-    let (rc_ctx, servo) = match build_servo() {
+fn servo_thread(request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag>) {
+    let (rc_ctx, servo) = match build_servo(FlagWaker(wake.clone())) {
         Ok(pair) => pair,
         Err(e) => {
-            if let Ok(req) = rx.recv() {
+            if let Ok(req) = request_rx.recv() {
                 let _ = req.reply.send(Err(e.context("Servo initialization failed")));
             }
             return;
         }
     };
 
-    while let Ok(req) = rx.recv() {
-        let rc_dyn: Rc<dyn RenderingContext> = rc_ctx.clone();
-        let delegate = Rc::new(Delegate {
-            loaded: Rc::new(Cell::new(false)),
-            pdf_data: Rc::new(RefCell::new(None)),
-            a11y_nodes: Rc::new(RefCell::new(HashMap::new())),
-            console_messages: Rc::new(RefCell::new(Vec::new())),
-        });
+    WAKE.with(|slot| *slot.borrow_mut() = Some(wake.clone()));
 
-        let parsed_url = match url::Url::parse(&req.url) {
-            Ok(u) => u,
-            Err(e) => {
-                let _ = req.reply.send(Err(anyhow!("bad url: {e}")));
-                continue;
-            }
-        };
+    let delegate = Rc::new(SharedDelegate::default());
+    let ucm = Rc::new(UserContentManager::new(&servo));
+    ucm.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
 
-        // Set up user stylesheets for noise removal.
-        let ucm = Rc::new(UserContentManager::new(&servo));
-        ucm.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
+    let mut pending: HashMap<WebViewId, PendingFetch> = HashMap::new();
 
-        let webview = WebViewBuilder::new(&servo, rc_dyn)
-            .url(parsed_url)
-            .delegate(delegate.clone())
-            .user_content_manager(ucm)
-            .build();
-
-        // Collect the a11y tree only when requested — building it is expensive.
-        if req.mode.needs_accessibility_tree() {
-            webview.set_accessibility_active(true);
+    loop {
+        while let Ok(req) = request_rx.try_recv() {
+            accept_request(&servo, &rc_ctx, &delegate, &ucm, req, &mut pending);
         }
 
-        let result = handle_request(&servo, &webview, &delegate, &req);
-        drop(webview);
-        let _ = req.reply.send(result);
+        if pending.is_empty() {
+            // Idle: block until a new request nudges us or the channel hangs up.
+            match request_rx.recv() {
+                Ok(req) => accept_request(&servo, &rc_ctx, &delegate, &ucm, req, &mut pending),
+                Err(_) => return,
+            }
+            continue;
+        }
+
+        servo.spin_event_loop();
+        harvest(&servo, &delegate, &mut pending);
+
+        if !pending.is_empty() {
+            // Wait for Servo to wake us or the next pending deadline, whichever is sooner.
+            let now = Instant::now();
+            let next = pending
+                .values()
+                .map(|p| {
+                    p.state
+                        .loaded_at
+                        .get()
+                        .map_or(p.deadline, |t| t + Duration::from_millis(p.request.settle_ms))
+                })
+                .min()
+                .map_or(FALLBACK_WAIT, |t| t.saturating_duration_since(now).min(FALLBACK_WAIT));
+            wake.wait_and_take(next);
+        }
     }
 }
 
-fn handle_request(
+fn accept_request(
     servo: &servo::Servo,
-    webview: &WebView,
-    delegate: &Delegate,
-    req: &FetchRequest,
-) -> Result<ServoPage> {
-    let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
-    spin_until(servo, &delegate.loaded, deadline, req.timeout_secs)?;
-    wait_for_ready_state(servo, webview, deadline);
+    rc_ctx: &Rc<SoftwareRenderingContext>,
+    delegate: &Rc<SharedDelegate>,
+    ucm: &Rc<UserContentManager>,
+    req: FetchRequest,
+    pending: &mut HashMap<WebViewId, PendingFetch>,
+) {
+    match start_fetch(servo, rc_ctx, delegate, ucm, req) {
+        Ok(p) => {
+            pending.insert(p.webview.id(), p);
+        }
+        Err((req, err)) => {
+            let _ = req.reply.send(Err(err));
+        }
+    }
+}
 
-    let html = eval_js(servo, webview, "document.documentElement.outerHTML")?;
-    let inner_text = eval_js(servo, webview, "document.body.innerText").ok();
-    let layout_json = eval_js(servo, webview, LAYOUT_JS).ok();
+fn harvest(servo: &servo::Servo, delegate: &Rc<SharedDelegate>, pending: &mut HashMap<WebViewId, PendingFetch>) {
+    let now = Instant::now();
+    let finished: Vec<WebViewId> = pending
+        .iter()
+        .filter_map(|(id, p)| {
+            let settled = p
+                .state
+                .loaded_at
+                .get()
+                .is_some_and(|t| now.duration_since(t) >= Duration::from_millis(p.request.settle_ms));
+            (settled || now > p.deadline).then_some(*id)
+        })
+        .collect();
 
-    let screenshot = if req.mode.take_screenshot() {
-        crate::screenshot::capture(servo, webview, req.mode.full_page(), req.timeout_secs)
+    for id in finished {
+        let Some(p) = pending.remove(&id) else { continue };
+        let result = finish_fetch(servo, &p);
+        delegate.remove(id);
+        drop(p.webview);
+        let _ = p.request.reply.send(result);
+    }
+}
+
+fn start_fetch(
+    servo: &servo::Servo,
+    rc_ctx: &Rc<SoftwareRenderingContext>,
+    delegate: &Rc<SharedDelegate>,
+    ucm: &Rc<UserContentManager>,
+    req: FetchRequest,
+) -> std::result::Result<PendingFetch, (FetchRequest, anyhow::Error)> {
+    let parsed_url = match url::Url::parse(&req.url) {
+        Ok(u) => u,
+        Err(e) => return Err((req, anyhow!("bad url: {e}"))),
+    };
+
+    let dedicated_ctx = if matches!(req.mode, FetchMode::Screenshot { .. }) {
+        let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
+        match SoftwareRenderingContext::new(size) {
+            Ok(ctx) => {
+                if let Err(e) = ctx.make_current() {
+                    return Err((req, anyhow!("failed to make screenshot context current: {e:?}")));
+                }
+                Some(Rc::new(ctx))
+            }
+            Err(e) => return Err((req, anyhow!("failed to create screenshot context: {e:?}"))),
+        }
     } else {
         None
     };
 
-    let js_result = req
-        .mode
-        .custom_js()
-        .map(|expr| eval_js(servo, webview, expr))
-        .transpose()?;
+    let rc_dyn: Rc<dyn RenderingContext> = match dedicated_ctx.as_ref() {
+        Some(ctx) => ctx.clone(),
+        None => rc_ctx.clone(),
+    };
 
-    // Serialize the merged accessibility tree, masking password field values.
+    let delegate_dyn: Rc<dyn WebViewDelegate> = delegate.clone();
+    let webview = WebViewBuilder::new(servo, rc_dyn)
+        .url(parsed_url)
+        .delegate(delegate_dyn)
+        .user_content_manager(ucm.clone())
+        .build();
+
+    if matches!(req.mode, FetchMode::Content { include_a11y: true }) {
+        webview.set_accessibility_active(true);
+    }
+
+    let state = delegate.register(webview.id());
+    let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
+    Ok(PendingFetch {
+        webview,
+        request: req,
+        deadline,
+        state,
+        dedicated_ctx,
+    })
+}
+
+fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
+    if p.state.loaded_at.get().is_none() && Instant::now() > p.deadline {
+        return Err(anyhow!(
+            "page load timed out after {timeout}s (try increasing --timeout)",
+            timeout = p.request.timeout_secs,
+        ));
+    }
+
+    if let Some(ref ctx) = p.dedicated_ctx {
+        let _ = ctx.make_current();
+    }
+
+    wait_for_ready_state(servo, &p.webview, p.deadline);
+
+    let html = eval_js(servo, &p.webview, "document.documentElement.outerHTML")?;
+    let inner_text = eval_js(servo, &p.webview, "document.body.innerText").ok();
+    let layout_json = eval_js(servo, &p.webview, LAYOUT_JS).ok();
+
+    let (screenshot, js_result) = match &p.request.mode {
+        FetchMode::Screenshot { full_page } => (
+            crate::screenshot::capture(servo, &p.webview, *full_page, p.request.timeout_secs),
+            None,
+        ),
+        FetchMode::ExecuteJs { expression } => (None, Some(eval_js(servo, &p.webview, expression)?)),
+        FetchMode::Content { .. } => (None, None),
+    };
+
     let accessibility_tree = {
-        let mut nodes = delegate.a11y_nodes.borrow_mut();
+        let mut nodes = p.state.a11y_nodes.borrow_mut();
         if nodes.is_empty() {
             None
         } else {
@@ -357,13 +516,12 @@ fn handle_request(
         layout_json,
         screenshot,
         js_result,
-        pdf_data: delegate.pdf_data.borrow_mut().take(),
         accessibility_tree,
-        console_messages: delegate.console_messages.borrow_mut().drain(..).collect(),
+        console_messages: p.state.console_messages.borrow_mut().drain(..).collect(),
     })
 }
 
-fn build_servo() -> Result<(Rc<SoftwareRenderingContext>, servo::Servo)> {
+fn build_servo(waker: FlagWaker) -> Result<(Rc<SoftwareRenderingContext>, servo::Servo)> {
     let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
     let ctx = {
         let _guard = stderr_guard::StderrGuard::suppress();
@@ -380,11 +538,18 @@ fn build_servo() -> Result<(Rc<SoftwareRenderingContext>, servo::Servo)> {
         dom_webxr_enabled: false,
         dom_serviceworker_enabled: false,
         dom_bluetooth_enabled: false,
+        user_agent: std::env::var("SERVO_FETCH_USER_AGENT")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "Mozilla/5.0 (compatible; servo-fetch/0.4)".into()),
         ..Preferences::default()
     };
 
     let rc = Rc::new(ctx);
-    let servo = ServoBuilder::default().preferences(prefs).build();
+    let servo = ServoBuilder::default()
+        .preferences(prefs)
+        .event_loop_waker(Box::new(waker))
+        .build();
     Ok((rc, servo))
 }
 
@@ -393,37 +558,18 @@ fn create_noise_removal_stylesheet() -> servo::user_contents::UserStyleSheet {
     servo::user_contents::UserStyleSheet::new(NOISE_REMOVAL_CSS.to_string(), url)
 }
 
-fn spin_until(servo: &servo::Servo, condition: &Cell<bool>, deadline: Instant, timeout_secs: u64) -> Result<()> {
-    while !condition.get() {
-        if Instant::now() > deadline {
-            return Err(anyhow!(
-                "page load timed out after {timeout_secs}s (try increasing --timeout)"
-            ));
-        }
-        servo.spin_event_loop();
-        std::thread::sleep(SPIN_INTERVAL);
-    }
-    let settle_end = Instant::now() + SETTLE_DURATION;
-    while Instant::now() < settle_end {
-        servo.spin_event_loop();
-        std::thread::sleep(SPIN_INTERVAL);
-    }
-    Ok(())
-}
-
-/// Wait for `document.readyState` to reach `"complete"`, or the deadline elapses.
+/// Wait for `document.readyState` to reach `"complete"`.
 ///
-/// TODO(upstream): Servo's `LoadStatus::Complete` fires before the DOM is fully
-/// parsed on pages with heavy inline scripts (e.g. amazon.co.jp); see
-/// servo/servo#41972. Drop this function once upstream fires `LoadStatus::Complete`
-/// at `document.readyState == "complete"` — `spin_until` would then suffice.
+/// TODO(upstream): Servo's `LoadStatus::Complete` fires before the DOM is
+/// fully parsed on pages with heavy inline scripts (e.g. amazon.co.jp); see
+/// servo/servo#41972.
 fn wait_for_ready_state(servo: &servo::Servo, webview: &WebView, deadline: Instant) {
     while Instant::now() < deadline {
         servo.spin_event_loop();
         if matches!(eval_js(servo, webview, "document.readyState"), Ok(s) if s == "complete") {
             return;
         }
-        std::thread::sleep(SPIN_INTERVAL);
+        wait_for_wake(FALLBACK_WAIT);
     }
     eprintln!("warning: document did not finish loading; content may be incomplete");
 }
@@ -453,7 +599,7 @@ pub(crate) fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str) -> 
         if Instant::now() > deadline {
             return Err(anyhow!("timeout waiting for JS evaluation"));
         }
-        std::thread::sleep(SPIN_INTERVAL);
+        wait_for_wake(FALLBACK_WAIT);
     }
 }
 
@@ -495,6 +641,9 @@ mod tests {
     #[test]
     fn console_level_display() {
         assert_eq!(ConsoleLevel::Log.to_string(), "log");
+        assert_eq!(ConsoleLevel::Debug.to_string(), "debug");
+        assert_eq!(ConsoleLevel::Info.to_string(), "info");
+        assert_eq!(ConsoleLevel::Warn.to_string(), "warn");
         assert_eq!(ConsoleLevel::Error.to_string(), "error");
         assert_eq!(ConsoleLevel::Trace.to_string(), "trace");
     }
@@ -521,7 +670,9 @@ mod tests {
         let page = ServoPage::default();
         assert!(page.html.is_empty());
         assert!(page.inner_text.is_none());
+        assert!(page.layout_json.is_none());
         assert!(page.screenshot.is_none());
+        assert!(page.js_result.is_none());
         assert!(page.accessibility_tree.is_none());
         assert!(page.console_messages.is_empty());
     }
@@ -561,39 +712,90 @@ mod tests {
     }
 
     #[test]
-    fn fetch_mode_screenshot_flags() {
-        let vp = FetchMode::Screenshot { full_page: false };
-        assert!(vp.take_screenshot());
-        assert!(!vp.full_page());
-        assert!(!vp.needs_accessibility_tree());
-        assert!(vp.custom_js().is_none());
-
-        let fp = FetchMode::Screenshot { full_page: true };
-        assert!(fp.take_screenshot());
-        assert!(fp.full_page());
+    fn wake_flag_signal_releases_waiter() {
+        let wake = Arc::new(WakeFlag::default());
+        let w = wake.clone();
+        let handle = std::thread::spawn(move || w.wait_and_take(Duration::from_secs(5)));
+        std::thread::sleep(Duration::from_millis(10));
+        wake.signal();
+        assert!(handle.join().unwrap(), "waiter should observe the signal");
     }
 
     #[test]
-    fn fetch_mode_content_flags() {
-        let bare = FetchMode::Content { include_a11y: false };
-        assert!(!bare.take_screenshot());
-        assert!(!bare.full_page());
-        assert!(!bare.needs_accessibility_tree());
-        assert!(bare.custom_js().is_none());
-
-        let a11y = FetchMode::Content { include_a11y: true };
-        assert!(a11y.needs_accessibility_tree());
+    fn wake_flag_wait_and_take_clears() {
+        let wake = WakeFlag::default();
+        wake.signal();
+        assert!(wake.wait_and_take(Duration::from_millis(10)));
+        assert!(!wake.wait_and_take(Duration::from_millis(10)));
     }
 
     #[test]
-    fn fetch_mode_execute_js_flags() {
-        let js = FetchMode::ExecuteJs {
-            expression: "document.title".into(),
-        };
-        assert!(!js.take_screenshot());
-        assert!(!js.full_page());
-        assert!(!js.needs_accessibility_tree());
-        assert_eq!(js.custom_js(), Some("document.title"));
+    fn wake_flag_timeout_returns_false() {
+        let wake = WakeFlag::default();
+        assert!(
+            !wake.wait_and_take(Duration::from_millis(1)),
+            "should return false on timeout"
+        );
+    }
+
+    #[test]
+    fn console_level_from_servo() {
+        assert!(matches!(ConsoleLevel::from(ConsoleLogLevel::Log), ConsoleLevel::Log));
+        assert!(matches!(
+            ConsoleLevel::from(ConsoleLogLevel::Debug),
+            ConsoleLevel::Debug
+        ));
+        assert!(matches!(ConsoleLevel::from(ConsoleLogLevel::Info), ConsoleLevel::Info));
+        assert!(matches!(ConsoleLevel::from(ConsoleLogLevel::Warn), ConsoleLevel::Warn));
+        assert!(matches!(
+            ConsoleLevel::from(ConsoleLogLevel::Error),
+            ConsoleLevel::Error
+        ));
+        assert!(matches!(
+            ConsoleLevel::from(ConsoleLogLevel::Trace),
+            ConsoleLevel::Trace
+        ));
+    }
+
+    #[test]
+    fn jsvalue_to_json_element_variants() {
+        assert_eq!(
+            jsvalue_to_json(&JSValue::Element("div".into())).unwrap(),
+            serde_json::json!("div")
+        );
+        assert_eq!(
+            jsvalue_to_json(&JSValue::ShadowRoot("sr".into())).unwrap(),
+            serde_json::json!("sr")
+        );
+        assert_eq!(
+            jsvalue_to_json(&JSValue::Frame("f".into())).unwrap(),
+            serde_json::json!("f")
+        );
+        assert_eq!(
+            jsvalue_to_json(&JSValue::Window("w".into())).unwrap(),
+            serde_json::json!("w")
+        );
+    }
+
+    #[test]
+    fn jsvalue_to_json_object() {
+        let mut map = HashMap::new();
+        map.insert("key".to_string(), JSValue::Number(1.0));
+        let val = JSValue::Object(map);
+        let result = jsvalue_to_json(&val).unwrap();
+        assert_eq!(result, serde_json::json!({"key": 1.0}));
+    }
+
+    #[test]
+    fn webview_state_default() {
+        let state = WebViewState::default();
+        assert!(state.loaded_at.get().is_none(), "loaded_at should be None");
+        assert!(!state.a11y_truncated.get(), "a11y_truncated should be false");
+        assert!(state.a11y_nodes.borrow().is_empty(), "a11y_nodes should be empty");
+        assert!(
+            state.console_messages.borrow().is_empty(),
+            "console_messages should be empty"
+        );
     }
 }
 
@@ -602,7 +804,6 @@ mod tests {
 mod stderr_guard {
     use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
 
-    /// RAII guard: suppresses stderr on creation, restores on drop.
     pub(crate) struct StderrGuard {
         saved_fd: Option<OwnedFd>,
     }
@@ -610,7 +811,6 @@ mod stderr_guard {
     impl StderrGuard {
         #[allow(unsafe_code)]
         pub(crate) fn suppress() -> Self {
-            // SAFETY: dup/dup2/fcntl/close are standard POSIX calls.
             let saved = unsafe { libc::dup(2) };
             if saved < 0 {
                 return Self { saved_fd: None };

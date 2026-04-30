@@ -28,6 +28,20 @@ pub fn sanitize(input: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// Return the nearest UTF-8 char boundary `<= index`, so `String::truncate`
+/// never panics on a multibyte boundary.
+#[must_use]
+pub fn floor_char_boundary(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    let mut i = index;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 fn is_bidi_control(c: char) -> bool {
     matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200F}' | '\u{200E}')
 }
@@ -165,5 +179,32 @@ mod tests {
     fn strips_bidi_override_characters() {
         // CVE-2021-42574: BiDi overrides can reorder displayed text.
         assert_eq!(sanitize("a\u{202A}b\u{202E}c\u{2066}d\u{200F}e"), "abcde");
+    }
+
+    #[test]
+    fn floor_char_boundary_ascii() {
+        assert_eq!(floor_char_boundary("hello", 3), 3);
+        assert_eq!(floor_char_boundary("abc", 100), 3);
+    }
+
+    #[test]
+    fn floor_char_boundary_multibyte() {
+        // 3-byte chars: "日本語"
+        assert_eq!(floor_char_boundary("日本語", 0), 0);
+        assert_eq!(floor_char_boundary("日本語", 4), 3);
+        assert_eq!(floor_char_boundary("日本語", 9), 9);
+        // 4-byte char: "🦀"
+        assert_eq!(floor_char_boundary("🦀x", 2), 0);
+        assert_eq!(floor_char_boundary("🦀x", 4), 4);
+    }
+
+    #[test]
+    fn floor_char_boundary_zero() {
+        assert_eq!(floor_char_boundary("hello", 0), 0);
+    }
+
+    #[test]
+    fn sanitize_mixed_ascii_escape_unicode() {
+        assert_eq!(sanitize("hello\x1b[31m世界\x00!"), "hello世界!");
     }
 }

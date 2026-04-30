@@ -157,4 +157,40 @@ mod tests {
         assert!(!is_private_host("1.1.1.1"));
         assert!(!is_private_host("example.com"));
     }
+
+    #[test]
+    fn blocks_zero_address() {
+        assert!(is_private_host("0.0.0.0"));
+    }
+
+    #[test]
+    fn blocks_localhost_case_insensitive() {
+        assert!(is_private_host("LOCALHOST"));
+        assert!(is_private_host("Localhost"));
+    }
+
+    #[test]
+    fn blocks_broadcast() {
+        assert!(is_private_host("255.255.255.255"));
+    }
+
+    #[test]
+    fn blocks_reserved_240() {
+        assert!(is_private_host("240.0.0.1"));
+    }
+
+    #[test]
+    fn blocks_teredo() {
+        assert!(is_private_host("2001::1"));
+    }
+
+    #[test]
+    fn blocks_6to4() {
+        assert!(is_private_host("2002::1"));
+    }
+
+    #[test]
+    fn validate_url_empty_string() {
+        assert!(validate_url("").is_err());
+    }
 }

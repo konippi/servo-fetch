@@ -11,6 +11,8 @@ use clap::Parser;
 Examples:
   servo-fetch https://example.com              Readable Markdown (default)
   servo-fetch https://example.com --json       Structured JSON
+  servo-fetch URL1 URL2 URL3                   Parallel batch fetch
+  servo-fetch URL1 URL2 --json                 Parallel batch (NDJSON)
   servo-fetch https://example.com --screenshot page.png
   servo-fetch https://example.com --js \"document.title\"
   servo-fetch https://example.com -t 60        Custom timeout (seconds)
@@ -21,14 +23,15 @@ pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    /// URL to fetch
-    pub url: Option<String>,
+    /// URLs to fetch (one or more)
+    #[arg(num_args = 1..)]
+    pub urls: Vec<String>,
 
-    /// Output as structured JSON
+    /// Output as structured JSON (NDJSON when multiple URLs)
     #[arg(long, conflicts_with_all = ["screenshot", "js"])]
     pub json: bool,
 
-    /// Save screenshot as PNG
+    /// Save screenshot as PNG (single URL only)
     #[arg(long, value_name = "FILE", conflicts_with_all = ["json", "js"])]
     pub screenshot: Option<String>,
 
@@ -36,13 +39,17 @@ pub(crate) struct Cli {
     #[arg(long, requires = "screenshot")]
     pub full_page: bool,
 
-    /// Execute JavaScript and print the result
+    /// Execute JavaScript and print the result (single URL only)
     #[arg(long, value_name = "EXPR", conflicts_with_all = ["json", "screenshot"])]
     pub js: Option<String>,
 
     /// Timeout in seconds for page load
     #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..), value_name = "SECS")]
     pub timeout: u64,
+
+    /// Extra wait in ms after the `load` event, for SPAs that keep hydrating.
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=10_000), value_name = "MS")]
+    pub settle: u64,
 
     /// CSS selector to extract a specific section
     #[arg(long, value_name = "CSS")]
@@ -167,5 +174,32 @@ mod cli_tests {
             .assert()
             .failure()
             .stderr(predicate::str::contains("cannot be used with"));
+    }
+
+    #[test]
+    fn settle_rejects_out_of_range() {
+        servo_fetch()
+            .args(["--settle", "10001", "https://example.com"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("invalid value"));
+    }
+
+    #[test]
+    fn raw_conflicts_with_json() {
+        servo_fetch()
+            .args(["--raw", "html", "--json", "https://example.com"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("cannot be used with"));
+    }
+
+    #[test]
+    fn full_page_requires_screenshot() {
+        servo_fetch()
+            .args(["--full-page", "https://example.com"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("--screenshot"));
     }
 }

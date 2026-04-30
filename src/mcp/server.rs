@@ -11,6 +11,8 @@ const MAX_JS_LEN: usize = 10_000;
 const MAX_JS_OUTPUT_LEN: usize = 1_000_000;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const MAX_SELECTOR_LEN: usize = 1_000;
+const MAX_SETTLE_MS: u64 = 10_000;
+const MAX_BATCH_URLS: usize = 20;
 
 /// Output format requested by the MCP `fetch` tool.
 #[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
@@ -38,6 +40,10 @@ pub(super) struct FetchParams {
     start_index: Option<usize>,
     #[schemars(description = "Page load timeout in seconds. Default: 30")]
     timeout: Option<u64>,
+    #[schemars(
+        description = "Extra wait in ms after the `load` event, for SPAs that keep hydrating. Default: 0. Max: 10000."
+    )]
+    settle_ms: Option<u64>,
     #[schemars(description = "CSS selector to extract a specific section instead of full-page Readability extraction")]
     selector: Option<String>,
 }
@@ -51,6 +57,8 @@ pub(super) struct ScreenshotParams {
     full_page: Option<bool>,
     #[schemars(description = "Page load timeout in seconds. Default: 30")]
     timeout: Option<u64>,
+    #[schemars(description = "Extra wait in ms after the `load` event. Default: 0. Max: 10000.")]
+    settle_ms: Option<u64>,
 }
 
 /// Parameters for the MCP `execute_js` tool.
@@ -62,6 +70,34 @@ pub(super) struct ExecuteJsParams {
     expression: String,
     #[schemars(description = "Page load timeout in seconds. Default: 30")]
     timeout: Option<u64>,
+    #[schemars(description = "Extra wait in ms after the `load` event. Default: 0. Max: 10000.")]
+    settle_ms: Option<u64>,
+}
+
+/// Parameters for the MCP `batch_fetch` tool.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(super) struct BatchFetchParams {
+    #[schemars(description = "URLs to fetch (http/https only). Max 20.")]
+    urls: Vec<String>,
+    #[schemars(description = "Output format: markdown (default) or json")]
+    format: Option<BatchFormat>,
+    #[schemars(description = "Max characters per URL result. Default: 5000")]
+    max_length: Option<usize>,
+    #[schemars(description = "Page load timeout in seconds (per URL). Default: 30")]
+    timeout: Option<u64>,
+    #[schemars(description = "Extra wait in ms after the `load` event. Default: 0. Max: 10000.")]
+    settle_ms: Option<u64>,
+    #[schemars(description = "CSS selector to extract a specific section")]
+    selector: Option<String>,
+}
+
+/// Output format for `batch_fetch`.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum BatchFormat {
+    #[default]
+    Markdown,
+    Json,
 }
 
 /// MCP handler that exposes servo-fetch's tools.
@@ -86,6 +122,7 @@ impl ServoMcp {
     async fn fetch(&self, Parameters(p): Parameters<FetchParams>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
         let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
+        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
         let max_len = p.max_length.unwrap_or(5000);
         let start = p.start_index.unwrap_or(0);
 
@@ -97,10 +134,18 @@ impl ServoMcp {
         }
 
         let include_a11y = matches!(p.format, Some(OutputFormat::AccessibilityTree));
-        let page = tools::fetch_page(&url, timeout, crate::bridge::FetchMode::Content { include_a11y }).await?;
-        let full = if let Some(ref pdf_bytes) = page.pdf_data {
-            servo_fetch::extract::extract_pdf(pdf_bytes)
+
+        // Probe PDFs before the Servo thread so one slow HEAD never stalls concurrent WebViews.
+        let full = if let Some(pdf_bytes) = tools::probe_pdf(&url, timeout).await {
+            servo_fetch::extract::extract_pdf(&pdf_bytes)
         } else {
+            let page = tools::fetch_page(
+                &url,
+                timeout,
+                settle_ms,
+                crate::bridge::FetchMode::Content { include_a11y },
+            )
+            .await?;
             let fmt = p.format.unwrap_or_default();
             match fmt {
                 OutputFormat::Html => page.html,
@@ -123,7 +168,8 @@ impl ServoMcp {
     async fn screenshot(&self, Parameters(p): Parameters<ScreenshotParams>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
         let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-        tools::take_screenshot(&url, timeout, p.full_page.unwrap_or(false)).await
+        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
+        tools::take_screenshot(&url, timeout, settle_ms, p.full_page.unwrap_or(false)).await
     }
 
     #[tool(
@@ -138,10 +184,12 @@ impl ServoMcp {
         }
         let url = tools::validated_url(&p.url)?;
         let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
+        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
 
         let page = tools::fetch_page(
             &url,
             timeout,
+            settle_ms,
             crate::bridge::FetchMode::ExecuteJs {
                 expression: p.expression,
             },
@@ -149,7 +197,7 @@ impl ServoMcp {
         .await?;
         let mut result = page.js_result.unwrap_or_default();
         if result.len() > MAX_JS_OUTPUT_LEN {
-            result.truncate(tools::floor_char_boundary(&result, MAX_JS_OUTPUT_LEN));
+            result.truncate(servo_fetch::sanitize::floor_char_boundary(&result, MAX_JS_OUTPUT_LEN));
             result.push_str("\n<output truncated>");
         }
         if !page.console_messages.is_empty() {
@@ -162,6 +210,44 @@ impl ServoMcp {
         Ok(CallToolResult::success(vec![Content::text(
             servo_fetch::sanitize::sanitize(&result).into_owned(),
         )]))
+    }
+
+    #[tool(
+        description = "Fetch multiple URLs in parallel and extract readable content. Results are returned as separate content entries, one per URL, in completion order. Failed URLs are reported inline without aborting the batch."
+    )]
+    async fn batch_fetch(&self, Parameters(p): Parameters<BatchFetchParams>) -> Result<CallToolResult, ErrorData> {
+        if p.urls.is_empty() {
+            return Err(ErrorData::invalid_params("urls must not be empty", None));
+        }
+        if p.urls.len() > MAX_BATCH_URLS {
+            return Err(ErrorData::invalid_params(
+                format!("urls exceeds {MAX_BATCH_URLS} URL limit"),
+                None,
+            ));
+        }
+        if p.selector.as_ref().is_some_and(|s| s.len() > MAX_SELECTOR_LEN) {
+            return Err(ErrorData::invalid_params(
+                format!("selector exceeds {MAX_SELECTOR_LEN} character limit"),
+                None,
+            ));
+        }
+
+        let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
+        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
+        let max_len = p.max_length.unwrap_or(5000);
+        let json = matches!(p.format, Some(BatchFormat::Json));
+
+        let validated: Vec<String> = p
+            .urls
+            .iter()
+            .map(|u| tools::validated_url(u))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let results =
+            tools::batch_fetch_pages(&validated, timeout, settle_ms, json, p.selector.as_deref(), max_len).await;
+
+        let contents: Vec<Content> = results.into_iter().map(|(_url, text)| Content::text(text)).collect();
+        Ok(CallToolResult::success(contents))
     }
 }
 
@@ -242,5 +328,56 @@ mod tests {
     fn execute_js_params_requires_both() {
         assert!(serde_json::from_str::<ExecuteJsParams>(r#"{"url":"https://example.com"}"#).is_err());
         assert!(serde_json::from_str::<ExecuteJsParams>(r#"{"expression":"1+1"}"#).is_err());
+    }
+
+    #[test]
+    fn output_format_accessibility_tree() {
+        let at: OutputFormat = serde_json::from_str("\"accessibility_tree\"").unwrap();
+        assert!(matches!(at, OutputFormat::AccessibilityTree));
+    }
+
+    #[test]
+    fn fetch_params_with_settle_ms() {
+        let p: FetchParams = serde_json::from_str(r#"{"url":"https://example.com","settle_ms":500}"#).unwrap();
+        assert_eq!(p.settle_ms, Some(500));
+    }
+
+    #[test]
+    fn screenshot_params_all_fields() {
+        let p: ScreenshotParams =
+            serde_json::from_str(r#"{"url":"https://example.com","full_page":true,"timeout":60,"settle_ms":1000}"#)
+                .unwrap();
+        assert_eq!(p.full_page, Some(true));
+        assert_eq!(p.timeout, Some(60));
+        assert_eq!(p.settle_ms, Some(1000));
+    }
+
+    #[test]
+    fn execute_js_params_all_fields() {
+        let p: ExecuteJsParams =
+            serde_json::from_str(r#"{"url":"https://example.com","expression":"1+1","timeout":10,"settle_ms":200}"#)
+                .unwrap();
+        assert_eq!(p.timeout, Some(10));
+        assert_eq!(p.settle_ms, Some(200));
+    }
+
+    #[test]
+    fn batch_fetch_params_requires_urls() {
+        assert!(serde_json::from_str::<BatchFetchParams>("{}").is_err());
+    }
+
+    #[test]
+    fn batch_fetch_params_accepts_minimal() {
+        let p: BatchFetchParams = serde_json::from_str(r#"{"urls":["https://example.com"]}"#).unwrap();
+        assert_eq!(p.urls.len(), 1);
+        assert!(p.format.is_none());
+    }
+
+    #[test]
+    fn batch_format_deserializes() {
+        let md: BatchFormat = serde_json::from_str("\"markdown\"").unwrap();
+        assert!(matches!(md, BatchFormat::Markdown));
+        let json: BatchFormat = serde_json::from_str("\"json\"").unwrap();
+        assert!(matches!(json, BatchFormat::Json));
     }
 }

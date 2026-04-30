@@ -6399,6 +6399,7 @@ dependencies = [
  "dom_smoothie",
  "dpi",
  "euclid 0.22.14",
+ "futures-util",
  "htmd",
  "image",
  "libc",

@@ -143,4 +143,38 @@ mod tests {
         };
         assert!(cmd.execute().is_ok());
     }
+
+    #[test]
+    fn raw_html_produces_output() {
+        let page = mock_page("<html><body><p>raw</p></body></html>");
+        let cmd = Raw {
+            page: &page,
+            mode: &crate::cli::RawMode::Html,
+        };
+        assert!(cmd.execute().is_ok());
+    }
+
+    #[test]
+    fn raw_text_with_inner_text() {
+        let page = ServoPage {
+            html: String::new(),
+            inner_text: Some("plain text".into()),
+            ..ServoPage::default()
+        };
+        let cmd = Raw {
+            page: &page,
+            mode: &crate::cli::RawMode::Text,
+        };
+        assert!(cmd.execute().is_ok());
+    }
+
+    #[test]
+    fn raw_text_without_inner_text() {
+        let page = mock_page("<html></html>");
+        let cmd = Raw {
+            page: &page,
+            mode: &crate::cli::RawMode::Text,
+        };
+        assert!(cmd.execute().is_ok());
+    }
 }

@@ -83,6 +83,7 @@ missing_panics_doc = "allow"
 assert_cmd = "2"
 predicates = "3"
 rmcp = { version = "1", features = ["client", "transport-io", "transport-child-process"] }
+futures-util = "0.3"
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/servo-fetch-v{ version }-{ target }.tar.gz"

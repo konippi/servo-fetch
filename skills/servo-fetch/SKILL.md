@@ -35,6 +35,7 @@ Parameters:
 - `max_length`: max characters to return (default 5000)
 - `start_index`: character offset for pagination
 - `timeout`: page load timeout in seconds (default 30)
+- `settle_ms`: extra wait in ms after load event for SPAs (default 0, max 10000)
 
 ```text
 fetch(url: "https://docs.rs/tokio", format: "markdown")
@@ -44,6 +45,24 @@ fetch(url: "https://example.com", format: "accessibility_tree")
 
 PDF URLs are auto-detected via Content-Type and extracted directly.
 
+### batch_fetch
+
+Fetch multiple URLs in parallel. Results are returned as separate content entries in completion order. Failed URLs are reported inline without aborting the batch.
+
+Parameters:
+
+- `urls` (required): array of URLs to fetch (http/https only, max 20)
+- `format`: `"markdown"` (default) or `"json"`
+- `selector`: CSS selector to extract a specific section
+- `max_length`: max characters per URL result (default 5000)
+- `timeout`: page load timeout in seconds per URL (default 30)
+- `settle_ms`: extra wait in ms after load event (default 0, max 10000)
+
+```text
+batch_fetch(urls: ["https://a.com", "https://b.com"], format: "markdown")
+batch_fetch(urls: ["https://a.com", "https://b.com"], format: "json", selector: "article")
+```
+
 ### screenshot
 
 Capture a PNG screenshot. Uses Servo's software renderer — works without GPU.
@@ -51,10 +70,13 @@ Capture a PNG screenshot. Uses Servo's software renderer — works without GPU.
 Parameters:
 
 - `url` (required): URL to capture
+- `full_page`: capture the full scrollable page (default false)
 - `timeout`: page load timeout in seconds (default 30)
+- `settle_ms`: extra wait in ms after load event (default 0, max 10000)
 
 ```text
 screenshot(url: "https://example.com")
+screenshot(url: "https://example.com", full_page: true)
 ```
 
 ### execute_js
@@ -66,6 +88,7 @@ Parameters:
 - `url` (required): URL to load
 - `expression` (required): JavaScript expression to evaluate
 - `timeout`: page load timeout in seconds (default 30)
+- `settle_ms`: extra wait in ms after load event (default 0, max 10000)
 
 ```text
 execute_js(url: "https://example.com", expression: "document.title")
@@ -77,12 +100,15 @@ execute_js(url: "https://example.com", expression: "[...document.querySelectorAl
 ```bash
 servo-fetch https://example.com                    # Markdown (default)
 servo-fetch https://example.com --json             # Structured JSON
+servo-fetch URL1 URL2 URL3                         # Parallel batch (Markdown with separators)
+servo-fetch URL1 URL2 --json                       # Parallel batch (NDJSON)
 servo-fetch https://example.com --screenshot out.png
 servo-fetch https://example.com --js "document.title"
 servo-fetch https://example.com --selector article
 servo-fetch https://example.com --raw html         # Raw HTML
 servo-fetch https://example.com --raw text         # Plain text
 servo-fetch https://example.com -t 60              # Custom timeout
+servo-fetch https://example.com --settle 500       # Extra wait for SPAs
 ```
 
 ## Gotchas

@@ -27,6 +27,18 @@ servo-fetch URL1 URL2 URL3                               # Parallel batch fetch
 - **Screenshots without GPU** — software renderer captures PNG/full-page screenshots anywhere
 - **Accessibility tree** — AccessKit integration with roles, names, and bounding boxes
 
+## Performance
+
+Parallel fetch — 4 URLs, JS executed, full CSS rendering:
+
+| Tool | Peak Memory | Time |
+| ---- | ----------- | ---- |
+| **servo-fetch** | **114 MB** | **1.5s** |
+| Playwright | 502 MB | 3.3s |
+| Puppeteer | 1065 MB | 4.3s |
+
+Same rendering capabilities, 4–9× less memory, 2–3× faster. [Methodology →](benchmarks/)
+
 ## Install
 
 ```bash
@@ -42,7 +54,9 @@ cargo install servo-fetch    # build from source
 
 ### Platform notes
 
-<details><summary><b>Linux</b> — runtime dependencies and headless setup</summary>
+<details>
+
+<summary><b>Linux</b> — runtime dependencies and headless setup</summary>
 
 The Linux binary dynamically links against system libraries. Install them with:
 
@@ -170,9 +184,9 @@ servo-fetch mcp --port 8080
 
 ### Tools
 
-#### `fetch`
+<details>
 
-Fetch a URL and extract readable content. Navbars, sidebars, and footers are stripped automatically using CSS layout analysis.
+<summary><b>fetch</b> — extract readable content from a URL</summary>
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -184,9 +198,11 @@ Fetch a URL and extract readable content. Navbars, sidebars, and footers are str
 | `settle_ms` | number? | Extra wait in ms after load event for SPAs (default 0, max 10000) |
 | `selector` | string? | CSS selector to extract a specific section |
 
-#### `batch_fetch`
+</details>
 
-Fetch multiple URLs in parallel. Results are returned as separate content entries in completion order.
+<details>
+
+<summary><b>batch_fetch</b> — fetch multiple URLs in parallel</summary>
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -197,9 +213,11 @@ Fetch multiple URLs in parallel. Results are returned as separate content entrie
 | `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
 | `selector` | string? | CSS selector to extract a specific section |
 
-#### `screenshot`
+</details>
 
-Capture a PNG screenshot using Servo's software renderer — no GPU required.
+<details>
+
+<summary><b>screenshot</b> — capture a PNG screenshot (no GPU required)</summary>
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -208,9 +226,11 @@ Capture a PNG screenshot using Servo's software renderer — no GPU required.
 | `timeout` | number? | Page load timeout in seconds (default 30) |
 | `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
 
-#### `execute_js`
+</details>
 
-Evaluate a JavaScript expression in a loaded page. Console messages are appended to the result.
+<details>
+
+<summary><b>execute_js</b> — evaluate JavaScript in a loaded page</summary>
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -218,6 +238,8 @@ Evaluate a JavaScript expression in a loaded page. Console messages are appended
 | `expression` | string | JavaScript expression to evaluate |
 | `timeout` | number? | Page load timeout in seconds (default 30) |
 | `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
+
+</details>
 
 ## Agent Skills
 

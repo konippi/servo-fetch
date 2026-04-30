@@ -9,7 +9,7 @@ use euclid::{Box2D, Point2D};
 use image::RgbaImage;
 use servo::{DevicePixel, WebView, WebViewRect};
 
-use crate::bridge::{SPIN_INTERVAL, eval_js};
+use crate::bridge::{eval_js, wait_for_wake};
 use servo_fetch::layout;
 
 /// Capture a PNG screenshot of the page, temporarily resizing the viewport
@@ -95,7 +95,7 @@ fn take_screenshot(
             eprintln!("warning: screenshot capture timed out after {timeout_secs}s");
             return None;
         }
-        std::thread::sleep(SPIN_INTERVAL);
+        wait_for_wake(Duration::from_millis(10));
     }
 }
 

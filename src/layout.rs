@@ -191,4 +191,16 @@ mod tests {
             serde_json::from_str(r#"{"tag":"DIV","role":null,"w":100.0,"h":50.0,"position":"absolute"}"#).unwrap();
         assert_eq!(el.position, Position::Other);
     }
+
+    #[test]
+    fn navigation_role_sidebar() {
+        let sels = selectors_to_strip(&[el("NAV", 250.0, 800.0, Position::Other, Some(Role::Navigation))]);
+        assert_eq!(sels, vec!["nav[role=\"navigation\"]"]);
+    }
+
+    #[test]
+    fn empty_elements_returns_empty() {
+        let sels = selectors_to_strip(&[]);
+        assert!(sels.is_empty());
+    }
 }

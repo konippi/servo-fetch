@@ -1,12 +1,33 @@
 //! Shared helpers for MCP tool implementations.
 
+use std::sync::OnceLock;
+
 use base64::Engine as _;
 use rmcp::ErrorData;
 use rmcp::model::{CallToolResult, Content};
+use tokio::sync::Semaphore;
 
 use crate::bridge;
 use crate::net;
 use servo_fetch::extract::{self, ExtractInput};
+
+/// Upper bound on the number of Servo fetches processed concurrently.
+const DEFAULT_MAX_CONCURRENT_FETCHES: usize = 4;
+
+/// Hard ceiling on concurrency regardless of env override.
+const MAX_ALLOWED_CONCURRENCY: usize = 16;
+
+fn fetch_semaphore() -> &'static Semaphore {
+    static SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
+    SEMAPHORE.get_or_init(|| {
+        let limit = std::env::var("SERVO_FETCH_MAX_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n > 0)
+            .map_or(DEFAULT_MAX_CONCURRENT_FETCHES, |n| n.min(MAX_ALLOWED_CONCURRENCY));
+        Semaphore::new(limit)
+    })
+}
 
 /// Validate a URL and return it in canonical form as a string.
 pub(super) fn validated_url(url: &str) -> Result<String, ErrorData> {
@@ -15,23 +36,102 @@ pub(super) fn validated_url(url: &str) -> Result<String, ErrorData> {
         .map_err(|e| ErrorData::invalid_params(format!("{e:#}"), None))
 }
 
-/// Run a Servo fetch on the blocking thread pool.
+/// Run a Servo fetch on the blocking thread pool, gated by a semaphore so a
+/// burst of concurrent tool calls does not create unbounded live `WebView`s.
 pub(super) async fn fetch_page(
     url: &str,
     timeout: u64,
+    settle_ms: u64,
     mode: bridge::FetchMode,
 ) -> Result<bridge::ServoPage, ErrorData> {
+    let _permit = fetch_semaphore()
+        .acquire()
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("fetch semaphore closed: {e}"), None))?;
+
     let url = url.to_string();
     tokio::task::spawn_blocking(move || {
         bridge::fetch_page(bridge::FetchOptions {
             url: &url,
             timeout_secs: timeout,
+            settle_ms,
             mode,
         })
     })
     .await
     .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
     .map_err(|e| ErrorData::internal_error(format!("{e:#}"), None))
+}
+
+pub(super) async fn probe_pdf(url: &str, timeout: u64) -> Option<Vec<u8>> {
+    let url = url.to_string();
+    tokio::task::spawn_blocking(move || crate::pdf::probe(&url, timeout))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Fetch multiple URLs in parallel, returning `(url, rendered_text)` pairs in completion order.
+pub(super) async fn batch_fetch_pages(
+    urls: &[String],
+    timeout: u64,
+    settle_ms: u64,
+    json: bool,
+    selector: Option<&str>,
+    max_len: usize,
+) -> Vec<(String, String)> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(urls.len().max(1));
+
+    for url in urls {
+        let permit = fetch_semaphore().acquire().await.ok();
+        let tx = tx.clone();
+        let url = url.clone();
+        let selector = selector.map(String::from);
+        tokio::task::spawn_blocking(move || {
+            let text = fetch_and_render(&url, timeout, settle_ms, json, selector.as_deref(), max_len);
+            let _ = tx.blocking_send((url, text));
+            drop(permit);
+        });
+    }
+    drop(tx);
+
+    let mut results = Vec::with_capacity(urls.len());
+    while let Some(pair) = rx.recv().await {
+        results.push(pair);
+    }
+    results
+}
+
+fn fetch_and_render(
+    url: &str,
+    timeout: u64,
+    settle_ms: u64,
+    json: bool,
+    selector: Option<&str>,
+    max_len: usize,
+) -> String {
+    let page = match bridge::fetch_page(bridge::FetchOptions {
+        url,
+        timeout_secs: timeout,
+        settle_ms,
+        mode: bridge::FetchMode::Content { include_a11y: false },
+    }) {
+        Ok(p) => p,
+        Err(e) => return format!("[error] {e:#}"),
+    };
+
+    let input = ExtractInput::new(&page.html, url)
+        .with_layout_json(page.layout_json.as_deref())
+        .with_inner_text(page.inner_text.as_deref())
+        .with_selector(selector);
+
+    let full = if json {
+        extract::extract_json(&input).unwrap_or_default()
+    } else {
+        extract::extract_text(&input).unwrap_or_default()
+    };
+
+    paginate(&servo_fetch::sanitize::sanitize(&full), 0, max_len)
 }
 
 /// Run Readability-based extraction on a fetched page, as Markdown or JSON.
@@ -54,8 +154,13 @@ pub(super) fn extract(
 }
 
 /// Render the page and return its screenshot as a base64 PNG MCP content.
-pub(super) async fn take_screenshot(url: &str, timeout: u64, full_page: bool) -> Result<CallToolResult, ErrorData> {
-    let page = fetch_page(url, timeout, bridge::FetchMode::Screenshot { full_page }).await?;
+pub(super) async fn take_screenshot(
+    url: &str,
+    timeout: u64,
+    settle_ms: u64,
+    full_page: bool,
+) -> Result<CallToolResult, ErrorData> {
+    let page = fetch_page(url, timeout, settle_ms, bridge::FetchMode::Screenshot { full_page }).await?;
     let img = page
         .screenshot
         .ok_or_else(|| ErrorData::internal_error("screenshot capture failed", None))?;
@@ -73,6 +178,8 @@ pub(super) async fn take_screenshot(url: &str, timeout: u64, full_page: bool) ->
 /// Return a char-aligned slice of `content` and a truncation notice when
 /// the slice does not cover the full content.
 pub(super) fn paginate(content: &str, start: usize, max_len: usize) -> String {
+    use servo_fetch::sanitize::floor_char_boundary;
+
     let max_len = max_len.max(1);
     let total = content.len();
     let start = floor_char_boundary(content, start);
@@ -86,18 +193,6 @@ pub(super) fn paginate(content: &str, start: usize, max_len: usize) -> String {
     } else {
         chunk.to_string()
     }
-}
-
-/// Return the nearest UTF-8 char boundary `<= index`.
-pub(super) fn floor_char_boundary(s: &str, index: usize) -> usize {
-    if index >= s.len() {
-        return s.len();
-    }
-    let mut i = index;
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
 }
 
 #[cfg(test)]
@@ -128,33 +223,7 @@ mod tests {
 
     #[test]
     fn paginate_multibyte_boundary() {
-        // 2-byte chars: "ĵƥ" = [0xC4 0xB5][0xC6 0xA5] = 4 bytes
-        assert_eq!(floor_char_boundary("ĵƥ", 0), 0); // start of ĵ
-        assert_eq!(floor_char_boundary("ĵƥ", 1), 0); // inside ĵ
-        assert_eq!(floor_char_boundary("ĵƥ", 2), 2); // start of ƥ
-        assert_eq!(floor_char_boundary("ĵƥ", 3), 2); // inside ƥ
-        assert_eq!(floor_char_boundary("ĵƥ", 4), 4); // end
-
-        // 3-byte chars: "日本語" = [E6 97 A5][E6 9C AC][E8 AA 9E] = 9 bytes
-        assert_eq!(floor_char_boundary("日本語", 0), 0); // start of 日
-        assert_eq!(floor_char_boundary("日本語", 1), 0); // inside 日
-        assert_eq!(floor_char_boundary("日本語", 2), 0); // inside 日
-        assert_eq!(floor_char_boundary("日本語", 3), 3); // start of 本
-        assert_eq!(floor_char_boundary("日本語", 4), 3); // inside 本
-        assert_eq!(floor_char_boundary("日本語", 5), 3); // inside 本
-        assert_eq!(floor_char_boundary("日本語", 6), 6); // start of 語
-        assert_eq!(floor_char_boundary("日本語", 7), 6); // inside 語
-        assert_eq!(floor_char_boundary("日本語", 8), 6); // inside 語
-        assert_eq!(floor_char_boundary("日本語", 9), 9); // end
-
-        // 4-byte chars: "🦀" = [F0 9F A6 80] = 4 bytes
-        assert_eq!(floor_char_boundary("🦀", 0), 0); // start of 🦀
-        assert_eq!(floor_char_boundary("🦀", 1), 0); // inside 🦀
-        assert_eq!(floor_char_boundary("🦀", 2), 0); // inside 🦀
-        assert_eq!(floor_char_boundary("🦀", 3), 0); // inside 🦀
-        assert_eq!(floor_char_boundary("🦀", 4), 4); // end
-
-        // paginate must produce valid UTF-8 at the boundary
+        // paginate must produce valid UTF-8 at the byte boundary.
         let result = paginate("日本語", 0, 4);
         assert!(result.starts_with("日"));
     }
@@ -167,5 +236,23 @@ mod tests {
     #[test]
     fn accepts_public_url() {
         assert!(validated_url("https://example.com").is_ok());
+    }
+
+    #[test]
+    fn paginate_max_len_zero_clamped() {
+        let r = paginate("hello", 0, 0);
+        assert!(r.starts_with('h'), "max_len=0 should clamp to 1");
+    }
+
+    #[test]
+    fn paginate_start_mid_multibyte() {
+        // start=1 is inside the first 3-byte char "日"; should snap to 0
+        let r = paginate("日本語", 1, 100);
+        assert!(r.starts_with("日"), "should snap to char boundary");
+    }
+
+    #[test]
+    fn rejects_file_scheme() {
+        assert!(validated_url("file:///etc/passwd").is_err());
     }
 }

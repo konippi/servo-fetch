@@ -105,3 +105,23 @@ fn selector_no_match_returns_empty() {
     let text = extract::extract_text(&input).unwrap();
     assert!(text.is_empty());
 }
+
+#[test]
+fn extract_json_selector_includes_url() {
+    let html = fixture("article.html");
+    let input = ExtractInput::new(&html, "https://example.com/page").with_selector(Some("article"));
+    let json = extract::extract_json(&input).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+    assert_eq!(parsed["url"].as_str(), Some("https://example.com/page"));
+}
+
+#[test]
+fn extract_text_with_layout_and_selector() {
+    let html = fixture("article.html");
+    let layout = r#"[{"tag":"NAV","role":null,"w":1280,"h":50,"position":"fixed"}]"#;
+    let input = ExtractInput::new(&html, "https://example.com")
+        .with_layout_json(Some(layout))
+        .with_selector(Some("article"));
+    let text = extract::extract_text(&input).unwrap();
+    assert!(text.contains("Test Article Title"));
+}

@@ -331,4 +331,11 @@ mod tests {
         assert_eq!(input.inner_text, Some("hello"));
         assert_eq!(input.selector, Some("article"));
     }
+
+    #[test]
+    fn clean_markdown_no_trailing_newline() {
+        let input = "line1\nline2";
+        let result = clean_markdown(input);
+        assert_eq!(result, "line1\nline2\n");
+    }
 }

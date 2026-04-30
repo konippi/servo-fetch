@@ -27,13 +27,14 @@ async fn initialize_returns_server_info() {
 }
 
 #[tokio::test]
-async fn list_tools_returns_three_tools() {
+async fn list_tools_returns_expected_tools() {
     let client = connect().await;
     let tools = client.list_tools(None).await.unwrap();
 
-    assert_eq!(tools.tools.len(), 3);
+    assert_eq!(tools.tools.len(), 4);
     let names: Vec<&str> = tools.tools.iter().map(|t| t.name.as_ref()).collect();
     assert!(names.contains(&"fetch"));
+    assert!(names.contains(&"batch_fetch"));
     assert!(names.contains(&"screenshot"));
     assert!(names.contains(&"execute_js"));
 }
@@ -104,4 +105,56 @@ async fn execute_js_returns_title() {
         .await
         .unwrap();
     assert!(!result.content.is_empty());
+}
+
+#[tokio::test]
+async fn fetch_rejects_metadata_ip_in_pdf_probe() {
+    let client = connect().await;
+    // AWS metadata endpoint disguised as a PDF URL — must be blocked by validate_url.
+    let result = client
+        .call_tool(call_params(
+            "fetch",
+            &serde_json::json!({"url": "http://169.254.169.254/latest/meta-data/foo.pdf"}),
+        ))
+        .await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn batch_fetch_rejects_empty_urls() {
+    let client = connect().await;
+    let result = client
+        .call_tool(call_params("batch_fetch", &serde_json::json!({"urls": []})))
+        .await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn batch_fetch_rejects_private_ip() {
+    let client = connect().await;
+    let result = client
+        .call_tool(call_params(
+            "batch_fetch",
+            &serde_json::json!({"urls": ["http://127.0.0.1/"]}),
+        ))
+        .await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+#[ignore = "requires Servo + network"]
+async fn batch_fetch_returns_multiple_results() {
+    let client = connect().await;
+    let result = client
+        .call_tool(call_params(
+            "batch_fetch",
+            &serde_json::json!({
+                "urls": ["https://example.com", "https://www.iana.org/help/example-domains"],
+                "max_length": 500,
+                "timeout": 60
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(result.content.len(), 2, "should return one content entry per URL");
 }

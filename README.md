@@ -15,19 +15,17 @@ servo-fetch embeds the [Servo](https://servo.org/) browser engine into a single 
 servo-fetch "https://example.com"                        # Clean Markdown
 servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot, no GPU needed
 servo-fetch "https://example.com" --js "document.title"  # Run JS in the page
+servo-fetch URL1 URL2 URL3                               # Parallel batch fetch
 ```
 
 ## Why servo-fetch
 
-**JavaScript execution is mandatory for the modern web.** Simple HTTP fetchers can't handle today's web. React, Vue, Next.js, and countless sites render content entirely with JavaScript. An HTTP GET returns an empty `<div id="root"></div>` — no article, no data, nothing useful. servo-fetch solves this by embedding a real browser engine. [Servo](https://servo.org/)'s SpiderMonkey executes JavaScript and its parallel CSS engine computes layout, just like a desktop browser — packaged in a single binary with no external dependencies.
-
-**CSS layout strips navigation noise.** Most extraction tools guess page structure from HTML tags alone. servo-fetch calls `getComputedStyle()` and `getBoundingClientRect()` inside the engine to detect fixed navbars, sidebars, and footers by their actual rendered position and size — then removes them before extraction. Common cookie banners and newsletter popups are also stripped via injected user stylesheets.
-
-**Screenshots without a GPU.** Servo's software renderer captures PNG screenshots without a display server or GPU. Full-page screenshots capture the entire scrollable content. No `xvfb-run` needed on macOS or Windows.
-
-**Accessibility tree with bounding boxes.** The page's accessibility tree is available via Servo's AccessKit integration. Each node includes its role, name, and bounding box — combining semantic structure with visual layout in a single output. Use `format: "accessibility_tree"` in the MCP fetch tool.
-
-**Main content via Readability.** After CSS-based noise removal, Mozilla's [Readability](https://github.com/mozilla/readability) algorithm extracts the main article. PDF URLs are auto-detected via `Content-Type` and extracted directly.
+- **Zero dependencies** — single binary, no Chrome, no Docker, no API key
+- **Real JS execution** — SpiderMonkey runs JavaScript, parallel CSS engine computes layout
+- **Layout-aware extraction** — strips navbars, sidebars, footers by actual rendered position, not HTML guessing
+- **Parallel batch fetch** — multiple URLs fetched concurrently, results stream as each completes
+- **Screenshots without GPU** — software renderer captures PNG/full-page screenshots anywhere
+- **Accessibility tree** — AccessKit integration with roles, names, and bounding boxes
 
 ## Install
 
@@ -90,6 +88,12 @@ servo-fetch "https://example.com"
 # Structured JSON
 servo-fetch "https://example.com" --json
 
+# Multiple URLs in parallel (Markdown with separators)
+servo-fetch "https://a.com" "https://b.com" "https://c.com"
+
+# Multiple URLs as NDJSON (one compact JSON per line)
+servo-fetch "https://a.com" "https://b.com" --json
+
 # Screenshot — rendered to PNG without GPU
 servo-fetch "https://example.com" --screenshot page.png
 
@@ -114,15 +118,18 @@ servo-fetch "https://example.com/report.pdf"
 
 | Flag | Description |
 | ---- | ----------- |
-| `--json` | Output as structured JSON |
-| `--screenshot <FILE>` | Save a PNG screenshot |
+| `--json` | Output as structured JSON (NDJSON when multiple URLs) |
+| `--screenshot <FILE>` | Save a PNG screenshot (single URL only) |
 | `--full-page` | Capture the full scrollable page (requires `--screenshot`) |
-| `--js <EXPR>` | Execute JavaScript and print the result |
+| `--js <EXPR>` | Execute JavaScript and print the result (single URL only) |
 | `--selector <CSS>` | Extract a specific section by CSS selector |
-| `--raw <MODE>` | Output raw `html` or plain `text` (bypasses Readability) |
+| `--raw <MODE>` | Output raw `html` or plain `text` (single URL only) |
 | `-t`, `--timeout <SECS>` | Page load timeout (default: 30) |
+| `--settle <MS>` | Extra wait after load event for SPAs (default: 0, max: 10000) |
 | `--help` | Show help |
 | `--version` | Show version |
+
+When multiple URLs are given, they are fetched in parallel. Results stream to stdout in completion order — Markdown with `--- URL ---` separators by default, or NDJSON with `--json`.
 
 ### JSON output
 
@@ -142,7 +149,7 @@ Fields marked `?` are omitted when not detected.
 
 ## MCP server
 
-servo-fetch includes a built-in MCP server with three tools — `fetch`, `screenshot`, and `execute_js` — over stdio or Streamable HTTP.
+servo-fetch includes a built-in MCP server with four tools — `fetch`, `batch_fetch`, `screenshot`, and `execute_js` — over stdio or Streamable HTTP.
 
 ```json
 {
@@ -174,6 +181,20 @@ Fetch a URL and extract readable content. Navbars, sidebars, and footers are str
 | `max_length` | number? | Max characters to return (default 5000) |
 | `start_index` | number? | Character offset for pagination (default 0) |
 | `timeout` | number? | Page load timeout in seconds (default 30) |
+| `settle_ms` | number? | Extra wait in ms after load event for SPAs (default 0, max 10000) |
+| `selector` | string? | CSS selector to extract a specific section |
+
+#### `batch_fetch`
+
+Fetch multiple URLs in parallel. Results are returned as separate content entries in completion order.
+
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| `urls` | string[] | URLs to fetch (http/https only, max 20) |
+| `format` | string? | `markdown` (default) or `json` |
+| `max_length` | number? | Max characters per URL result (default 5000) |
+| `timeout` | number? | Page load timeout in seconds per URL (default 30) |
+| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
 | `selector` | string? | CSS selector to extract a specific section |
 
 #### `screenshot`
@@ -185,6 +206,7 @@ Capture a PNG screenshot using Servo's software renderer — no GPU required.
 | `url` | string | URL to capture (http/https only) |
 | `full_page` | boolean? | Capture the full scrollable page (default false) |
 | `timeout` | number? | Page load timeout in seconds (default 30) |
+| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
 
 #### `execute_js`
 
@@ -195,6 +217,7 @@ Evaluate a JavaScript expression in a loaded page. Console messages are appended
 | `url` | string | URL to load before executing JS |
 | `expression` | string | JavaScript expression to evaluate |
 | `timeout` | number? | Page load timeout in seconds (default 30) |
+| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
 
 ## Agent Skills
 

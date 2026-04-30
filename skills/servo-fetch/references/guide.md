@@ -14,6 +14,23 @@ Fetch the next chunk:
 fetch(url: "https://...", start_index: 5000)
 ```
 
+## Batch fetching
+
+Use `batch_fetch` to fetch multiple URLs in a single call. Results stream back in completion order — faster pages arrive first.
+
+```text
+batch_fetch(urls: ["https://a.com", "https://b.com", "https://c.com"])
+```
+
+Each URL becomes a separate content entry in the response. Failed URLs are reported inline (prefixed with `[error]`) without aborting the batch.
+
+CLI equivalent:
+
+```bash
+servo-fetch https://a.com https://b.com https://c.com          # Markdown
+servo-fetch https://a.com https://b.com https://c.com --json   # NDJSON
+```
+
 ## Format selection
 
 | Goal | Format |

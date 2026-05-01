@@ -11,6 +11,7 @@ description: "Fetch and render web pages using the Servo browser engine — a si
 - You need a screenshot of a web page in CI/Docker (no GPU available)
 - You need to evaluate JavaScript in a page context (DOM queries, data extraction)
 - You want clean Markdown from a documentation site, blog, or article
+- You need to crawl an entire documentation site or blog for RAG / knowledge ingestion
 - You need the accessibility tree with bounding boxes for a page
 
 ## When NOT to use
@@ -63,6 +64,28 @@ batch_fetch(urls: ["https://a.com", "https://b.com"], format: "markdown")
 batch_fetch(urls: ["https://a.com", "https://b.com"], format: "json", selector: "article")
 ```
 
+### crawl
+
+Crawl a website starting from a URL, following same-site links via BFS. JavaScript is executed, CSS layout is computed, and navigation noise is stripped. Respects robots.txt.
+
+Parameters:
+
+- `url` (required): starting URL to crawl (http/https only)
+- `limit`: max pages to crawl (default 20, max 500)
+- `max_depth`: max link depth from seed (default 3, max 10)
+- `format`: `"markdown"` (default) or `"json"`
+- `include_glob`: URL path patterns to include (e.g. `["/docs/**"]`)
+- `exclude_glob`: URL path patterns to exclude
+- `max_length`: max characters per page result (default 5000)
+- `timeout`: page load timeout in seconds per page (default 30)
+- `settle_ms`: extra wait in ms after load event (default 0, max 10000)
+- `selector`: CSS selector to extract a specific section per page
+
+```text
+crawl(url: "https://docs.example.com", limit: 20, max_depth: 3)
+crawl(url: "https://docs.example.com", include_glob: ["/guide/**"], limit: 50)
+```
+
 ### screenshot
 
 Capture a PNG screenshot. Uses Servo's software renderer — works without GPU.
@@ -109,6 +132,8 @@ servo-fetch https://example.com --raw html         # Raw HTML
 servo-fetch https://example.com --raw text         # Plain text
 servo-fetch https://example.com -t 60              # Custom timeout
 servo-fetch https://example.com --settle 500       # Extra wait for SPAs
+servo-fetch crawl https://docs.example.com --limit 20  # Crawl a site (BFS)
+servo-fetch crawl https://docs.example.com --include "/docs/**"  # Crawl with path filter
 ```
 
 ## Gotchas

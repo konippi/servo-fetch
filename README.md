@@ -16,6 +16,7 @@ servo-fetch "https://example.com"                        # Clean Markdown
 servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot, no GPU needed
 servo-fetch "https://example.com" --js "document.title"  # Run JS in the page
 servo-fetch URL1 URL2 URL3                               # Parallel batch fetch
+servo-fetch crawl "https://docs.example.com" --limit 20  # Crawl a site (BFS)
 ```
 
 ## Why servo-fetch
@@ -24,6 +25,7 @@ servo-fetch URL1 URL2 URL3                               # Parallel batch fetch
 - **Real JS execution** — SpiderMonkey runs JavaScript, parallel CSS engine computes layout
 - **Layout-aware extraction** — strips navbars, sidebars, footers by actual rendered position, not HTML guessing
 - **Parallel batch fetch** — multiple URLs fetched concurrently, results stream as each completes
+- **Site crawling** — BFS link traversal with robots.txt, same-site scope, and rate limiting
 - **Screenshots without GPU** — software renderer captures PNG/full-page screenshots anywhere
 - **Accessibility tree** — AccessKit integration with roles, names, and bounding boxes
 
@@ -126,6 +128,12 @@ servo-fetch "https://example.com" --raw text
 
 # PDF text extraction (auto-detected via Content-Type)
 servo-fetch "https://example.com/report.pdf"
+
+# Crawl a site by following links (BFS, respects robots.txt)
+servo-fetch crawl "https://docs.example.com" --limit 20 --max-depth 3
+
+# Crawl with path filtering
+servo-fetch crawl "https://docs.example.com" --include "/docs/**" --exclude "/docs/archive/**"
 ```
 
 ### Options
@@ -145,6 +153,23 @@ servo-fetch "https://example.com/report.pdf"
 
 When multiple URLs are given, they are fetched in parallel. Results stream to stdout in completion order — Markdown with `--- URL ---` separators by default, or NDJSON with `--json`.
 
+### Crawl subcommand
+
+`servo-fetch crawl <URL>` follows links within the same site using BFS. Output is always NDJSON (one JSON object per page).
+
+| Flag | Description |
+| ---- | ----------- |
+| `--limit <N>` | Maximum pages to crawl (default: 50) |
+| `--max-depth <N>` | Maximum link depth from seed URL (default: 3) |
+| `--include <GLOB>` | URL path patterns to include (e.g. `"/docs/**"`) |
+| `--exclude <GLOB>` | URL path patterns to exclude |
+| `--json` | Output content as JSON instead of Markdown per page |
+| `--selector <CSS>` | Extract a specific section per page |
+| `-t`, `--timeout <SECS>` | Per-page timeout (default: 30) |
+| `--settle <MS>` | Extra wait after load event per page |
+
+Crawl respects `robots.txt` (RFC 9309) and enforces a minimum 500ms interval between requests.
+
 ### JSON output
 
 `--json` returns an object with these fields:
@@ -163,7 +188,7 @@ Fields marked `?` are omitted when not detected.
 
 ## MCP server
 
-servo-fetch includes a built-in MCP server with four tools — `fetch`, `batch_fetch`, `screenshot`, and `execute_js` — over stdio or Streamable HTTP.
+servo-fetch includes a built-in MCP server with five tools — `fetch`, `batch_fetch`, `crawl`, `screenshot`, and `execute_js` — over stdio or Streamable HTTP.
 
 ```json
 {
@@ -212,6 +237,27 @@ servo-fetch mcp --port 8080
 | `timeout` | number? | Page load timeout in seconds per URL (default 30) |
 | `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
 | `selector` | string? | CSS selector to extract a specific section |
+
+</details>
+
+<details>
+
+<summary><b>crawl</b> — crawl a website by following links</summary>
+
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| `url` | string | Starting URL (http/https only) |
+| `limit` | number? | Maximum pages to crawl (default 20, max 500) |
+| `max_depth` | number? | Maximum link depth from seed (default 3, max 10) |
+| `format` | string? | `markdown` (default) or `json` |
+| `include_glob` | string[]? | URL path patterns to include |
+| `exclude_glob` | string[]? | URL path patterns to exclude |
+| `max_length` | number? | Max characters per page result (default 5000) |
+| `timeout` | number? | Page load timeout in seconds per page (default 30) |
+| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
+| `selector` | string? | CSS selector to extract a specific section per page |
+
+Follows same-site links only. Respects `robots.txt`. Results stream as each page completes.
 
 </details>
 

@@ -31,12 +31,13 @@ async fn list_tools_returns_expected_tools() {
     let client = connect().await;
     let tools = client.list_tools(None).await.unwrap();
 
-    assert_eq!(tools.tools.len(), 4);
+    assert_eq!(tools.tools.len(), 5);
     let names: Vec<&str> = tools.tools.iter().map(|t| t.name.as_ref()).collect();
     assert!(names.contains(&"fetch"));
     assert!(names.contains(&"batch_fetch"));
     assert!(names.contains(&"screenshot"));
     assert!(names.contains(&"execute_js"));
+    assert!(names.contains(&"crawl"));
 }
 
 #[tokio::test]
@@ -139,6 +140,50 @@ async fn batch_fetch_rejects_private_ip() {
         ))
         .await;
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn crawl_rejects_private_ip() {
+    let client = connect().await;
+    let result = client
+        .call_tool(call_params("crawl", &serde_json::json!({"url": "http://127.0.0.1/"})))
+        .await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn crawl_rejects_missing_url() {
+    let client = connect().await;
+    let result = client.call_tool(call_params("crawl", &serde_json::json!({}))).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn crawl_rejects_file_scheme() {
+    let client = connect().await;
+    let result = client
+        .call_tool(call_params("crawl", &serde_json::json!({"url": "file:///etc/passwd"})))
+        .await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+#[ignore = "requires Servo + network"]
+async fn crawl_returns_multiple_pages() {
+    let client = connect().await;
+    let result = client
+        .call_tool(call_params(
+            "crawl",
+            &serde_json::json!({
+                "url": "https://example.com",
+                "limit": 3,
+                "max_depth": 1,
+                "timeout": 60
+            }),
+        ))
+        .await
+        .unwrap();
+    assert!(!result.content.is_empty(), "crawl should return at least the seed page");
 }
 
 #[tokio::test]

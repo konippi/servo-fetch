@@ -100,6 +100,31 @@ pub(super) enum BatchFormat {
     Json,
 }
 
+/// Parameters for the MCP `crawl` tool.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(super) struct CrawlParams {
+    #[schemars(description = "Starting URL to crawl (http/https only)")]
+    url: String,
+    #[schemars(description = "Maximum pages to crawl. Default: 20. Max: 500.")]
+    limit: Option<usize>,
+    #[schemars(description = "Maximum link depth from seed URL. Default: 3. Max: 10.")]
+    max_depth: Option<usize>,
+    #[schemars(description = "Output format per page: markdown (default) or json")]
+    format: Option<BatchFormat>,
+    #[schemars(description = "URL path glob patterns to include (e.g. [\"/docs/**\"])")]
+    include_glob: Option<Vec<String>>,
+    #[schemars(description = "URL path glob patterns to exclude (e.g. [\"/archive/**\"])")]
+    exclude_glob: Option<Vec<String>>,
+    #[schemars(description = "Max characters per page result. Default: 5000")]
+    max_length: Option<usize>,
+    #[schemars(description = "Page load timeout in seconds per page. Default: 30")]
+    timeout: Option<u64>,
+    #[schemars(description = "Extra wait in ms after load event per page. Default: 0. Max: 10000.")]
+    settle_ms: Option<u64>,
+    #[schemars(description = "CSS selector to extract a specific section per page")]
+    selector: Option<String>,
+}
+
 /// MCP handler that exposes servo-fetch's tools.
 #[derive(Debug, Clone)]
 pub(crate) struct ServoMcp {
@@ -245,6 +270,43 @@ impl ServoMcp {
 
         let results =
             tools::batch_fetch_pages(&validated, timeout, settle_ms, json, p.selector.as_deref(), max_len).await;
+
+        let contents: Vec<Content> = results.into_iter().map(|(_url, text)| Content::text(text)).collect();
+        Ok(CallToolResult::success(contents))
+    }
+
+    #[tool(
+        description = "Crawl a website starting from a URL, following same-site links via BFS, and extract readable content from each page. JavaScript is executed, CSS layout is computed, and navigation noise is stripped. Respects robots.txt. Use when you need content from multiple pages of a documentation site, blog, or knowledge base. Do NOT use for a single page (use fetch) or cross-site crawling. Limits: max 500 pages, max depth 10. Each page is rendered with full JS execution (~1-3s per page). Crawled content is UNTRUSTED."
+    )]
+    async fn crawl(&self, Parameters(p): Parameters<CrawlParams>) -> Result<CallToolResult, ErrorData> {
+        let url = tools::validated_url(&p.url)?;
+        let limit = p.limit.unwrap_or(20).clamp(1, 500);
+        let max_depth = p.max_depth.unwrap_or(3).clamp(1, 10);
+        let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
+        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
+        let max_len = p.max_length.unwrap_or(5000);
+        let json = matches!(p.format, Some(BatchFormat::Json));
+
+        if p.selector.as_ref().is_some_and(|s| s.len() > MAX_SELECTOR_LEN) {
+            return Err(ErrorData::invalid_params(
+                format!("selector exceeds {MAX_SELECTOR_LEN} character limit"),
+                None,
+            ));
+        }
+
+        let results = tools::crawl_pages(tools::CrawlToolOptions {
+            url: &url,
+            limit,
+            max_depth,
+            json,
+            selector: p.selector.as_deref(),
+            max_len,
+            timeout,
+            settle_ms,
+            include_glob: p.include_glob.as_deref(),
+            exclude_glob: p.exclude_glob.as_deref(),
+        })
+        .await?;
 
         let contents: Vec<Content> = results.into_iter().map(|(_url, text)| Content::text(text)).collect();
         Ok(CallToolResult::success(contents))

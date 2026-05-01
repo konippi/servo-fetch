@@ -37,6 +37,8 @@ axum = "0.8"
 base64 = "0.22"
 pdf-extract = "0.10"
 ureq = "3"
+globset = "0.4"
+psl = "2"
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
 
 [target.'cfg(unix)'.dependencies]

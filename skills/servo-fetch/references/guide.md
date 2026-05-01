@@ -31,6 +31,24 @@ servo-fetch https://a.com https://b.com https://c.com          # Markdown
 servo-fetch https://a.com https://b.com https://c.com --json   # NDJSON
 ```
 
+## Crawling
+
+Use `crawl` to follow links within a site and extract content from multiple pages. Results stream as each page completes.
+
+```text
+crawl(url: "https://docs.example.com", limit: 20, max_depth: 3)
+crawl(url: "https://docs.example.com", include_glob: ["/guide/**"])
+```
+
+Crawl follows same-site links only (eTLD+1), respects `robots.txt`, and enforces a minimum 500ms interval between requests. Output is one content entry per page.
+
+CLI equivalent:
+
+```bash
+servo-fetch crawl "https://docs.example.com" --limit 20 --max-depth 3
+servo-fetch crawl "https://docs.example.com" --include "/guide/**"
+```
+
 ## Format selection
 
 | Goal | Format |

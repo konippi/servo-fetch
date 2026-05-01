@@ -1,5 +1,6 @@
 //! MCP server — exposes Servo's web rendering capabilities to AI agents.
 
+mod params;
 mod server;
 mod tools;
 
@@ -18,7 +19,7 @@ pub(crate) async fn run(port: Option<u16>) -> anyhow::Result<()> {
 }
 
 async fn run_stdio() -> anyhow::Result<()> {
-    let service = server::ServoMcp::new()
+    let service = server::ServoFetchMcp::new()
         .serve(rmcp::transport::stdio())
         .await
         .map_err(|e| anyhow::anyhow!("MCP server failed to start: {e}"))?;
@@ -31,7 +32,7 @@ async fn run_stdio() -> anyhow::Result<()> {
 
 async fn run_http(port: u16) -> anyhow::Result<()> {
     let service = StreamableHttpService::new(
-        || Ok(server::ServoMcp::new()),
+        || Ok(server::ServoFetchMcp::new()),
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig::default(),
     );

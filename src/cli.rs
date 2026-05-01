@@ -78,6 +78,43 @@ pub(crate) enum Command {
         #[arg(long, value_name = "PORT")]
         port: Option<u16>,
     },
+    /// Crawl a website by following links (BFS). Respects robots.txt.
+    Crawl {
+        /// Starting URL to crawl
+        url: String,
+
+        /// Maximum number of pages to crawl
+        #[arg(long, default_value_t = 50, value_name = "N")]
+        limit: usize,
+
+        /// Maximum link depth from the seed URL
+        #[arg(long, default_value_t = 3, value_name = "N")]
+        max_depth: usize,
+
+        /// URL path glob patterns to include (e.g. "/docs/**")
+        #[arg(long, value_name = "GLOB")]
+        include: Vec<String>,
+
+        /// URL path glob patterns to exclude (e.g. "/docs/archive/**")
+        #[arg(long, value_name = "GLOB")]
+        exclude: Vec<String>,
+
+        /// Output as NDJSON
+        #[arg(long)]
+        json: bool,
+
+        /// CSS selector to extract a specific section per page
+        #[arg(long, value_name = "CSS")]
+        selector: Option<String>,
+
+        /// Timeout in seconds per page
+        #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..), value_name = "SECS")]
+        timeout: u64,
+
+        /// Extra wait in ms after load event per page
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=10_000), value_name = "MS")]
+        settle: u64,
+    },
 }
 
 /// Validate and sanitize a URL for fetching. Forwards to [`crate::net::validate_url`].

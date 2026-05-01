@@ -5,6 +5,7 @@
 mod bridge;
 mod cli;
 mod command;
+mod crawl;
 mod mcp;
 mod net;
 mod pdf;
@@ -27,17 +28,30 @@ fn main() {
 
     let args = cli::Cli::parse();
 
-    if let Some(cli::Command::Mcp { port }) = args.command {
-        flush_and_exit(run_mcp(port));
-    }
-
-    let code = match run(&args) {
-        Ok(()) => 0,
-        Err(err) if is_broken_pipe(&err) => 0,
-        Err(err) => {
-            eprintln!("error: {err:#}");
-            1
-        }
+    let code = match args.command {
+        Some(cli::Command::Mcp { port }) => run_mcp(port),
+        Some(cli::Command::Crawl {
+            ref url,
+            limit,
+            max_depth,
+            ref include,
+            ref exclude,
+            json,
+            ref selector,
+            timeout,
+            settle,
+        }) => exit_code(run_crawl(
+            url,
+            limit,
+            max_depth,
+            include,
+            exclude,
+            json,
+            selector.as_deref(),
+            timeout,
+            settle,
+        )),
+        None => exit_code(run(&args)),
     };
     flush_and_exit(code);
 }
@@ -51,6 +65,74 @@ fn run_mcp(port: Option<u16>) -> i32 {
             1
         }
     }
+}
+
+fn exit_code(result: anyhow::Result<()>) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(err) if is_broken_pipe(&err) => 0,
+        Err(err) => {
+            eprintln!("error: {err:#}");
+            1
+        }
+    }
+}
+
+#[expect(clippy::too_many_arguments, reason = "CLI dispatch, not a public API")]
+fn run_crawl(
+    url: &str,
+    limit: usize,
+    max_depth: usize,
+    include: &[String],
+    exclude: &[String],
+    json: bool,
+    selector: Option<&str>,
+    timeout: u64,
+    settle: u64,
+) -> anyhow::Result<()> {
+    let seed = cli::validate_url(url)?;
+    let include = if include.is_empty() {
+        None
+    } else {
+        Some(crawl::build_globset(include)?)
+    };
+    let exclude = if exclude.is_empty() {
+        None
+    } else {
+        Some(crawl::build_globset(exclude)?)
+    };
+
+    let is_tty = std::io::stderr().is_terminal();
+    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+
+    let opts = crawl::CrawlOptions {
+        seed,
+        limit,
+        max_depth,
+        timeout_secs: timeout,
+        settle_ms: settle,
+        include,
+        exclude,
+        selector: selector.map(String::from),
+        json,
+    };
+
+    let mut completed = 0usize;
+    rt.block_on(crawl::run(opts, |result| {
+        completed += 1;
+        if let Ok(line) = serde_json::to_string(result) {
+            let _ = writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&line));
+        }
+        if is_tty {
+            let status = match result.status {
+                crawl::CrawlStatus::Ok => "✓",
+                crawl::CrawlStatus::Error => "✗",
+            };
+            eprintln!("[{completed}] {} {status}", result.url);
+        }
+    }));
+
+    Ok(())
 }
 
 fn is_broken_pipe(err: &anyhow::Error) -> bool {

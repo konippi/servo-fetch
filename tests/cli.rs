@@ -120,3 +120,63 @@ fn timeout_produces_error() {
         .failure()
         .stderr(predicate::str::contains("invalid value '0'"));
 }
+
+#[test]
+fn crawl_rejects_private_ip() {
+    servo_fetch()
+        .args(["crawl", "http://127.0.0.1/"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not allowed"));
+}
+
+#[test]
+fn crawl_rejects_file_scheme() {
+    servo_fetch()
+        .args(["crawl", "file:///etc/passwd"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not allowed"));
+}
+
+#[test]
+fn crawl_rejects_invalid_url() {
+    servo_fetch()
+        .args(["crawl", "not-a-url"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid URL"));
+}
+
+#[test]
+fn crawl_help_shows_options() {
+    servo_fetch()
+        .args(["crawl", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--limit"))
+        .stdout(predicate::str::contains("--max-depth"))
+        .stdout(predicate::str::contains("--include"))
+        .stdout(predicate::str::contains("--exclude"));
+}
+
+#[test]
+#[ignore = "requires Servo + network"]
+fn crawl_produces_ndjson() {
+    let output = servo_fetch()
+        .args(["crawl", "https://example.com", "--limit", "2", "--timeout", "60"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let first_line = std::str::from_utf8(&output)
+        .expect("valid utf8")
+        .lines()
+        .next()
+        .expect("at least one line");
+    let parsed: serde_json::Value = serde_json::from_str(first_line).expect("valid NDJSON");
+    assert_eq!(parsed["status"], "ok");
+    assert!(parsed["url"].as_str().is_some());
+    assert!(parsed["content"].as_str().is_some());
+}

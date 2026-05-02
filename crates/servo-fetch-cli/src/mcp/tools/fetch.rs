@@ -1,41 +1,65 @@
 //! Fetch and batch-fetch tool helpers.
 
-use crate::bridge;
+use std::time::Duration;
+
 use servo_fetch::extract::{self, ExtractInput};
+use servo_fetch::{FetchOptions, Page};
 
 use super::common::{fetch_semaphore, paginate};
 
-pub(crate) async fn fetch_page(
-    url: &str,
-    timeout: u64,
-    settle_ms: u64,
-    mode: bridge::FetchMode,
-) -> Result<bridge::ServoPage, String> {
+pub(crate) async fn fetch_page(url: &str, timeout: u64, settle_ms: u64) -> Result<Page, String> {
     let _permit = fetch_semaphore()
         .acquire()
         .await
         .map_err(|e| format!("fetch semaphore closed: {e}"))?;
-
     let url = url.to_string();
     tokio::task::spawn_blocking(move || {
-        bridge::fetch_page(bridge::FetchOptions {
-            url: &url,
-            timeout_secs: timeout,
-            settle_ms,
-            mode,
-        })
+        servo_fetch::fetch(
+            FetchOptions::new(&url)
+                .timeout(Duration::from_secs(timeout))
+                .settle(Duration::from_millis(settle_ms)),
+        )
     })
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| format!("{e:#}"))
 }
 
-pub(crate) async fn probe_pdf(url: &str, timeout: u64) -> Option<Vec<u8>> {
-    let url = url.to_string();
-    tokio::task::spawn_blocking(move || crate::pdf::probe(&url, timeout))
+pub(crate) async fn fetch_js(url: &str, expression: &str, timeout: u64, settle_ms: u64) -> Result<Page, String> {
+    let _permit = fetch_semaphore()
+        .acquire()
         .await
-        .ok()
-        .flatten()
+        .map_err(|e| format!("fetch semaphore closed: {e}"))?;
+    let url = url.to_string();
+    let expression = expression.to_string();
+    tokio::task::spawn_blocking(move || {
+        servo_fetch::fetch(
+            FetchOptions::javascript(&url, &expression)
+                .timeout(Duration::from_secs(timeout))
+                .settle(Duration::from_millis(settle_ms)),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+pub(crate) async fn fetch_screenshot(url: &str, full_page: bool, timeout: u64, settle_ms: u64) -> Result<Page, String> {
+    let _permit = fetch_semaphore()
+        .acquire()
+        .await
+        .map_err(|e| format!("fetch semaphore closed: {e}"))?;
+    let url = url.to_string();
+    tokio::task::spawn_blocking(move || {
+        servo_fetch::fetch(
+            FetchOptions::screenshot(&url, full_page)
+                .timeout(Duration::from_secs(timeout))
+                .settle(Duration::from_millis(settle_ms)),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
 }
 
 pub(crate) async fn batch_fetch_pages(
@@ -76,19 +100,18 @@ fn fetch_and_render(
     selector: Option<&str>,
     max_len: usize,
 ) -> String {
-    let page = match bridge::fetch_page(bridge::FetchOptions {
-        url,
-        timeout_secs: timeout,
-        settle_ms,
-        mode: bridge::FetchMode::Content { include_a11y: false },
-    }) {
+    let page = match servo_fetch::fetch(
+        FetchOptions::new(url)
+            .timeout(Duration::from_secs(timeout))
+            .settle(Duration::from_millis(settle_ms)),
+    ) {
         Ok(p) => p,
         Err(e) => return format!("[error] {e:#}"),
     };
 
     let input = ExtractInput::new(&page.html, url)
         .with_layout_json(page.layout_json.as_deref())
-        .with_inner_text(page.inner_text.as_deref())
+        .with_inner_text(Some(&page.inner_text))
         .with_selector(selector);
 
     let full = if json {

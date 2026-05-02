@@ -111,7 +111,6 @@ async fn execute_js_returns_title() {
 #[tokio::test]
 async fn fetch_rejects_metadata_ip_in_pdf_probe() {
     let client = connect().await;
-    // AWS metadata endpoint disguised as a PDF URL — must be blocked by validate_url.
     let result = client
         .call_tool(call_params(
             "fetch",

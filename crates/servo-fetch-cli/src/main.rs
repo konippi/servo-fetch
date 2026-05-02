@@ -1,20 +1,14 @@
-//! servo-fetch — A browser engine in a binary.
+//! servo-fetch CLI.
 
 #![deny(unsafe_code)]
 
-mod bridge;
 mod cli;
 mod commands;
-mod crawl;
 mod exit;
 mod logging;
 mod mcp;
-mod net;
 mod output;
-mod pdf;
 mod progress;
-mod runtime;
-mod screenshot;
 
 use clap::Parser;
 

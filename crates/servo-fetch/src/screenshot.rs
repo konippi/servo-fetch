@@ -10,7 +10,7 @@ use image::RgbaImage;
 use servo::{DevicePixel, WebView, WebViewRect};
 
 use crate::bridge::{eval_js, wait_for_wake};
-use servo_fetch::layout;
+use crate::layout;
 
 /// Capture a PNG screenshot of the page, temporarily resizing the viewport
 /// to the full content size when `full_page` is set.

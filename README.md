@@ -9,22 +9,23 @@
   </p>
 </div>
 
-servo-fetch embeds the [Servo](https://servo.org/) browser engine into a single binary. It executes JavaScript, computes CSS layout, captures screenshots with a software renderer, and extracts clean content.
+servo-fetch embeds the [Servo](https://servo.org/) browser engine. It executes JavaScript, computes CSS layout, captures screenshots with a software renderer, and extracts clean content — available as both a CLI tool and a Rust library.
 
 ```bash
-servo-fetch "https://example.com"                        # Clean Markdown
-servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot, no GPU needed
-servo-fetch "https://example.com" --js "document.title"  # Run JS in the page
-servo-fetch URL1 URL2 URL3                               # Parallel batch fetch
-servo-fetch crawl "https://docs.example.com" --limit 20  # Crawl a site (BFS)
+servo-fetch "https://example.com"                        # CLI: clean Markdown
+servo-fetch "https://example.com" --screenshot page.png  # CLI: PNG screenshot
+```
+
+```rust
+let md = servo_fetch::markdown("https://example.com")?;  // Library: one-liner
 ```
 
 ## Why servo-fetch
 
 - **Zero dependencies** — single binary, no Chrome, no Docker, no API key
 - **Real JS execution** — SpiderMonkey runs JavaScript, parallel CSS engine computes layout
-- **Layout-aware extraction** — strips navbars, sidebars, footers by actual rendered position, not HTML guessing
-- **Parallel batch fetch** — multiple URLs fetched concurrently, results stream as each completes
+- **Layout-aware extraction** — strips navbars, sidebars, footers by actual rendered position
+- **Parallel batch fetch** — multiple URLs fetched concurrently
 - **Site crawling** — BFS link traversal with robots.txt, same-site scope, and rate limiting
 - **Screenshots without GPU** — software renderer captures PNG/full-page screenshots anywhere
 - **Accessibility tree** — AccessKit integration with roles, names, and bounding boxes
@@ -50,147 +51,72 @@ curl -fsSL https://raw.githubusercontent.com/konippi/servo-fetch/main/install.sh
 Or via [GitHub Releases](https://github.com/konippi/servo-fetch/releases), or with Cargo (requires Rust 1.86.0+):
 
 ```bash
-cargo binstall servo-fetch   # prebuilt binary
-cargo install servo-fetch    # build from source
+cargo binstall servo-fetch-cli   # prebuilt binary
+cargo install servo-fetch-cli    # build from source
 ```
-
-### Platform notes
 
 <details>
+<summary><b>Platform notes</b></summary>
 
-<summary><b>Linux</b> — runtime dependencies and headless setup</summary>
-
-The Linux binary dynamically links against system libraries. Install them with:
+**Linux** — install runtime deps and use `xvfb-run` on headless servers:
 
 ```bash
-# Debian/Ubuntu
 sudo apt install -y libegl1 libfontconfig1 libfreetype6
-
-# Fedora
-sudo dnf install -y mesa-libEGL fontconfig freetype
-
-# Arch
-sudo pacman -S --needed mesa fontconfig freetype2
-```
-
-servo-fetch needs a working OpenGL ES context, so on headless servers (SSH/container) run it under a virtual display:
-
-```bash
 xvfb-run --auto-servernum servo-fetch "https://example.com"
 ```
 
-</details>
+**Windows** — keep `servo-fetch.exe`, `libEGL.dll`, and `libGLESv2.dll` in the same directory.
 
-<details><summary><b>Windows</b> — zip layout</summary>
-
-Windows releases ship as a `.zip` containing `servo-fetch.exe` alongside `libEGL.dll` and `libGLESv2.dll` — keep them in the same directory. Download from [Releases](https://github.com/konippi/servo-fetch/releases), extract, and put the folder on your `PATH`.
+**macOS** — no extra setup needed.
 
 </details>
 
-<details><summary><b>macOS</b> — no extra setup</summary>
+## Quick Start
 
-No runtime dependencies. The release binary is ready to run.
-
-</details>
-
-## Usage
-
-### Examples
+### CLI
 
 ```bash
-# Readable Markdown (default)
-servo-fetch "https://example.com"
-
-# Structured JSON
-servo-fetch "https://example.com" --json
-
-# Multiple URLs in parallel (Markdown with separators)
-servo-fetch "https://a.com" "https://b.com" "https://c.com"
-
-# Multiple URLs as NDJSON (one compact JSON per line)
-servo-fetch "https://a.com" "https://b.com" --json
-
-# Screenshot — rendered to PNG without GPU
-servo-fetch "https://example.com" --screenshot page.png
-
-# Full-page screenshot (captures the entire scrollable page)
-servo-fetch "https://example.com" --screenshot page.png --full-page
-
-# Execute JavaScript in the page context
-servo-fetch "https://example.com" --js "document.title"
-
-# Extract a specific section by CSS selector
-servo-fetch "https://example.com" --selector "article"
-
-# Raw HTML or plain text (bypasses Readability)
-servo-fetch "https://example.com" --raw html
-servo-fetch "https://example.com" --raw text
-
-# PDF text extraction (auto-detected via Content-Type)
-servo-fetch "https://example.com/report.pdf"
-
-# Crawl a site by following links (BFS, respects robots.txt)
-servo-fetch crawl "https://docs.example.com" --limit 20 --max-depth 3
-
-# Crawl with path filtering
-servo-fetch crawl "https://docs.example.com" --include "/docs/**" --exclude "/docs/archive/**"
+servo-fetch "https://example.com"                        # Markdown (default)
+servo-fetch "https://example.com" --json                 # Structured JSON
+servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot
+servo-fetch "https://example.com" --js "document.title"  # Run JavaScript
+servo-fetch URL1 URL2 URL3                               # Parallel batch
+servo-fetch crawl "https://docs.example.com" --limit 20  # Crawl a site
+servo-fetch mcp                                          # MCP server (stdio)
 ```
 
-### Options
+Full CLI reference → [`servo-fetch-cli`](crates/servo-fetch-cli/README.md)
 
-| Flag | Description |
-| ---- | ----------- |
-| `--json` | Output as structured JSON (NDJSON when multiple URLs) |
-| `--screenshot <FILE>` | Save a PNG screenshot (single URL only) |
-| `--full-page` | Capture the full scrollable page (requires `--screenshot`) |
-| `--js <EXPR>` | Execute JavaScript and print the result (single URL only) |
-| `--selector <CSS>` | Extract a specific section by CSS selector |
-| `--raw <MODE>` | Output raw `html` or plain `text` (single URL only) |
-| `-t`, `--timeout <SECS>` | Page load timeout (default: 30) |
-| `--settle <MS>` | Extra wait after load event for SPAs (default: 0, max: 10000) |
-| `-v`, `--verbose` | Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
-| `-q`, `--quiet` | Suppress all logs except errors |
-| `--help` | Show help |
-| `--version` | Show version |
+### Library
 
-When multiple URLs are given, they are fetched in parallel. Results stream to stdout in completion order — Markdown with `--- URL ---` separators by default, or NDJSON with `--json`.
+```bash
+cargo add servo-fetch
+```
 
-### Crawl subcommand
+```rust
+// URL → Markdown in one line
+let md = servo_fetch::markdown("https://example.com")?;
 
-`servo-fetch crawl <URL>` follows links within the same site using BFS. Output is always NDJSON (one JSON object per page).
+// Fetch with options
+use servo_fetch::{fetch, FetchOptions};
+use std::time::Duration;
 
-| Flag | Description |
-| ---- | ----------- |
-| `--limit <N>` | Maximum pages to crawl (default: 50) |
-| `--max-depth <N>` | Maximum link depth from seed URL (default: 3) |
-| `--include <GLOB>` | URL path patterns to include (e.g. `"/docs/**"`) |
-| `--exclude <GLOB>` | URL path patterns to exclude |
-| `--json` | Output content as JSON instead of Markdown per page |
-| `--selector <CSS>` | Extract a specific section per page |
-| `-t`, `--timeout <SECS>` | Per-page timeout (default: 30) |
-| `--settle <MS>` | Extra wait after load event per page |
+let page = fetch(FetchOptions::new("https://example.com").timeout(Duration::from_secs(60)))?;
+println!("{}", page.html);
+let md = page.markdown()?;
 
-Crawl respects `robots.txt` (RFC 9309) and enforces a minimum 500ms interval between requests.
+// Crawl a site
+servo_fetch::crawl_each(
+    servo_fetch::CrawlOptions::new("https://docs.example.com").limit(100),
+    |result| println!("{}: {:?}", result.url, result.status),
+)?;
+```
 
-### JSON output
+Full API reference → [`servo-fetch`](crates/servo-fetch/README.md)
 
-`--json` returns an object with these fields:
+## MCP Server
 
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `title` | string | Page title |
-| `content` | string | Raw HTML extracted by Readability |
-| `text_content` | string | Readable text (Markdown) |
-| `byline` | string? | Author or byline |
-| `excerpt` | string? | Short excerpt or description |
-| `lang` | string? | Document language (e.g. `"en"`) |
-| `url` | string? | Canonical URL |
-
-Fields marked `?` are omitted when not detected.
-
-## MCP server
-
-servo-fetch includes a built-in MCP server with five tools — `fetch`, `batch_fetch`, `crawl`, `screenshot`, and `execute_js` — over stdio or Streamable HTTP.
+Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server with five tools: `fetch`, `batch_fetch`, `crawl`, `screenshot`, and `execute_js`.
 
 ```json
 {
@@ -203,95 +129,13 @@ servo-fetch includes a built-in MCP server with five tools — `fetch`, `batch_f
 }
 ```
 
-For Streamable HTTP transport:
+Streamable HTTP: `servo-fetch mcp --port 8080`
 
-```bash
-servo-fetch mcp --port 8080
-```
-
-### Tools
-
-<details>
-
-<summary><b>fetch</b> — extract readable content from a URL</summary>
-
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| `url` | string | URL to fetch (http/https only) |
-| `format` | string? | `markdown` (default), `json`, `html`, `text`, or `accessibility_tree` |
-| `max_length` | number? | Max characters to return (default 5000) |
-| `start_index` | number? | Character offset for pagination (default 0) |
-| `timeout` | number? | Page load timeout in seconds (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event for SPAs (default 0, max 10000) |
-| `selector` | string? | CSS selector to extract a specific section |
-
-</details>
-
-<details>
-
-<summary><b>batch_fetch</b> — fetch multiple URLs in parallel</summary>
-
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| `urls` | string[] | URLs to fetch (http/https only, max 20) |
-| `format` | string? | `markdown` (default) or `json` |
-| `max_length` | number? | Max characters per URL result (default 5000) |
-| `timeout` | number? | Page load timeout in seconds per URL (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
-| `selector` | string? | CSS selector to extract a specific section |
-
-</details>
-
-<details>
-
-<summary><b>crawl</b> — crawl a website by following links</summary>
-
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| `url` | string | Starting URL (http/https only) |
-| `limit` | number? | Maximum pages to crawl (default 20, max 500) |
-| `max_depth` | number? | Maximum link depth from seed (default 3, max 10) |
-| `format` | string? | `markdown` (default) or `json` |
-| `include_glob` | string[]? | URL path patterns to include |
-| `exclude_glob` | string[]? | URL path patterns to exclude |
-| `max_length` | number? | Max characters per page result (default 5000) |
-| `timeout` | number? | Page load timeout in seconds per page (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
-| `selector` | string? | CSS selector to extract a specific section per page |
-
-Follows same-site links only. Respects `robots.txt`. Results stream as each page completes.
-
-</details>
-
-<details>
-
-<summary><b>screenshot</b> — capture a PNG screenshot (no GPU required)</summary>
-
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| `url` | string | URL to capture (http/https only) |
-| `full_page` | boolean? | Capture the full scrollable page (default false) |
-| `timeout` | number? | Page load timeout in seconds (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
-
-</details>
-
-<details>
-
-<summary><b>execute_js</b> — evaluate JavaScript in a loaded page</summary>
-
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| `url` | string | URL to load before executing JS |
-| `expression` | string | JavaScript expression to evaluate |
-| `timeout` | number? | Page load timeout in seconds (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
-
-</details>
+Full MCP tool reference → [`servo-fetch-cli` README](crates/servo-fetch-cli/README.md)
 
 ## Agent Skills
 
-servo-fetch ships with an [Agent Skills](https://agentskills.io/) package for AI coding agents. Install with [`npx skills`](https://github.com/vercel-labs/skills):
+servo-fetch ships with an [Agent Skills](https://agentskills.io/) package for AI coding agents:
 
 ```bash
 npx skills add https://github.com/konippi/servo-fetch/tree/main/skills/servo-fetch
@@ -300,22 +144,6 @@ npx skills add https://github.com/konippi/servo-fetch/tree/main/skills/servo-fet
 ## Security
 
 servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatracker.ietf.org/doc/html/rfc6890)), strips credentials from URLs, disables HTTP redirects to prevent SSRF bypass, and sanitizes all output against terminal escape injection ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574)). See [SECURITY.md](./SECURITY.md) for details.
-
-## Logging
-
-Diagnostic messages go to stderr; stdout is reserved for the requested output (Markdown, JSON, PNG bytes) so pipes stay clean. The MCP stdio transport requires this.
-
-Control verbosity with flags or the `RUST_LOG` environment variable:
-
-```bash
-servo-fetch -v "https://example.com"                       # info and above
-servo-fetch -vv "https://example.com"                      # debug
-servo-fetch -q "https://example.com"                       # errors only
-RUST_LOG="servo_fetch=debug" servo-fetch "https://..."     # fine-grained override
-RUST_LOG="servo_fetch=trace,servo=debug" servo-fetch "..." # include Servo internals
-```
-
-`RUST_LOG` uses [`tracing-subscriber`'s directive syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) and always wins over CLI flags.
 
 ## Limitations
 

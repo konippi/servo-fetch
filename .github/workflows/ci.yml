@@ -29,8 +29,7 @@ jobs:
         with:
           filters: |
             code:
-              - 'src/**'
-              - 'tests/**'
+              - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'deny.toml'
@@ -66,7 +65,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
             libssl-dev libglib2.0-dev libegl1-mesa-dev
-      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo clippy --workspace --locked --all-targets -- -D warnings
       - name: sccache stats
         if: always()
         run: sccache --show-stats
@@ -100,8 +99,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
             libssl-dev libglib2.0-dev libegl1-mesa-dev
-      - run: cargo nextest run --locked --cargo-profile ci --no-fail-fast
-      - run: cargo test --locked --profile ci --doc
+      - run: cargo nextest run --workspace --locked --cargo-profile ci --no-fail-fast
+      - run: cargo test --workspace --locked --profile ci --doc
       - name: sccache stats
         if: always()
         run: sccache --show-stats
@@ -122,7 +121,7 @@ jobs:
         with:
           toolchain: "1.95.0"
           components: rustfmt
-      - run: cargo fmt --check
+      - run: cargo fmt --all --check
 
   deny:
     name: Licenses & Advisories

@@ -309,20 +309,20 @@ pub(crate) async fn run(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlPageRe
         };
 
         let html = if page.html.len() > MAX_HTML_BYTES {
-            &page.html[..servo_fetch::sanitize::floor_char_boundary(&page.html, MAX_HTML_BYTES)]
+            &page.html[..crate::sanitize::floor_char_boundary(&page.html, MAX_HTML_BYTES)]
         } else {
             &page.html
         };
 
-        let input = servo_fetch::extract::ExtractInput::new(html, url.as_str())
+        let input = crate::extract::ExtractInput::new(html, url.as_str())
             .with_layout_json(page.layout_json.as_deref())
             .with_inner_text(page.inner_text.as_deref())
             .with_selector(opts.selector.as_deref());
 
         let content = if opts.json {
-            servo_fetch::extract::extract_json(&input).ok()
+            crate::extract::extract_json(&input).ok()
         } else {
-            servo_fetch::extract::extract_text(&input).ok()
+            crate::extract::extract_text(&input).ok()
         };
 
         if content.as_ref().is_some_and(|c| frontier.is_duplicate_content(c)) {
@@ -359,7 +359,7 @@ pub(crate) async fn run(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlPageRe
             depth,
             status: CrawlStatus::Ok,
             title,
-            content: content.map(|c| servo_fetch::sanitize::sanitize(&c).into_owned()),
+            content: content.map(|c| crate::sanitize::sanitize(&c).into_owned()),
             error: None,
             links_found,
         };

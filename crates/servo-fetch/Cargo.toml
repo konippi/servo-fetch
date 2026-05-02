@@ -1,0 +1,49 @@
+[package]
+name = "servo-fetch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Fetch, render, and extract web content with an embedded Servo browser engine. No Chrome required."
+readme = "README.md"
+keywords = ["servo", "headless-browser", "web-scraping", "readability", "content-extraction"]
+categories = ["web-programming", "web-programming::http-client"]
+include = ["src/**/*", "Cargo.toml", "LICENSE", "README.md"]
+
+[dependencies]
+servo = { workspace = true }
+anyhow = { workspace = true }
+dom_query = { workspace = true }
+dom_smoothie = { workspace = true }
+dpi = { workspace = true }
+euclid = { workspace = true }
+globset = { workspace = true }
+htmd = { workspace = true }
+image = { workspace = true }
+pdf-extract = { workspace = true }
+psl = { workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+ureq = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+servo = { workspace = true, features = ["no-wgl"] }
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[package.metadata.cargo-machete]
+ignored = ["rustls"]
+
+[lints]
+workspace = true

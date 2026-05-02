@@ -14,7 +14,7 @@ use servo::{
     ServoBuilder, SoftwareRenderingContext, UserContentManager, WebView, WebViewBuilder, WebViewDelegate, WebViewId,
 };
 
-use servo_fetch::layout;
+use crate::layout;
 
 const JS_EVAL_TIMEOUT: Duration = Duration::from_secs(10);
 /// Max wait before we re-check time-based conditions.
@@ -208,7 +208,7 @@ impl WebViewDelegate for SharedDelegate {
             if msgs.len() < MAX_CONSOLE_MESSAGES {
                 let message = if message.len() > MAX_CONSOLE_MESSAGE_LEN {
                     let mut s = message;
-                    s.truncate(servo_fetch::sanitize::floor_char_boundary(&s, MAX_CONSOLE_MESSAGE_LEN));
+                    s.truncate(crate::sanitize::floor_char_boundary(&s, MAX_CONSOLE_MESSAGE_LEN));
                     s.push_str("… (truncated)");
                     s
                 } else {

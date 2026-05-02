@@ -27,9 +27,10 @@ jobs:
         id: version
         run: |
           VERSION="${TAG#v}"
-          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "servo-fetch-cli") | .version')
           if [ "$VERSION" != "$CARGO_VERSION" ]; then
-            echo "::error::Tag $TAG does not match Cargo.toml version $CARGO_VERSION"
+            echo "::error::Tag $TAG does not match servo-fetch-cli version $CARGO_VERSION"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -101,7 +102,7 @@ jobs:
 
       - name: Build release binary
         shell: bash
-        run: cargo build --release --locked --target "$TARGET"
+        run: cargo build --release --locked --target "$TARGET" -p servo-fetch-cli
 
       - name: Bundle Windows ANGLE DLLs
         if: runner.os == 'Windows'
@@ -191,14 +192,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: "1.95.0"
-      - name: Dry-run package (gate for --no-verify below)
-        run: cargo package --locked --list >/dev/null
+      - name: Dry-run package
+        run: |
+          cargo package --locked --list -p servo-fetch >/dev/null
+          cargo package --locked --list -p servo-fetch-cli >/dev/null
       - uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
         id: auth
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish --locked --no-verify
+        run: cargo publish --workspace --locked --no-verify
 
   publish-release:
     name: Publish Release

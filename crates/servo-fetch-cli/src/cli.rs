@@ -126,72 +126,9 @@ pub(crate) struct CrawlArgs {
     pub settle: u64,
 }
 
-pub(crate) fn validate_url(input: &str) -> anyhow::Result<url::Url> {
-    crate::net::validate_url(input)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn accepts_https() {
-        assert!(validate_url("https://example.com").is_ok());
-    }
-
-    #[test]
-    fn accepts_http() {
-        assert!(validate_url("http://example.com").is_ok());
-    }
-
-    #[test]
-    fn rejects_file_scheme() {
-        let err = validate_url("file:///etc/passwd").unwrap_err();
-        assert!(err.to_string().contains("not allowed"));
-    }
-
-    #[test]
-    fn rejects_javascript_scheme() {
-        let err = validate_url("javascript:alert(1)").unwrap_err();
-        assert!(err.to_string().contains("not allowed"));
-    }
-
-    #[test]
-    fn strips_credentials() {
-        let url = validate_url("https://user:pass@example.com").unwrap();
-        assert!(url.username().is_empty());
-        assert!(url.password().is_none());
-    }
-
-    #[test]
-    fn rejects_invalid_url() {
-        assert!(validate_url("not a url").is_err());
-    }
-
-    #[test]
-    fn rejects_private_host_via_url() {
-        assert!(validate_url("http://127.0.0.1/").is_err());
-    }
-
-    #[test]
-    fn rejects_hex_ip() {
-        assert!(validate_url("http://0x7f000001/").is_err());
-    }
-
-    #[test]
-    fn rejects_decimal_ip() {
-        assert!(validate_url("http://2130706433/").is_err());
-    }
-
-    #[test]
-    fn rejects_data_scheme() {
-        assert!(
-            validate_url("data:text/html,<h1>hi</h1>")
-                .unwrap_err()
-                .to_string()
-                .contains("not allowed")
-        );
-    }
 
     #[test]
     fn raw_mode_from_str() {

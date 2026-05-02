@@ -70,7 +70,7 @@ jobs:
         run: printf 'LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin\n' >> "$GITHUB_ENV"
 
       - name: Build release binary
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }} -p servo-fetch-cli
 
       - name: Bundle Windows ANGLE DLLs
         if: runner.os == 'Windows'
@@ -96,7 +96,7 @@ jobs:
           "$BIN" --help >/dev/null
 
           # Each URL must be rejected *with a specific validation message* — not a crash.
-          # Messages mirror src/net.rs::validate_url exactly.
+          # Messages mirror crates/servo-fetch/src/net.rs::validate_url exactly.
           check() {
             local url=$1 want=$2
             if "$BIN" "$url" 2>"$ERR"; then

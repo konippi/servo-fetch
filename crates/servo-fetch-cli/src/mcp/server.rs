@@ -54,35 +54,22 @@ impl ServoFetchMcp {
             ));
         }
 
-        let include_a11y = matches!(p.format, Some(OutputFormat::AccessibilityTree));
-
-        let full = if let Some(pdf_bytes) = tools::probe_pdf(&url, timeout).await {
-            servo_fetch::extract::extract_pdf(&pdf_bytes)
-        } else {
-            let page = match tools::fetch_page(
-                &url,
-                timeout,
-                settle_ms,
-                crate::bridge::FetchMode::Content { include_a11y },
-            )
-            .await
-            {
-                Ok(p) => p,
+        let page = match tools::fetch_page(&url, timeout, settle_ms).await {
+            Ok(p) => p,
+            Err(e) => return Ok(tools::tool_error(e)),
+        };
+        let full = match p.format.unwrap_or_default() {
+            OutputFormat::Html => page.html,
+            OutputFormat::Text => page.inner_text,
+            OutputFormat::Json => match tools::extract(&page, &url, true, p.selector.as_deref()) {
+                Ok(s) => s,
                 Err(e) => return Ok(tools::tool_error(e)),
-            };
-            match p.format.unwrap_or_default() {
-                OutputFormat::Html => page.html,
-                OutputFormat::Text => page.inner_text.unwrap_or_default(),
-                OutputFormat::Json => match tools::extract(&page, &url, true, p.selector.as_deref()) {
-                    Ok(s) => s,
-                    Err(e) => return Ok(tools::tool_error(e)),
-                },
-                OutputFormat::Markdown => match tools::extract(&page, &url, false, p.selector.as_deref()) {
-                    Ok(s) => s,
-                    Err(e) => return Ok(tools::tool_error(e)),
-                },
-                OutputFormat::AccessibilityTree => page.accessibility_tree.unwrap_or_default(),
-            }
+            },
+            OutputFormat::Markdown => match tools::extract(&page, &url, false, p.selector.as_deref()) {
+                Ok(s) => s,
+                Err(e) => return Ok(tools::tool_error(e)),
+            },
+            OutputFormat::AccessibilityTree => page.accessibility_tree.unwrap_or_default(),
         };
         Ok(CallToolResult::success(vec![Content::text(tools::paginate(
             &servo_fetch::sanitize::sanitize(&full),
@@ -131,16 +118,7 @@ impl ServoFetchMcp {
         let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
         let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
 
-        let page = match tools::fetch_page(
-            &url,
-            timeout,
-            settle_ms,
-            crate::bridge::FetchMode::ExecuteJs {
-                expression: p.expression,
-            },
-        )
-        .await
-        {
+        let page = match tools::fetch_js(&url, &p.expression, timeout, settle_ms).await {
             Ok(p) => p,
             Err(e) => return Ok(tools::tool_error(e)),
         };
@@ -153,7 +131,7 @@ impl ServoFetchMcp {
             result.push_str("\n\n--- console output ---\n");
             for msg in &page.console_messages {
                 use std::fmt::Write as _;
-                let _ = writeln!(result, "[{}] {}", msg.level, msg.message);
+                let _ = writeln!(result, "[{:?}] {}", msg.level, msg.message);
             }
         }
         Ok(CallToolResult::success(vec![Content::text(

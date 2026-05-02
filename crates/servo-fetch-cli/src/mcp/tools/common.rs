@@ -6,8 +6,7 @@ use rmcp::ErrorData;
 use rmcp::model::{CallToolResult, Content};
 use tokio::sync::Semaphore;
 
-use crate::bridge;
-use crate::net;
+use servo_fetch::Page;
 use servo_fetch::extract::{self, ExtractInput};
 
 const DEFAULT_MAX_CONCURRENT_FETCHES: usize = 4;
@@ -26,7 +25,7 @@ pub(crate) fn fetch_semaphore() -> &'static Semaphore {
 }
 
 pub(crate) fn validated_url(url: &str) -> Result<String, ErrorData> {
-    net::validate_url(url)
+    servo_fetch::validate_url(url)
         .map(|u| u.to_string())
         .map_err(|e| ErrorData::invalid_params(format!("{e:#}"), None))
 }
@@ -35,15 +34,10 @@ pub(crate) fn tool_error(msg: impl Into<String>) -> CallToolResult {
     CallToolResult::error(vec![Content::text(msg.into())])
 }
 
-pub(crate) fn extract(
-    page: &bridge::ServoPage,
-    url: &str,
-    json: bool,
-    selector: Option<&str>,
-) -> Result<String, String> {
+pub(crate) fn extract(page: &Page, url: &str, json: bool, selector: Option<&str>) -> Result<String, String> {
     let input = ExtractInput::new(&page.html, url)
         .with_layout_json(page.layout_json.as_deref())
-        .with_inner_text(page.inner_text.as_deref())
+        .with_inner_text(Some(&page.inner_text))
         .with_selector(selector);
     if json {
         extract::extract_json(&input)
@@ -113,20 +107,5 @@ mod tests {
     fn paginate_start_mid_multibyte() {
         let r = paginate("日本語", 1, 100);
         assert!(r.starts_with("日"));
-    }
-
-    #[test]
-    fn rejects_private_url() {
-        assert!(validated_url("http://127.0.0.1/").is_err());
-    }
-
-    #[test]
-    fn accepts_public_url() {
-        assert!(validated_url("https://example.com").is_ok());
-    }
-
-    #[test]
-    fn rejects_file_scheme() {
-        assert!(validated_url("file:///etc/passwd").is_err());
     }
 }

@@ -6437,34 +6437,48 @@ name = "servo-fetch"
 version = "0.5.0"
 dependencies = [
  "anyhow",
- "assert_cmd",
- "axum",
- "base64 0.22.1",
- "clap",
  "dom_query",
  "dom_smoothie",
  "dpi",
  "euclid 0.22.14",
- "futures-util",
  "globset",
  "htmd",
  "image",
  "libc",
  "pdf-extract",
- "predicates",
  "psl",
- "rmcp",
  "rustls",
- "schemars",
  "serde",
  "serde_json",
  "servo",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "ureq",
  "url",
+]
+
+[[package]]
+name = "servo-fetch-cli"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "axum",
+ "base64 0.22.1",
+ "clap",
+ "futures-util",
+ "libc",
+ "predicates",
+ "rmcp",
+ "rustls",
+ "schemars",
+ "serde",
+ "serde_json",
+ "servo-fetch",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -63,6 +63,18 @@ AI tools (e.g. Claude Code, Kiro) can be useful for generating code. However, yo
 - **Write PR descriptions and replies yourself.** Describe the change and reply to review comments in your own words. Do not paste AI output as a reply to maintainers. We may hide comments we believe are AI-generated.
 - **Disclose AI context when you quote it.** If you paste output from an AI tool into an issue or PR, put it in a `>` quote block and add your own commentary explaining why it is relevant.
 
+## Issue labels
+
+We use two label axes plus status:
+
+- **`type: *`** — what kind of work, aligned with [Conventional Commits](https://www.conventionalcommits.org/): `type: bug`, `type: feature`, `type: docs`, `type: refactor`, `type: perf`, `type: deps`, `type: ci`, `type: build`, `type: security`
+- **surface** — which user-facing interface: `cli`, `mcp`, `skill`
+- **status** — workflow state: `good first issue`, `help wanted`, `needs triage`, `needs info`
+
+Start with [`good first issue`](https://github.com/konippi/servo-fetch/labels/good%20first%20issue) if you are new to the project.
+
+Labels are declared in [`.github/labels.yml`](./.github/labels.yml) and synced by the `Sync Labels` workflow. To propose a new label, open a PR editing that file.
+
 ## Reporting bugs
 
 Please use the [bug report template](https://github.com/konippi/servo-fetch/issues/new?template=bug_report.yml) and include:

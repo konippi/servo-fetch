@@ -1,0 +1,44 @@
+name: Sync Labels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/labels.yml'
+      - '.github/scripts/sync-labels.sh'
+      - '.github/workflows/sync-labels.yml'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Preview changes without applying"
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: sync-labels
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync labels
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write # required by `gh label create/edit`
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      MODE: ${{ inputs.dry-run && '--dry-run' || '--apply' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/labels.yml
+            .github/scripts/sync-labels.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Sync labels
+        run: ./.github/scripts/sync-labels.sh "$MODE"

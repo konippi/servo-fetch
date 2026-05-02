@@ -1,0 +1,61 @@
+# What kind of work? (aligned with Conventional Commits)
+- name: "type: bug"
+  color: d73a4a
+  description: "Something isn't working as documented"
+- name: "type: feature"
+  color: a2eeef
+  description: "New feature or capability (feat:)"
+- name: "type: docs"
+  color: 0075ca
+  description: "Documentation-only change (docs:)"
+- name: "type: refactor"
+  color: c5def5
+  description: "Internal refactor with no user-visible change (refactor:)"
+- name: "type: perf"
+  color: d4c5f9
+  description: "Performance improvement (perf:)"
+- name: "type: deps"
+  color: 0366d6
+  description: "Dependency updates (chore(deps):)"
+- name: "type: ci"
+  color: c2e0c6
+  description: "GitHub Actions, CI pipeline (ci:)"
+- name: "type: build"
+  color: c2e0c6
+  description: "Build system, release packaging (build:)"
+- name: "type: security"
+  color: b60205
+  description: "Security-sensitive change"
+
+# User-facing surface
+- name: "cli"
+  color: 1d76db
+  description: "CLI binary, subcommands, flags, installer"
+- name: "mcp"
+  color: 1d76db
+  description: "MCP server, protocol, tools"
+- name: "skill"
+  color: 1d76db
+  description: "Agent Skills package"
+
+# Status
+- name: "good first issue"
+  color: 7057ff
+  description: "Good for newcomers — well-scoped and approachable"
+- name: "help wanted"
+  color: 008672
+  description: "Extra attention or external contributors welcome"
+- name: "needs triage"
+  color: ededed
+  description: "Awaiting maintainer review and categorization"
+- name: "needs info"
+  color: fbca04
+  description: "Waiting for more information from the reporter"
+
+# Resolution
+- name: "duplicate"
+  color: cfd3d7
+  description: "Duplicate of another issue or PR"
+- name: "wontfix"
+  color: ffffff
+  description: "Will not be worked on — out of scope or rejected"

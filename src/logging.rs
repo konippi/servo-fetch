@@ -5,7 +5,6 @@ use std::io::IsTerminal as _;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::Uptime;
 
-/// Verbosity resolved from `-v` count and `-q` flag.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Verbosity {
     Quiet,
@@ -44,7 +43,6 @@ impl Verbosity {
     }
 }
 
-/// Install the global `tracing` subscriber.
 pub(crate) fn init(verbosity: Verbosity) {
     let filter = EnvFilter::builder()
         .with_default_directive(

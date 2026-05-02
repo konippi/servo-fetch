@@ -6,23 +6,26 @@ use clap::Parser;
 #[command(
     name = "servo-fetch",
     version,
-    about = "A browser engine in a binary — fetch, render, and extract web content.",
-    after_help = "\
-Examples:
-  servo-fetch https://example.com              Readable Markdown (default)
-  servo-fetch https://example.com --json       Structured JSON
-  servo-fetch URL1 URL2 URL3                   Parallel batch fetch
-  servo-fetch URL1 URL2 --json                 Parallel batch (NDJSON)
-  servo-fetch https://example.com --screenshot page.png
-  servo-fetch https://example.com --js \"document.title\"
-  servo-fetch https://example.com -t 60        Custom timeout (seconds)
-  servo-fetch https://example.com --selector article  Extract specific section
-  servo-fetch mcp                              Start MCP server (stdio)"
+    about = "A browser engine in a binary — fetch, render, and extract web content."
 )]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
 
+    #[command(flatten)]
+    pub fetch: FetchArgs,
+
+    /// Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace)
+    #[arg(short = 'v', long, action = clap::ArgAction::Count, global = true, conflicts_with = "quiet")]
+    pub verbose: u8,
+
+    /// Suppress all logs except errors
+    #[arg(short = 'q', long, global = true)]
+    pub quiet: bool,
+}
+
+#[derive(clap::Args, Debug)]
+pub(crate) struct FetchArgs {
     /// URLs to fetch (one or more)
     #[arg(num_args = 1..)]
     pub urls: Vec<String>,
@@ -58,14 +61,6 @@ pub(crate) struct Cli {
     /// Output raw HTML or plain text instead of Readability extraction
     #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["json", "screenshot", "js", "selector"])]
     pub raw: Option<RawMode>,
-
-    /// Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace)
-    #[arg(short = 'v', long, action = clap::ArgAction::Count, global = true, conflicts_with = "quiet")]
-    pub verbose: u8,
-
-    /// Suppress all logs except errors
-    #[arg(short = 'q', long, global = true)]
-    pub quiet: bool,
 }
 
 /// Raw output mode.
@@ -81,51 +76,56 @@ pub(crate) enum RawMode {
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
     /// Start MCP server (stdio transport by default, or HTTP with --port)
-    Mcp {
-        /// Port for Streamable HTTP transport. Omit for stdio.
-        #[arg(long, value_name = "PORT")]
-        port: Option<u16>,
-    },
+    Mcp(McpArgs),
     /// Crawl a website by following links (BFS). Respects robots.txt.
-    Crawl {
-        /// Starting URL to crawl
-        url: String,
-
-        /// Maximum number of pages to crawl
-        #[arg(long, default_value_t = 50, value_name = "N")]
-        limit: usize,
-
-        /// Maximum link depth from the seed URL
-        #[arg(long, default_value_t = 3, value_name = "N")]
-        max_depth: usize,
-
-        /// URL path glob patterns to include (e.g. "/docs/**")
-        #[arg(long, value_name = "GLOB")]
-        include: Vec<String>,
-
-        /// URL path glob patterns to exclude (e.g. "/docs/archive/**")
-        #[arg(long, value_name = "GLOB")]
-        exclude: Vec<String>,
-
-        /// Output as NDJSON
-        #[arg(long)]
-        json: bool,
-
-        /// CSS selector to extract a specific section per page
-        #[arg(long, value_name = "CSS")]
-        selector: Option<String>,
-
-        /// Timeout in seconds per page
-        #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..), value_name = "SECS")]
-        timeout: u64,
-
-        /// Extra wait in ms after load event per page
-        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=10_000), value_name = "MS")]
-        settle: u64,
-    },
+    Crawl(CrawlArgs),
 }
 
-/// Validate and sanitize a URL for fetching. Forwards to [`crate::net::validate_url`].
+#[derive(clap::Args, Debug)]
+pub(crate) struct McpArgs {
+    /// Port for Streamable HTTP transport. Omit for stdio.
+    #[arg(long, value_name = "PORT")]
+    pub port: Option<u16>,
+}
+
+#[derive(clap::Args, Debug)]
+pub(crate) struct CrawlArgs {
+    /// Starting URL to crawl
+    pub url: String,
+
+    /// Maximum number of pages to crawl
+    #[arg(long, default_value_t = 50, value_name = "N")]
+    pub limit: usize,
+
+    /// Maximum link depth from the seed URL
+    #[arg(long, default_value_t = 3, value_name = "N")]
+    pub max_depth: usize,
+
+    /// URL path glob patterns to include (e.g. "/docs/**")
+    #[arg(long, value_name = "GLOB")]
+    pub include: Vec<String>,
+
+    /// URL path glob patterns to exclude (e.g. "/docs/archive/**")
+    #[arg(long, value_name = "GLOB")]
+    pub exclude: Vec<String>,
+
+    /// Output as NDJSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// CSS selector to extract a specific section per page
+    #[arg(long, value_name = "CSS")]
+    pub selector: Option<String>,
+
+    /// Timeout in seconds per page
+    #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..), value_name = "SECS")]
+    pub timeout: u64,
+
+    /// Extra wait in ms after load event per page
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=10_000), value_name = "MS")]
+    pub settle: u64,
+}
+
 pub(crate) fn validate_url(input: &str) -> anyhow::Result<url::Url> {
     crate::net::validate_url(input)
 }
@@ -175,7 +175,6 @@ mod tests {
 
     #[test]
     fn rejects_hex_ip() {
-        // url::Url::parse normalizes 0x7f000001 → 127.0.0.1
         assert!(validate_url("http://0x7f000001/").is_err());
     }
 

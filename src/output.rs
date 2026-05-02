@@ -1,4 +1,4 @@
-//! Command dispatch — each output mode is a struct with its own `execute`.
+//! Output formatters for stdout (Markdown, JSON, screenshot, raw).
 
 use std::io::Write;
 
@@ -6,7 +6,6 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::bridge::ServoPage;
 
-/// Output an extracted article as Markdown to stdout.
 pub(crate) struct Markdown<'a> {
     pub page: &'a ServoPage,
     pub url: &'a str,
@@ -25,7 +24,6 @@ impl Markdown<'_> {
     }
 }
 
-/// Output an extracted article as JSON to stdout.
 pub(crate) struct Json<'a> {
     pub page: &'a ServoPage,
     pub url: &'a str,
@@ -34,17 +32,31 @@ pub(crate) struct Json<'a> {
 
 impl Json<'_> {
     pub(crate) fn execute(&self) -> Result<()> {
+        let json = self.render()?;
+        writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&json))?;
+        Ok(())
+    }
+
+    /// Emit a single-line NDJSON record for batch output.
+    pub(crate) fn execute_compact(&self) -> Result<()> {
+        let pretty = self.render()?;
+        let line = serde_json::from_str::<serde_json::Value>(&pretty)
+            .ok()
+            .and_then(|v| serde_json::to_string(&v).ok())
+            .unwrap_or(pretty);
+        writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&line))?;
+        Ok(())
+    }
+
+    fn render(&self) -> Result<String> {
         let input = servo_fetch::extract::ExtractInput::new(&self.page.html, self.url)
             .with_layout_json(self.page.layout_json.as_deref())
             .with_inner_text(self.page.inner_text.as_deref())
             .with_selector(self.selector);
-        let json = servo_fetch::extract::extract_json(&input)?;
-        writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&json))?;
-        Ok(())
+        Ok(servo_fetch::extract::extract_json(&input)?)
     }
 }
 
-/// Save the rendered screenshot to a PNG file.
 pub(crate) struct Screenshot<'a> {
     pub page: &'a ServoPage,
     pub path: &'a str,
@@ -64,12 +76,17 @@ impl Screenshot<'_> {
     }
 }
 
-/// Print the result of an evaluated JavaScript expression to stdout.
 pub(crate) struct JsEval<'a> {
     pub result: &'a str,
 }
 
-/// Print raw HTML or inner text to stdout.
+impl JsEval<'_> {
+    pub(crate) fn execute(&self) -> Result<()> {
+        writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(self.result))?;
+        Ok(())
+    }
+}
+
 pub(crate) struct Raw<'a> {
     pub page: &'a ServoPage,
     pub mode: &'a crate::cli::RawMode,
@@ -82,13 +99,6 @@ impl Raw<'_> {
             crate::cli::RawMode::Text => self.page.inner_text.as_deref().unwrap_or(""),
         };
         write!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(content))?;
-        Ok(())
-    }
-}
-
-impl JsEval<'_> {
-    pub(crate) fn execute(&self) -> Result<()> {
-        writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(self.result))?;
         Ok(())
     }
 }

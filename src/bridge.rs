@@ -180,7 +180,7 @@ impl WebViewDelegate for SharedDelegate {
         match navigation_request.url.host_str() {
             Some(host) if is_http && !crate::net::is_private_host(host) => navigation_request.allow(),
             _ => {
-                eprintln!("warning: blocked navigation to {}", navigation_request.url);
+                tracing::warn!(url = %navigation_request.url, "blocked navigation");
                 navigation_request.deny();
             }
         }
@@ -193,7 +193,7 @@ impl WebViewDelegate for SharedDelegate {
                 if nodes.len() >= MAX_A11Y_NODES && !nodes.contains_key(&id) {
                     if !state.a11y_truncated.get() {
                         state.a11y_truncated.set(true);
-                        eprintln!("warning: accessibility tree truncated at {MAX_A11Y_NODES} nodes");
+                        tracing::warn!(limit = MAX_A11Y_NODES, "accessibility tree truncated");
                     }
                     continue;
                 }
@@ -571,7 +571,7 @@ fn wait_for_ready_state(servo: &servo::Servo, webview: &WebView, deadline: Insta
         }
         wait_for_wake(FALLBACK_WAIT);
     }
-    eprintln!("warning: document did not finish loading; content may be incomplete");
+    tracing::warn!("document did not finish loading; content may be incomplete");
 }
 
 pub(crate) fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str) -> Result<String> {

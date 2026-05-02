@@ -31,7 +31,7 @@ pub(crate) fn capture(
     }
 
     let Some(measured) = measure_full_page(servo, webview) else {
-        eprintln!("warning: failed to measure full page size; falling back to viewport screenshot");
+        tracing::warn!("failed to measure full page size; falling back to viewport screenshot");
         return take_screenshot(servo, webview, None, timeout_secs);
     };
 
@@ -41,9 +41,12 @@ pub(crate) fn capture(
     };
 
     if resized != measured {
-        eprintln!(
-            "warning: full-page dimensions clamped to {}x{} (content was {}x{})",
-            resized.width, resized.height, measured.width, measured.height
+        tracing::warn!(
+            clamped_w = resized.width,
+            clamped_h = resized.height,
+            measured_w = measured.width,
+            measured_h = measured.height,
+            "full-page dimensions clamped",
         );
     }
 
@@ -88,11 +91,11 @@ fn take_screenshot(
         servo.spin_event_loop();
         if let Some(outcome) = result.borrow_mut().take() {
             return outcome
-                .inspect_err(|e| eprintln!("warning: screenshot capture failed: {e:?}"))
+                .inspect_err(|e| tracing::warn!(error = ?e, "screenshot capture failed"))
                 .ok();
         }
         if Instant::now() > deadline {
-            eprintln!("warning: screenshot capture timed out after {timeout_secs}s");
+            tracing::warn!(timeout_secs, "screenshot capture timed out");
             return None;
         }
         wait_for_wake(Duration::from_millis(10));

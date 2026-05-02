@@ -40,6 +40,8 @@ ureq = "3"
 globset = "0.4"
 psl = "2"
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

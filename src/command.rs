@@ -56,7 +56,7 @@ impl Screenshot<'_> {
             Some(ref img) => {
                 img.save(self.path)
                     .with_context(|| format!("failed to save screenshot to {}", self.path))?;
-                eprintln!("screenshot saved to {}", self.path);
+                tracing::info!(path = %self.path, "screenshot saved");
                 Ok(())
             }
             None => bail!("failed to capture screenshot — the page may not have rendered correctly"),

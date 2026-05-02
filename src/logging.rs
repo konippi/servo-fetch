@@ -14,7 +14,6 @@ pub(crate) enum Verbosity {
     Info,
     Debug,
     Trace,
-    TraceAll,
 }
 
 impl Verbosity {
@@ -26,8 +25,7 @@ impl Verbosity {
             0 => Self::Default,
             1 => Self::Info,
             2 => Self::Debug,
-            3 => Self::Trace,
-            _ => Self::TraceAll,
+            _ => Self::Trace,
         }
     }
 
@@ -38,12 +36,11 @@ impl Verbosity {
             Self::Info => "servo_fetch=info",
             Self::Debug => "servo_fetch=debug",
             Self::Trace => "servo_fetch=trace",
-            Self::TraceAll => "trace",
         }
     }
 
     fn detailed(self) -> bool {
-        matches!(self, Self::Debug | Self::Trace | Self::TraceAll)
+        matches!(self, Self::Debug | Self::Trace)
     }
 }
 
@@ -87,8 +84,7 @@ mod tests {
         assert_eq!(Verbosity::from_flags(1, false), Verbosity::Info);
         assert_eq!(Verbosity::from_flags(2, false), Verbosity::Debug);
         assert_eq!(Verbosity::from_flags(3, false), Verbosity::Trace);
-        assert_eq!(Verbosity::from_flags(4, false), Verbosity::TraceAll);
-        assert_eq!(Verbosity::from_flags(u8::MAX, false), Verbosity::TraceAll);
+        assert_eq!(Verbosity::from_flags(u8::MAX, false), Verbosity::Trace);
     }
 
     #[test]
@@ -97,8 +93,8 @@ mod tests {
     }
 
     #[test]
-    fn trace_all_opts_into_global_trace() {
-        assert_eq!(Verbosity::TraceAll.default_directive(), "trace");
+    fn trace_stays_scoped_to_own_crate() {
+        assert_eq!(Verbosity::Trace.default_directive(), "servo_fetch=trace");
     }
 
     #[test]
@@ -108,7 +104,6 @@ mod tests {
         assert!(!Verbosity::Info.detailed());
         assert!(Verbosity::Debug.detailed());
         assert!(Verbosity::Trace.detailed());
-        assert!(Verbosity::TraceAll.detailed());
     }
 
     #[test]
@@ -119,7 +114,6 @@ mod tests {
             Verbosity::Info,
             Verbosity::Debug,
             Verbosity::Trace,
-            Verbosity::TraceAll,
         ] {
             let _: tracing_subscriber::filter::Directive = v.default_directive().parse().unwrap();
         }

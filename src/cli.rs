@@ -59,7 +59,7 @@ pub(crate) struct Cli {
     #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["json", "screenshot", "js", "selector"])]
     pub raw: Option<RawMode>,
 
-    /// Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace, `-vvvv` trace all crates)
+    /// Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace)
     #[arg(short = 'v', long, action = clap::ArgAction::Count, global = true, conflicts_with = "quiet")]
     pub verbose: u8,
 

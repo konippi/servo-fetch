@@ -130,9 +130,7 @@ fn run_crawl(
                 crawl::CrawlStatus::Ok => "✓",
                 crawl::CrawlStatus::Error => "✗",
             };
-            // Progress UI: stays on stderr as raw text, not a tracing event.
-            // `tracing` is for diagnostics (with level/target prefixes); interactive
-            // progress belongs to the UI layer and must remain prefix-free.
+            // Progress UI: raw stderr, not a tracing event (prefix-free).
             let _ = writeln!(std::io::stderr(), "[{completed}] {} {status}", result.url);
         }
     }));

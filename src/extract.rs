@@ -52,7 +52,7 @@ pub fn extract_pdf(data: &[u8]) -> String {
     match pdf_extract::extract_text_from_mem(data) {
         Ok(text) => text,
         Err(e) => {
-            tracing::warn!("PDF text extraction failed: {e}");
+            tracing::warn!(error = %e, "PDF text extraction failed");
             String::new()
         }
     }

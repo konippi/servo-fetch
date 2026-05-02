@@ -58,7 +58,7 @@ pub(crate) fn init(verbosity: Verbosity) {
         )
         .from_env_lossy();
 
-    let ansi = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    let ansi = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
     let builder = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)

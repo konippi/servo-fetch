@@ -91,7 +91,7 @@ fn take_screenshot(
         servo.spin_event_loop();
         if let Some(outcome) = result.borrow_mut().take() {
             return outcome
-                .inspect_err(|e| tracing::warn!("screenshot capture failed: {e:?}"))
+                .inspect_err(|e| tracing::warn!(error = ?e, "screenshot capture failed"))
                 .ok();
         }
         if Instant::now() > deadline {

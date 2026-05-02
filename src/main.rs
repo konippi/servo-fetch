@@ -6,6 +6,7 @@ mod bridge;
 mod cli;
 mod command;
 mod crawl;
+mod logging;
 mod mcp;
 mod net;
 mod pdf;
@@ -27,6 +28,7 @@ fn main() {
         .expect("Failed to install rustls crypto provider");
 
     let args = cli::Cli::parse();
+    logging::init(logging::Verbosity::from_flags(args.verbose, args.quiet));
 
     let code = match args.command {
         Some(cli::Command::Mcp { port }) => run_mcp(port),
@@ -61,7 +63,7 @@ fn run_mcp(port: Option<u16>) -> i32 {
     match rt.block_on(mcp::run(port)) {
         Ok(()) => 0,
         Err(e) => {
-            eprintln!("error: {e:#}");
+            tracing::error!("{e:#}");
             1
         }
     }
@@ -72,7 +74,7 @@ fn exit_code(result: anyhow::Result<()>) -> i32 {
         Ok(()) => 0,
         Err(err) if is_broken_pipe(&err) => 0,
         Err(err) => {
-            eprintln!("error: {err:#}");
+            tracing::error!("{err:#}");
             1
         }
     }
@@ -128,7 +130,10 @@ fn run_crawl(
                 crawl::CrawlStatus::Ok => "✓",
                 crawl::CrawlStatus::Error => "✗",
             };
-            eprintln!("[{completed}] {} {status}", result.url);
+            // Progress UI: stays on stderr as raw text, not a tracing event.
+            // `tracing` is for diagnostics (with level/target prefixes); interactive
+            // progress belongs to the UI layer and must remain prefix-free.
+            let _ = writeln!(std::io::stderr(), "[{completed}] {} {status}", result.url);
         }
     }));
 
@@ -186,7 +191,8 @@ async fn run_batch(args: &cli::Cli) -> anyhow::Result<()> {
     let is_tty = std::io::stderr().is_terminal();
     let total = urls.len();
     if is_tty {
-        eprintln!("Fetching {total} URLs...");
+        // Progress UI, not a diagnostic event.
+        let _ = writeln!(std::io::stderr(), "Fetching {total} URLs...");
     }
 
     let sem = Arc::new(Semaphore::new(4));
@@ -244,12 +250,12 @@ async fn run_batch(args: &cli::Cli) -> anyhow::Result<()> {
                     writeln!(std::io::stdout())?;
                 }
                 if is_tty {
-                    eprintln!("[{completed}/{total}] {url} ✓");
+                    let _ = writeln!(std::io::stderr(), "[{completed}/{total}] {url} ✓");
                 }
             }
             Err(e) => {
                 failures += 1;
-                eprintln!("error: {url}: {e:#}");
+                tracing::error!(url = %url, "{e:#}");
             }
         }
     }

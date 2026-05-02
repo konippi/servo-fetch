@@ -40,7 +40,7 @@ async fn run_http(port: u16) -> anyhow::Result<()> {
     let router = axum::Router::new().nest_service("/mcp", service);
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    eprintln!("MCP server listening on http://{addr}/mcp");
+    tracing::info!(%addr, "MCP server listening");
 
     axum::serve(listener, router)
         .with_graceful_shutdown(async {

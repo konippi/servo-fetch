@@ -148,6 +148,8 @@ servo-fetch crawl "https://docs.example.com" --include "/docs/**" --exclude "/do
 | `--raw <MODE>` | Output raw `html` or plain `text` (single URL only) |
 | `-t`, `--timeout <SECS>` | Page load timeout (default: 30) |
 | `--settle <MS>` | Extra wait after load event for SPAs (default: 0, max: 10000) |
+| `-v`, `--verbose` | Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
+| `-q`, `--quiet` | Suppress all logs except errors |
 | `--help` | Show help |
 | `--version` | Show version |
 
@@ -298,6 +300,22 @@ npx skills add https://github.com/konippi/servo-fetch/tree/main/skills/servo-fet
 ## Security
 
 servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatracker.ietf.org/doc/html/rfc6890)), strips credentials from URLs, disables HTTP redirects to prevent SSRF bypass, and sanitizes all output against terminal escape injection ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574)). See [SECURITY.md](./SECURITY.md) for details.
+
+## Logging
+
+Diagnostic messages go to stderr; stdout is reserved for the requested output (Markdown, JSON, PNG bytes) so pipes stay clean. The MCP stdio transport requires this.
+
+Control verbosity with flags or the `RUST_LOG` environment variable:
+
+```bash
+servo-fetch -v "https://example.com"                       # info and above
+servo-fetch -vv "https://example.com"                      # debug
+servo-fetch -q "https://example.com"                       # errors only
+RUST_LOG="servo_fetch=debug" servo-fetch "https://..."     # fine-grained override
+RUST_LOG="servo_fetch=trace,servo=debug" servo-fetch "..." # include Servo internals
+```
+
+`RUST_LOG` uses [`tracing-subscriber`'s directive syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) and always wins over CLI flags.
 
 ## Limitations
 

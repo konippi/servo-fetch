@@ -58,6 +58,14 @@ pub(crate) struct Cli {
     /// Output raw HTML or plain text instead of Readability extraction
     #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["json", "screenshot", "js", "selector"])]
     pub raw: Option<RawMode>,
+
+    /// Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace, `-vvvv` trace all crates)
+    #[arg(short = 'v', long, action = clap::ArgAction::Count, global = true, conflicts_with = "quiet")]
+    pub verbose: u8,
+
+    /// Suppress all logs except errors
+    #[arg(short = 'q', long, global = true)]
+    pub quiet: bool,
 }
 
 /// Raw output mode.

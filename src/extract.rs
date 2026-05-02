@@ -52,7 +52,7 @@ pub fn extract_pdf(data: &[u8]) -> String {
     match pdf_extract::extract_text_from_mem(data) {
         Ok(text) => text,
         Err(e) => {
-            eprintln!("warning: PDF text extraction failed: {e}");
+            tracing::warn!("PDF text extraction failed: {e}");
             String::new()
         }
     }
@@ -205,10 +205,7 @@ fn parse_article(html: &str, url: &str, layout_json: Option<&str>, inner_text: O
     let title = doc.select("title").text().to_string();
     let body_text = inner_text.filter(|s| !s.trim().is_empty()).map_or_else(
         || {
-            eprintln!(
-                "warning: could not extract content. \
-                 Try --js \"document.body.innerText\" for JS-heavy sites."
-            );
+            tracing::warn!(r#"could not extract content; try --js "document.body.innerText" for JS-heavy sites"#);
             String::new()
         },
         String::from,

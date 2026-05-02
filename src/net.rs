@@ -84,7 +84,7 @@ pub(crate) fn validate_url(input: &str) -> anyhow::Result<url::Url> {
         s => bail!("scheme '{s}' not allowed; only http:// and https:// are supported"),
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
-        eprintln!("warning: credentials stripped from URL");
+        tracing::warn!("credentials stripped from URL");
         let _ = parsed.set_username("");
         let _ = parsed.set_password(None);
     }

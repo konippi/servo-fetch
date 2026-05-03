@@ -345,41 +345,87 @@ impl CrawlOptions {
 }
 
 /// Result for a single crawled page.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CrawlResult {
     /// URL of the crawled page.
     pub url: String,
     /// Link depth from the seed URL.
     pub depth: usize,
-    /// Whether the page was fetched successfully.
-    pub status: CrawlStatus,
-    /// Page title, if extraction succeeded.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Page content if successful, or error if failed.
+    pub outcome: Result<CrawlPage, CrawlError>,
+}
+
+/// Successfully crawled page.
+#[derive(Debug, Clone)]
+pub struct CrawlPage {
+    /// Page title.
     pub title: Option<String>,
     /// Extracted content (Markdown or JSON depending on options).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    /// Error message, if the page failed to load.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub content: String,
     /// Number of links discovered on this page.
     pub links_found: usize,
 }
 
+/// Error from a failed crawl attempt.
+#[derive(Debug, Clone)]
+pub struct CrawlError {
+    /// Error message.
+    pub message: String,
+}
+
+impl std::fmt::Display for CrawlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CrawlError {}
+
+impl serde::Serialize for CrawlResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match &self.outcome {
+            Ok(page) => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("url", &self.url)?;
+                map.serialize_entry("depth", &self.depth)?;
+                map.serialize_entry("status", "ok")?;
+                if let Some(t) = &page.title {
+                    map.serialize_entry("title", t)?;
+                }
+                map.serialize_entry("content", &page.content)?;
+                map.serialize_entry("links_found", &page.links_found)?;
+                map.end()
+            }
+            Err(e) => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("url", &self.url)?;
+                map.serialize_entry("depth", &self.depth)?;
+                map.serialize_entry("status", "error")?;
+                map.serialize_entry("error", &e.message)?;
+                map.end()
+            }
+        }
+    }
+}
+
 impl CrawlResult {
     fn from_internal(r: &crate::crawl::CrawlPageResult) -> Self {
+        let outcome = match r.status {
+            crate::crawl::CrawlStatus::Ok => Ok(CrawlPage {
+                title: r.title.clone(),
+                content: r.content.clone().unwrap_or_default(),
+                links_found: r.links_found,
+            }),
+            crate::crawl::CrawlStatus::Error => Err(CrawlError {
+                message: r.error.clone().unwrap_or_default(),
+            }),
+        };
         Self {
             url: r.url.clone(),
             depth: r.depth,
-            status: match r.status {
-                crate::crawl::CrawlStatus::Ok => CrawlStatus::Ok,
-                crate::crawl::CrawlStatus::Error => CrawlStatus::Error,
-            },
-            title: r.title.clone(),
-            content: r.content.clone(),
-            error: r.error.clone(),
-            links_found: r.links_found,
+            outcome,
         }
     }
 }

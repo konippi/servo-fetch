@@ -45,11 +45,9 @@ pub(crate) async fn crawl_pages(opts: CrawlToolOptions<'_>) -> Result<Vec<(Strin
 
     let mut results = Vec::new();
     servo_fetch::crawl_each(builder, |r| {
-        let text = if r.status == servo_fetch::CrawlStatus::Ok {
-            let content = r.content.as_deref().unwrap_or_default();
-            paginate(&servo_fetch::sanitize::sanitize(content), 0, opts.max_len)
-        } else {
-            format!("[error] {}", r.error.as_deref().unwrap_or_default())
+        let text = match &r.outcome {
+            Ok(page) => paginate(&servo_fetch::sanitize::sanitize(&page.content), 0, opts.max_len),
+            Err(e) => format!("[error] {e}"),
         };
         results.push((r.url.clone(), text));
     })

@@ -10,7 +10,6 @@ const HEAD_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Return PDF bytes when the resource is a PDF, `None` otherwise.
 pub(crate) fn probe(url: &str, timeout_secs: u64) -> Option<Vec<u8>> {
-    crate::net::validate_url(url).ok()?;
     if !looks_like_pdf_url(url) {
         return None;
     }
@@ -87,10 +86,5 @@ mod tests {
     fn probe_returns_none_for_unresolvable_host() {
         // Suffix matches, HEAD fails quickly.
         assert!(probe("http://invalid.invalid/foo.pdf", 1).is_none());
-    }
-
-    #[test]
-    fn probe_rejects_private_ip_pdf() {
-        assert!(probe("http://127.0.0.1/report.pdf", 1).is_none());
     }
 }

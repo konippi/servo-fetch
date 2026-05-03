@@ -401,6 +401,7 @@ pub enum CrawlStatus {
 /// Crawl a site, invoking `on_page` for each result as it arrives.
 #[allow(clippy::needless_pass_by_value)]
 pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlResult)) -> crate::error::Result<()> {
+    ensure_crypto_provider();
     let internal_opts = build_crawl_options(&opts)?;
     crate::runtime::block_on(crate::crawl::run(internal_opts, |r| {
         on_page(&CrawlResult::from_internal(r));

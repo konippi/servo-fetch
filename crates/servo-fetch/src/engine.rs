@@ -129,6 +129,27 @@ pub enum ConsoleLevel {
     Trace,
 }
 
+impl ConsoleLevel {
+    /// Returns the string representation of this level.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Log => "log",
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warn => "warn",
+            Self::Error => "error",
+            Self::Trace => "trace",
+        }
+    }
+}
+
+impl std::fmt::Display for ConsoleLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.pad(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) enum FetchMode {
     #[default]

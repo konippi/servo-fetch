@@ -2,7 +2,6 @@
 
 /// Returns `true` if the host resolves to a private or reserved address.
 pub(crate) fn is_private_host(host: &str) -> bool {
-    // Fast path for common blocked hosts; comprehensive check follows via IP parsing.
     const BLOCKED_HOSTS: &[&str] = &[
         "localhost",
         "127.0.0.1",
@@ -11,6 +10,7 @@ pub(crate) fn is_private_host(host: &str) -> bool {
         "169.254.169.254",
         "metadata.google.internal",
     ];
+    let host = host.strip_suffix('.').unwrap_or(host);
     if BLOCKED_HOSTS.iter().any(|&b| host.eq_ignore_ascii_case(b)) {
         return true;
     }
@@ -70,18 +70,37 @@ fn is_private_ipv6(ip: &std::net::Ipv6Addr) -> bool {
         || s0 & 0xff00 == 0xff00 // ff00::/8  multicast
 }
 
-/// Validate and sanitize a URL for fetching.
-///
-/// Only `http`/`https` schemes are accepted, embedded credentials are stripped,
-/// and hosts that resolve to private or reserved addresses are rejected. DNS is
-/// not resolved, so DNS rebinding attacks remain possible downstream.
-pub(crate) fn validate_url(input: &str) -> anyhow::Result<url::Url> {
-    use anyhow::{Context as _, bail};
+/// Why a URL was rejected by [`validate_url`].
+#[derive(Debug)]
+pub(crate) enum UrlError {
+    /// Malformed URL or disallowed scheme.
+    Invalid(String),
+    /// Host resolves to a private or reserved address.
+    PrivateAddress(String),
+}
 
-    let mut parsed = url::Url::parse(input).with_context(|| format!("invalid URL: {input}"))?;
+impl std::fmt::Display for UrlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(reason) => f.write_str(reason),
+            Self::PrivateAddress(host) => {
+                write!(f, "access to private/local addresses is not allowed: {host}")
+            }
+        }
+    }
+}
+
+/// Only `http`/`https` schemes are accepted, embedded credentials are stripped,
+/// and hosts that resolve to private or reserved addresses are rejected.
+pub(crate) fn validate_url(input: &str) -> Result<url::Url, UrlError> {
+    let mut parsed = url::Url::parse(input).map_err(|e| UrlError::Invalid(format!("invalid URL: {input}: {e}")))?;
     match parsed.scheme() {
         "http" | "https" => {}
-        s => bail!("scheme '{s}' not allowed; only http:// and https:// are supported"),
+        s => {
+            return Err(UrlError::Invalid(format!(
+                "scheme '{s}' not allowed; only http:// and https:// are supported"
+            )));
+        }
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
         tracing::warn!("credentials stripped from URL");
@@ -90,7 +109,7 @@ pub(crate) fn validate_url(input: &str) -> anyhow::Result<url::Url> {
     }
     if let Some(host) = parsed.host_str() {
         if is_private_host(host) {
-            bail!("access to private/local addresses is not allowed: {host}");
+            return Err(UrlError::PrivateAddress(host.to_string()));
         }
     }
     Ok(parsed)
@@ -192,5 +211,11 @@ mod tests {
     #[test]
     fn validate_url_empty_string() {
         assert!(validate_url("").is_err());
+    }
+
+    #[test]
+    fn blocks_trailing_dot() {
+        assert!(is_private_host("localhost."));
+        assert!(is_private_host("metadata.google.internal."));
     }
 }

@@ -21,18 +21,15 @@ fn is_broken_pipe(err: &anyhow::Error) -> bool {
     })
 }
 
-/// Flush stdio and terminate. On Linux, uses `libc::_exit` to skip
-/// SpiderMonkey's static destructors that race on `pthread_mutex_destroy`.
+/// Flush stdio and terminate via `libc::_exit`, skipping SpiderMonkey's
+/// static destructors that race on `pthread_mutex_destroy`.
 pub(crate) fn flush_and_exit(code: i32) -> ! {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
-    #[cfg(target_os = "linux")]
     #[allow(unsafe_code)]
     unsafe {
         libc::_exit(code);
     }
-    #[cfg(not(target_os = "linux"))]
-    std::process::exit(code);
 }
 
 #[cfg(test)]

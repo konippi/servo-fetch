@@ -38,7 +38,7 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
             write_err = Some(e);
             return;
         }
-        let ok = result.status == servo_fetch::CrawlStatus::Ok;
+        let ok = result.outcome.is_ok();
         progress.item_done(completed, None, &result.url, ok);
     })?;
 
@@ -56,10 +56,13 @@ fn emit_json(result: &servo_fetch::CrawlResult) -> io::Result<()> {
 fn emit_markdown(result: &servo_fetch::CrawlResult) -> io::Result<()> {
     let mut out = io::stdout();
     writeln!(out, "--- {} ---", result.url)?;
-    if let Some(content) = &result.content {
-        writeln!(out, "{}", servo_fetch::sanitize::sanitize(content))?;
-    } else if let Some(err) = &result.error {
-        tracing::warn!(url = %result.url, "{err}");
+    match &result.outcome {
+        Ok(page) => {
+            writeln!(out, "{}", servo_fetch::sanitize::sanitize(&page.content))?;
+        }
+        Err(e) => {
+            tracing::warn!(url = %result.url, "{e}");
+        }
     }
     writeln!(out)
 }

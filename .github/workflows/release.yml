@@ -139,7 +139,7 @@ jobs:
           set -eu
           mkdir "$ARCHIVE"
           cp "target/$TARGET/release/servo-fetch" "$ARCHIVE"/
-          cp README.md LICENSE "$ARCHIVE"/
+          cp README.md LICENSE-MIT LICENSE-APACHE "$ARCHIVE"/
           tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
           shasum -a 256 "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
 
@@ -152,7 +152,7 @@ jobs:
           cp "target/$TARGET/release/servo-fetch.exe" "$ARCHIVE"/
           cp "target/$TARGET/release/libEGL.dll" "$ARCHIVE"/
           cp "target/$TARGET/release/libGLESv2.dll" "$ARCHIVE"/
-          cp README.md LICENSE "$ARCHIVE"/
+          cp README.md LICENSE-MIT LICENSE-APACHE "$ARCHIVE"/
           7z a "$ARCHIVE.zip" "$ARCHIVE"
           certutil -hashfile "$ARCHIVE.zip" SHA256 > "$ARCHIVE.zip.sha256"
 

@@ -106,10 +106,10 @@ servo-fetch mcp --port 8080    # Streamable HTTP transport
 | `title` | string | Page title |
 | `content` | string | Raw HTML extracted by Readability |
 | `text_content` | string | Readable text (Markdown) |
-| `byline` | string? | Author or byline |
-| `excerpt` | string? | Short excerpt or description |
-| `lang` | string? | Document language |
-| `url` | string? | Canonical URL |
+| `byline` | string | Author or byline (omitted if not detected) |
+| `excerpt` | string | Short excerpt or description (omitted if not detected) |
+| `lang` | string | Document language (omitted if not detected) |
+| `url` | string | Canonical URL (omitted if not detected) |
 
 ### Crawl subcommand
 

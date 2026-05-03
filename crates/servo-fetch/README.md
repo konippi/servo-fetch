@@ -113,4 +113,4 @@ See [docs.rs](https://docs.rs/servo-fetch) for the full API reference.
 
 ## License
 
-[MIT](https://github.com/konippi/servo-fetch/blob/main/LICENSE)
+[MIT](https://github.com/konippi/servo-fetch/blob/main/LICENSE-MIT) OR [Apache-2.0](https://github.com/konippi/servo-fetch/blob/main/LICENSE-APACHE)

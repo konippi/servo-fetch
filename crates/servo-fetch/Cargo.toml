@@ -10,7 +10,7 @@ description = "Fetch, render, and extract web content with an embedded Servo bro
 readme = "README.md"
 keywords = ["servo", "headless-browser", "web-scraping", "readability", "content-extraction"]
 categories = ["web-programming", "web-programming::http-client"]
-include = ["src/**/*", "Cargo.toml", "LICENSE", "README.md"]
+include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "LICENSE-APACHE", "README.md"]
 
 [dependencies]
 servo = { workspace = true }

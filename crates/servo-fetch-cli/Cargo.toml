@@ -10,7 +10,7 @@ description = "A browser engine in a binary — fetch, render, and extract web c
 readme = "README.md"
 keywords = ["servo", "headless-browser", "fetch", "mcp", "cli"]
 categories = ["command-line-utilities", "web-programming"]
-include = ["src/**/*", "Cargo.toml", "LICENSE", "README.md"]
+include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "LICENSE-APACHE", "README.md"]
 
 [[bin]]
 name = "servo-fetch"

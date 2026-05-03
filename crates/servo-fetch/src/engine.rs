@@ -200,6 +200,8 @@ impl FetchOptions {
 /// lifetime. If the engine thread panics, this returns [`Error::Engine`].
 #[allow(clippy::needless_pass_by_value)]
 pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
+    ensure_crypto_provider();
+
     crate::net::validate_url(&opts.url).map_err(|e| Error::InvalidUrl {
         url: opts.url.clone(),
         reason: e.to_string(),
@@ -415,6 +417,10 @@ pub fn validate_url(url: &str) -> crate::error::Result<url::Url> {
         url: url.into(),
         reason: e.to_string(),
     })
+}
+
+fn ensure_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
 fn build_crawl_options(opts: &CrawlOptions) -> crate::error::Result<crate::crawl::CrawlOptions> {

@@ -19,7 +19,11 @@ impl Markdown<'_> {
                 .with_layout_json(self.page.layout_json.as_deref())
                 .with_inner_text(Some(&self.page.inner_text))
                 .with_selector(Some(selector));
-            servo_fetch::extract::extract_text(&input)?
+            let text = servo_fetch::extract::extract_text(&input)?;
+            if text.is_empty() {
+                tracing::warn!(selector, "no elements matched the selector");
+            }
+            text
         } else {
             self.page.markdown_with_url(self.url)?
         };

@@ -101,7 +101,7 @@ impl Page {
 }
 
 /// Browser console message captured during page load.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[non_exhaustive]
 pub struct ConsoleMessage {
     /// Severity level.

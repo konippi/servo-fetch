@@ -1,11 +1,11 @@
 //! Crawl subcommand — BFS website crawler.
 
-use std::io::Write as _;
+use std::io::{self, Write as _};
 
 use crate::cli::CrawlArgs;
 use crate::progress::Progress;
 
-/// Crawl a site starting from `args.url` and stream NDJSON results to stdout.
+/// Crawl a site starting from `args.url` and stream results to stdout.
 pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     let opts = servo_fetch::CrawlOptions::new(&args.url)
         .limit(args.limit)
@@ -25,14 +25,41 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
 
     let progress = Progress::new();
     let mut completed = 0usize;
+    let json = args.json;
+    let mut write_err: Option<io::Error> = None;
 
     servo_fetch::crawl_each(opts, |result| {
         completed += 1;
-        let line = serde_json::to_string(result).expect("CrawlResult is always serializable");
-        let _ = writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&line));
+        if write_err.is_some() {
+            return;
+        }
+        let res = if json { emit_json(result) } else { emit_markdown(result) };
+        if let Err(e) = res {
+            write_err = Some(e);
+            return;
+        }
         let ok = result.status == servo_fetch::CrawlStatus::Ok;
         progress.item_done(completed, None, &result.url, ok);
     })?;
 
+    if let Some(e) = write_err {
+        return Err(e.into());
+    }
     Ok(())
+}
+
+fn emit_json(result: &servo_fetch::CrawlResult) -> io::Result<()> {
+    let line = serde_json::to_string(result).expect("CrawlResult is always serializable");
+    writeln!(io::stdout(), "{}", servo_fetch::sanitize::sanitize(&line))
+}
+
+fn emit_markdown(result: &servo_fetch::CrawlResult) -> io::Result<()> {
+    let mut out = io::stdout();
+    writeln!(out, "--- {} ---", result.url)?;
+    if let Some(content) = &result.content {
+        writeln!(out, "{}", servo_fetch::sanitize::sanitize(content))?;
+    } else if let Some(err) = &result.error {
+        tracing::warn!(url = %result.url, "{err}");
+    }
+    writeln!(out)
 }

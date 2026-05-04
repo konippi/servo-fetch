@@ -555,6 +555,9 @@ fn build_servo(waker: FlagWaker) -> Result<(Rc<SoftwareRenderingContext>, servo:
         dom_webxr_enabled: false,
         dom_serviceworker_enabled: false,
         dom_bluetooth_enabled: false,
+        dom_intersection_observer_enabled: true,
+        dom_indexeddb_enabled: true,
+        layout_grid_enabled: true,
         user_agent: default_user_agent().to_owned(),
         ..Preferences::default()
     };

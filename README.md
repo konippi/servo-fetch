@@ -152,8 +152,6 @@ servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatr
 
 ## Limitations
 
-- Servo's web compatibility is [improving monthly](https://servo.org/blog/) but does not yet match Chromium. Most static, SSR, and common SPA sites (React, Next.js, Vue) work well. Sites relying on less common Web APIs may not fully render.
-- Best results on documentation, blogs, news sites, and server-rendered pages.
 - Sites behind login walls or CAPTCHAs are not supported.
 
 ## Contributing

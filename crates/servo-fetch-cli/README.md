@@ -125,6 +125,8 @@ servo-fetch mcp --port 8080    # Streamable HTTP transport
 | `--json` | Output content as JSON per page |
 | `--selector <CSS>` | Extract specific section per page |
 | `--user-agent <UA>` | Override the User-Agent string |
+| `-t, --timeout <SECS>` | Page load timeout in seconds per page (default: 30) |
+| `--settle <MS>` | Extra wait after load event in ms per page (default: 0, max: 10000) |
 
 ## Logging
 

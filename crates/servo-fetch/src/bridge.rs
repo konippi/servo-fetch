@@ -3,7 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
@@ -17,6 +17,17 @@ use servo::{
 use crate::layout;
 
 const JS_EVAL_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn default_user_agent() -> &'static str {
+    static UA: OnceLock<String> = OnceLock::new();
+    UA.get_or_init(|| {
+        let raw = std::env::var("SERVO_FETCH_USER_AGENT")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("servo-fetch/{}", env!("CARGO_PKG_VERSION")));
+        crate::engine::sanitize_user_agent(raw)
+    })
+}
 /// Max wait before we re-check time-based conditions.
 pub(crate) const FALLBACK_WAIT: Duration = Duration::from_millis(5);
 const LAYOUT_JS: &str = include_str!("js/layout.js");
@@ -242,6 +253,7 @@ pub(crate) struct FetchOptions<'a> {
     /// Extra wait after Servo fires `LoadStatus::Complete`.
     pub settle_ms: u64,
     pub mode: FetchMode,
+    pub user_agent: Option<&'a str>,
 }
 
 /// What to do once the page has loaded. Variants are mutually exclusive.
@@ -256,6 +268,7 @@ struct FetchRequest {
     timeout_secs: u64,
     settle_ms: u64,
     mode: FetchMode,
+    user_agent: Option<String>,
     reply: mpsc::Sender<Result<ServoPage>>,
 }
 
@@ -273,7 +286,7 @@ struct Engine {
 }
 
 /// Servo engine — lives for the process lifetime. Shutdown is via process exit.
-static ENGINE: std::sync::OnceLock<Engine> = std::sync::OnceLock::new();
+static ENGINE: OnceLock<Engine> = OnceLock::new();
 
 /// Fetch a page via Servo. First call spawns a persistent Servo thread.
 pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
@@ -301,6 +314,7 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
             timeout_secs: opts.timeout_secs,
             settle_ms: opts.settle_ms,
             mode: opts.mode,
+            user_agent: opts.user_agent.map(String::from),
             reply: reply_tx,
         })
         .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
@@ -427,6 +441,9 @@ fn start_fetch(
         Err(e) => return Err((req, anyhow!("bad url: {e}"))),
     };
 
+    let ua = req.user_agent.as_deref().unwrap_or(default_user_agent());
+    servo.set_preference("user_agent", servo::PrefValue::Str(ua.to_owned()));
+
     let dedicated_ctx = if matches!(req.mode, FetchMode::Screenshot { .. }) {
         let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
         match SoftwareRenderingContext::new(size) {
@@ -538,10 +555,7 @@ fn build_servo(waker: FlagWaker) -> Result<(Rc<SoftwareRenderingContext>, servo:
         dom_webxr_enabled: false,
         dom_serviceworker_enabled: false,
         dom_bluetooth_enabled: false,
-        user_agent: std::env::var("SERVO_FETCH_USER_AGENT")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("Mozilla/5.0 (compatible; servo-fetch/{})", env!("CARGO_PKG_VERSION"))),
+        user_agent: default_user_agent().to_owned(),
         ..Preferences::default()
     };
 

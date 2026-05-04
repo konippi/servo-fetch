@@ -173,6 +173,7 @@ pub struct FetchOptions {
     pub(crate) timeout: Duration,
     pub(crate) settle: Duration,
     pub(crate) mode: FetchMode,
+    pub(crate) user_agent: Option<String>,
 }
 
 impl FetchOptions {
@@ -183,6 +184,7 @@ impl FetchOptions {
             timeout: Duration::from_secs(30),
             settle: Duration::ZERO,
             mode: FetchMode::Content,
+            user_agent: None,
         }
     }
 
@@ -213,6 +215,12 @@ impl FetchOptions {
         self.settle = settle;
         self
     }
+
+    /// Override the User-Agent string for this request.
+    pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
+        self.user_agent = Some(sanitize_user_agent(ua.into()));
+        self
+    }
 }
 
 /// Fetch a single page via the embedded Servo engine.
@@ -240,6 +248,7 @@ pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
         url: &opts.url,
         timeout_secs: opts.timeout.as_secs().max(1),
         settle_ms: u64::try_from(opts.settle.as_millis()).unwrap_or(u64::MAX),
+        user_agent: opts.user_agent.as_deref(),
         mode: match opts.mode {
             FetchMode::Content => crate::bridge::FetchMode::Content { include_a11y: false },
             FetchMode::Screenshot { full_page } => crate::bridge::FetchMode::Screenshot { full_page },
@@ -277,6 +286,7 @@ pub struct CrawlOptions {
     pub(crate) exclude: Vec<String>,
     pub(crate) selector: Option<String>,
     pub(crate) json: bool,
+    pub(crate) user_agent: Option<String>,
 }
 
 impl CrawlOptions {
@@ -292,6 +302,7 @@ impl CrawlOptions {
             exclude: Vec::new(),
             selector: None,
             json: false,
+            user_agent: None,
         }
     }
 
@@ -340,6 +351,12 @@ impl CrawlOptions {
     /// CSS selector to extract a specific section per page.
     pub fn selector(mut self, selector: impl Into<String>) -> Self {
         self.selector = Some(selector.into());
+        self
+    }
+
+    /// Override the User-Agent string for all pages in this crawl.
+    pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
+        self.user_agent = Some(sanitize_user_agent(ua.into()));
         self
     }
 }
@@ -485,6 +502,15 @@ fn ensure_crypto_provider() {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
+/// Replace CR, LF, and NUL with SP per RFC 9110.
+pub(crate) fn sanitize_user_agent(ua: String) -> String {
+    if ua.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
+        ua.replace(['\r', '\n', '\0'], " ")
+    } else {
+        ua
+    }
+}
+
 fn map_url_error(url: &str, e: crate::net::UrlError) -> Error {
     match e {
         crate::net::UrlError::PrivateAddress(host) => Error::AddressNotAllowed(host),
@@ -517,6 +543,7 @@ fn build_crawl_options(opts: &CrawlOptions) -> crate::error::Result<crate::crawl
         exclude,
         selector: opts.selector.clone(),
         json: opts.json,
+        user_agent: opts.user_agent.clone(),
     })
 }
 
@@ -577,6 +604,42 @@ mod tests {
         assert_eq!(opts.max_depth, 5);
         assert_eq!(opts.include, vec!["/docs/**"]);
         assert_eq!(opts.exclude, vec!["/docs/archive/**"]);
+    }
+
+    #[test]
+    fn fetch_user_agent_set() {
+        let opts = FetchOptions::new("https://example.com").user_agent("MyBot/1.0");
+        assert_eq!(opts.user_agent.as_deref(), Some("MyBot/1.0"));
+    }
+
+    #[test]
+    fn fetch_user_agent_default_is_none() {
+        let opts = FetchOptions::new("https://example.com");
+        assert!(opts.user_agent.is_none());
+    }
+
+    #[test]
+    fn fetch_user_agent_sanitizes_crlf() {
+        let opts = FetchOptions::new("https://example.com").user_agent("Bot\r\nX-Evil: yes");
+        assert_eq!(opts.user_agent.as_deref(), Some("Bot  X-Evil: yes"));
+    }
+
+    #[test]
+    fn fetch_user_agent_sanitizes_null() {
+        let opts = FetchOptions::new("https://example.com").user_agent("Bot\0/1.0");
+        assert_eq!(opts.user_agent.as_deref(), Some("Bot /1.0"));
+    }
+
+    #[test]
+    fn fetch_user_agent_empty_string() {
+        let opts = FetchOptions::new("https://example.com").user_agent("");
+        assert_eq!(opts.user_agent.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn crawl_user_agent_sanitizes_crlf() {
+        let opts = CrawlOptions::new("https://example.com").user_agent("Crawler\r\n/2.0");
+        assert_eq!(opts.user_agent.as_deref(), Some("Crawler  /2.0"));
     }
 
     #[test]

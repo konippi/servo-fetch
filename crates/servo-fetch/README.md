@@ -34,7 +34,8 @@ use std::time::Duration;
 let page = fetch(
     FetchOptions::new("https://spa-site.com")
         .timeout(Duration::from_secs(60))
-        .settle(Duration::from_millis(3000)),
+        .settle(Duration::from_millis(3000))
+        .user_agent("MyBot/1.0"),
 )?;
 println!("{}", page.html);
 let md = page.markdown()?;

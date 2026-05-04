@@ -26,6 +26,7 @@ pub(crate) struct CrawlOptions {
     pub exclude: Option<GlobSet>,
     pub selector: Option<String>,
     pub json: bool,
+    pub user_agent: Option<String>,
 }
 
 /// Result for a single crawled page.
@@ -283,6 +284,7 @@ pub(crate) async fn run(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlPageRe
         let url_str = url.to_string();
         let timeout = opts.timeout_secs;
         let settle = opts.settle_ms;
+        let user_agent = opts.user_agent.clone();
 
         let page = match tokio::task::spawn_blocking(move || {
             bridge::fetch_page(bridge::FetchOptions {
@@ -290,6 +292,7 @@ pub(crate) async fn run(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlPageRe
                 timeout_secs: timeout,
                 settle_ms: settle,
                 mode: bridge::FetchMode::Content { include_a11y: false },
+                user_agent: user_agent.as_deref(),
             })
         })
         .await

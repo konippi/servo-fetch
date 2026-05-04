@@ -51,12 +51,16 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
         let url_str = url.clone();
         let timeout = args.timeout;
         let settle = args.settle;
+        let user_agent = args.user_agent.clone();
         tokio::task::spawn_blocking(move || {
-            let result = servo_fetch::fetch(
-                FetchOptions::new(&url_str)
-                    .timeout(Duration::from_secs(timeout))
-                    .settle(Duration::from_millis(settle)),
-            );
+            let opts = FetchOptions::new(&url_str)
+                .timeout(Duration::from_secs(timeout))
+                .settle(Duration::from_millis(settle));
+            let opts = match user_agent {
+                Some(ua) => opts.user_agent(ua),
+                None => opts,
+            };
+            let result = servo_fetch::fetch(opts);
             let _ = tx.blocking_send((url_str, result));
             drop(permit);
         });
@@ -132,6 +136,11 @@ fn build_fetch_options(args: &FetchArgs, url: &str) -> FetchOptions {
     } else {
         FetchOptions::new(url)
     };
-    base.timeout(Duration::from_secs(args.timeout))
-        .settle(Duration::from_millis(args.settle))
+    let opts = base
+        .timeout(Duration::from_secs(args.timeout))
+        .settle(Duration::from_millis(args.settle));
+    match args.user_agent {
+        Some(ref ua) => opts.user_agent(ua),
+        None => opts,
+    }
 }

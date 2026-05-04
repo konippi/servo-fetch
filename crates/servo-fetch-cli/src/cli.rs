@@ -61,6 +61,10 @@ pub(crate) struct FetchArgs {
     /// Output raw HTML or plain text instead of Readability extraction
     #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["json", "screenshot", "js", "selector"])]
     pub raw: Option<RawMode>,
+
+    /// Override the User-Agent string
+    #[arg(long, value_name = "UA")]
+    pub user_agent: Option<String>,
 }
 
 /// Raw output mode.
@@ -124,6 +128,10 @@ pub(crate) struct CrawlArgs {
     /// Extra wait in ms after load event per page
     #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=10_000), value_name = "MS")]
     pub settle: u64,
+
+    /// Override the User-Agent string
+    #[arg(long, value_name = "UA")]
+    pub user_agent: Option<String>,
 }
 
 #[cfg(test)]

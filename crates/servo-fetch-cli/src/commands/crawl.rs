@@ -22,6 +22,10 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     } else {
         opts.exclude(&args.exclude.iter().map(String::as_str).collect::<Vec<_>>())
     };
+    let opts = match args.user_agent {
+        Some(ref ua) => opts.user_agent(ua),
+        None => opts,
+    };
 
     let progress = Progress::new();
     let mut completed = 0usize;

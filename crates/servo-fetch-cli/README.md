@@ -94,6 +94,7 @@ servo-fetch mcp --port 8080    # Streamable HTTP transport
 | `--raw html\|text` | Raw HTML or plain text output |
 | `-t, --timeout <SECS>` | Page load timeout in seconds (default: 30) |
 | `--settle <MS>` | Extra wait after load event in ms (default: 0, max: 10000) |
+| `--user-agent <UA>` | Override the User-Agent string |
 | `-v, --verbose` | Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
 | `-q, --quiet` | Suppress all logs except errors |
 
@@ -123,6 +124,7 @@ servo-fetch mcp --port 8080    # Streamable HTTP transport
 | `--exclude <GLOB>` | URL path patterns to exclude |
 | `--json` | Output content as JSON per page |
 | `--selector <CSS>` | Extract specific section per page |
+| `--user-agent <UA>` | Override the User-Agent string |
 
 ## Logging
 
@@ -138,6 +140,13 @@ RUST_LOG="servo_fetch=trace,servo=debug" servo-fetch "..." # include Servo inter
 ```
 
 `RUST_LOG` uses [`tracing-subscriber`'s directive syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) and always wins over CLI flags.
+
+## Environment Variables
+
+| Variable | Description |
+| -------- | ----------- |
+| `SERVO_FETCH_USER_AGENT` | Default User-Agent string (overridden by `--user-agent`) |
+| `RUST_LOG` | Fine-grained log filter (overrides `-v`/`-q`) |
 
 ## MCP Server
 

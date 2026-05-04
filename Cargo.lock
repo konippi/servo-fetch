@@ -6434,7 +6434,7 @@ dependencies = [
 
 [[package]]
 name = "servo-fetch"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "dom_query",
@@ -6460,7 +6460,7 @@ dependencies = [
 
 [[package]]
 name = "servo-fetch-cli"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "assert_cmd",

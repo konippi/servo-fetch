@@ -107,8 +107,13 @@ let md = page.markdown()?;
 
 // Crawl a site
 servo_fetch::crawl_each(
-    servo_fetch::CrawlOptions::new("https://docs.example.com").limit(100),
-    |result| println!("{}: {:?}", result.url, result.status),
+    servo_fetch::CrawlOptions::new("https://docs.example.com")
+        .limit(100)
+        .user_agent("MyBot/1.0"),
+    |result| match &result.outcome {
+        Ok(page) => println!("{}: {} chars", result.url, page.content.len()),
+        Err(e) => eprintln!("{}: {e}", result.url),
+    },
 )?;
 ```
 
@@ -147,7 +152,7 @@ servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatr
 
 ## Limitations
 
-- Servo's web compatibility is [improving monthly](https://servo.org/blog/) but does not yet match Chromium. Some SPAs with complex client-side rendering may not fully render.
+- Servo's web compatibility is [improving monthly](https://servo.org/blog/) but does not yet match Chromium. Most static, SSR, and common SPA sites (React, Next.js, Vue) work well. Sites relying on less common Web APIs may not fully render.
 - Best results on documentation, blogs, news sites, and server-rendered pages.
 - Sites behind login walls or CAPTCHAs are not supported.
 

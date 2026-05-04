@@ -68,7 +68,10 @@ crawl_each(
     CrawlOptions::new("https://docs.example.com")
         .limit(100)
         .include(&["/docs/**"]),
-    |result| println!("{}: {:?}", result.url, result.status),
+    |result| match &result.outcome {
+        Ok(page) => println!("{}: {} chars", result.url, page.content.len()),
+        Err(e) => eprintln!("{}: {e}", result.url),
+    },
 )?;
 ```
 
@@ -93,11 +96,11 @@ let page = tokio::task::spawn_blocking(|| {
 }).await??;
 ```
 
-## Feature Flags
+## Environment Variables
 
-| Flag | Default | Description |
-| ---- | ------- | ----------- |
-| `mcp` | off | MCP server support |
+| Variable | Description |
+| -------- | ----------- |
+| `SERVO_FETCH_USER_AGENT` | Default User-Agent string (overridden by `.user_agent()`) |
 
 ## API Overview
 

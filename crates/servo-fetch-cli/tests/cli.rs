@@ -161,6 +161,16 @@ fn crawl_help_shows_options() {
 }
 
 #[test]
+fn mcp_help_shows_options() {
+    servo_fetch()
+        .args(["mcp", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("MCP"))
+        .stdout(predicate::str::contains("--port"));
+}
+
+#[test]
 #[ignore = "requires Servo + network"]
 fn crawl_produces_ndjson() {
     let output = servo_fetch()

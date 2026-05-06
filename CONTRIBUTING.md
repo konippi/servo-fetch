@@ -38,6 +38,20 @@ cargo install cargo-llvm-cov
 cargo llvm-cov --lib --tests
 ```
 
+### Benchmark harness (Python)
+
+The benchmark harness in [`benchmarks/`](benchmarks/) is a separate Python package managed with [uv](https://docs.astral.sh/uv/). Requires Python **3.11+**.
+
+```sh
+cd benchmarks
+uv sync --group dev                           # Install deps
+uv run pytest                                 # Run tests
+uv run ruff check src tests tools             # Lint
+./benchmarks/bench all                        # Full benchmark suite (~25 min)
+```
+
+See [`benchmarks/README.md`](benchmarks/README.md) for the full guide.
+
 ## Commit conventions
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/).
@@ -65,11 +79,12 @@ AI tools (e.g. Claude Code, Kiro) can be useful for generating code. However, yo
 
 ## Issue labels
 
-We use two label axes plus status:
+We use four label categories:
 
-- **`type: *`** — what kind of work, aligned with [Conventional Commits](https://www.conventionalcommits.org/): `type: bug`, `type: feature`, `type: docs`, `type: refactor`, `type: perf`, `type: deps`, `type: ci`, `type: build`, `type: security`
-- **surface** — which user-facing interface: `cli`, `mcp`, `skill`
+- **`type: *`** — what kind of work, aligned with [Conventional Commits](https://www.conventionalcommits.org/): `type: bug`, `type: feature`, `type: docs`, `type: refactor`, `type: perf`, `type: test`, `type: deps`, `type: ci`, `type: build`, `type: security`
+- **component** — area of the codebase: `cli`, `mcp`, `skill`, `benchmark`
 - **status** — workflow state: `good first issue`, `help wanted`, `needs triage`, `needs info`
+- **resolution** — closing reason: `duplicate`, `wontfix`
 
 Start with [`good first issue`](https://github.com/konippi/servo-fetch/labels/good%20first%20issue) if you are new to the project.
 

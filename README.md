@@ -7,6 +7,7 @@
     <img src="https://img.shields.io/badge/Rust-1.86.0-blue?color=fc8d62&logo=rust" alt="MSRV">
     <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="MIT OR Apache-2.0">
   </p>
+  <img src="assets/demo.gif" alt="servo-fetch demo" width="900">
 </div>
 
 servo-fetch embeds the [Servo](https://servo.org/) browser engine. It executes JavaScript, computes CSS layout,

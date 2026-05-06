@@ -14,6 +14,9 @@
 - name: "type: perf"
   color: d4c5f9
   description: "Performance improvement (perf:)"
+- name: "type: test"
+  color: bfd4f2
+  description: "Test-only change (test:)"
 - name: "type: deps"
   color: 0366d6
   description: "Dependency updates (chore(deps):)"

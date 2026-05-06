@@ -20,6 +20,7 @@ pub(crate) mod net;
 pub(crate) mod pdf;
 pub(crate) mod runtime;
 pub(crate) mod screenshot;
+pub(crate) mod sys;
 
 pub use engine::{
     ConsoleLevel, ConsoleMessage, CrawlError, CrawlOptions, CrawlPage, CrawlResult, CrawlStatus, FetchOptions, Page,

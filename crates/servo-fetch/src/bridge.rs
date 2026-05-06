@@ -330,11 +330,17 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
     }
 }
 
+fn is_apple_gl_driver_noise(line: &str) -> bool {
+    line.contains("GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type")
+}
+
 #[expect(
     clippy::needless_pass_by_value,
     reason = "the thread owns its receiver for its lifetime"
 )]
 fn servo_thread(request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag>) {
+    let _filter = crate::sys::StderrFilter::install(is_apple_gl_driver_noise).ok();
+
     let (rc_ctx, servo) = match build_servo(FlagWaker(wake.clone())) {
         Ok(pair) => pair,
         Err(e) => {
@@ -551,7 +557,6 @@ fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
 fn build_servo(waker: FlagWaker) -> Result<(Rc<SoftwareRenderingContext>, servo::Servo)> {
     let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
     let ctx = {
-        let _guard = stderr_guard::StderrGuard::suppress();
         let ctx =
             SoftwareRenderingContext::new(size).map_err(|e| anyhow!("failed to create rendering context: {e:?}"))?;
         ctx.make_current()
@@ -823,60 +828,5 @@ mod tests {
             state.console_messages.borrow().is_empty(),
             "console_messages should be empty"
         );
-    }
-}
-
-// macOS's Apple Silicon OpenGL driver writes noise to fd 2 via fprintf.
-#[cfg(unix)]
-mod stderr_guard {
-    use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
-
-    pub(crate) struct StderrGuard {
-        saved_fd: Option<OwnedFd>,
-    }
-
-    impl StderrGuard {
-        #[allow(unsafe_code)]
-        pub(crate) fn suppress() -> Self {
-            let saved = unsafe { libc::dup(2) };
-            if saved < 0 {
-                return Self { saved_fd: None };
-            }
-            let saved_fd = unsafe { OwnedFd::from_raw_fd(saved) };
-            unsafe { libc::fcntl(saved_fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
-
-            let Ok(devnull) = std::fs::File::open("/dev/null") else {
-                return Self { saved_fd: None };
-            };
-            let null_fd = devnull.into_raw_fd();
-            unsafe {
-                libc::dup2(null_fd, 2);
-                libc::close(null_fd);
-            }
-            Self {
-                saved_fd: Some(saved_fd),
-            }
-        }
-    }
-
-    impl Drop for StderrGuard {
-        #[allow(unsafe_code)]
-        fn drop(&mut self) {
-            if let Some(ref fd) = self.saved_fd {
-                unsafe {
-                    libc::dup2(fd.as_raw_fd(), 2);
-                }
-            }
-        }
-    }
-}
-
-#[cfg(not(unix))]
-mod stderr_guard {
-    pub(crate) struct StderrGuard;
-    impl StderrGuard {
-        pub(crate) fn suppress() -> Self {
-            Self
-        }
     }
 }

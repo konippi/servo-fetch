@@ -148,6 +148,7 @@ RUST_LOG="servo_fetch=trace,servo=debug" servo-fetch "..." # include Servo inter
 | Variable | Description |
 | -------- | ----------- |
 | `SERVO_FETCH_USER_AGENT` | Default User-Agent string (overridden by `--user-agent`) |
+| `SERVO_FETCH_NO_STDERR_FILTER` | Disable Apple OpenGL driver noise filter (debug use) |
 | `RUST_LOG` | Fine-grained log filter (overrides `-v`/`-q`) |
 
 ## MCP Server

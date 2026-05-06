@@ -4,9 +4,9 @@
 use serde::Deserialize;
 
 /// Default viewport width used by Servo for rendering.
-pub const VIEWPORT_WIDTH: u32 = 1280;
+pub(crate) const VIEWPORT_WIDTH: u32 = 1280;
 /// Default viewport height used by Servo for rendering.
-pub const VIEWPORT_HEIGHT: u32 = 800;
+pub(crate) const VIEWPORT_HEIGHT: u32 = 800;
 
 /// ARIA roles that influence our layout heuristics.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -48,7 +48,7 @@ impl Position {
 
 /// A page element with CSS layout data, deserialized from the injected JS.
 #[derive(Deserialize)]
-pub struct LayoutElement {
+pub(crate) struct LayoutElement {
     tag: String,
     role: Option<Role>,
     w: f64,
@@ -80,7 +80,7 @@ impl LayoutElement {
 
 /// CSS selectors for elements that should be stripped before passing to readability.
 #[must_use]
-pub fn selectors_to_strip(elements: &[LayoutElement]) -> Vec<String> {
+pub(crate) fn selectors_to_strip(elements: &[LayoutElement]) -> Vec<String> {
     let mut sels: Vec<String> = elements
         .iter()
         .filter(|el| el.should_remove())

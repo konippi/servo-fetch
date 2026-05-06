@@ -8,14 +8,14 @@
 
 #![deny(unsafe_code)]
 
-pub mod engine;
-pub mod error;
 pub mod extract;
-pub mod layout;
 pub mod sanitize;
 
 pub(crate) mod bridge;
 pub(crate) mod crawl;
+pub(crate) mod engine;
+pub(crate) mod error;
+pub(crate) mod layout;
 pub(crate) mod net;
 pub(crate) mod pdf;
 pub(crate) mod runtime;

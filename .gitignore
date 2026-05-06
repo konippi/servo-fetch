@@ -4,6 +4,9 @@
 *.pdb
 *.profraw
 
+# Servo storage artifacts
+IndexedDB/
+
 # Editors
 *.swp
 *.swo

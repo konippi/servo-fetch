@@ -1,0 +1,8 @@
+with = Traditional boilerplate-removal libraries operate on the DOM alone
+with = DOM contains no information about where elements appear on the screen
+with = layout-aware extractor observes the computed CSS
+with = For bulk archival crawls where speed is paramount
+without = Platform overview
+without = Careers — we're hiring
+without = Do not sell my personal information
+without = Cookie preferences

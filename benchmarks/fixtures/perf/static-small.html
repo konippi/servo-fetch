@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>servo-fetch bench · static small</title>
+  <meta name="description" content="Baseline workload: small static document with no JavaScript.">
+</head>
+<body>
+  <main>
+    <h1>Static small fixture</h1>
+    <p>
+      This fixture represents the simplest possible workload: one kilobyte of
+      static HTML with no scripts and no external resources. It measures the
+      fixed per-fetch overhead of each tool (process launch, engine
+      initialization, HTTP request, parse, extract) with no rendering work
+      to amortize that cost against.
+    </p>
+    <p>
+      Under this workload, a heavyweight engine like Chromium cannot amortize
+      its startup cost and will look disproportionately expensive compared to
+      servo-fetch. The spa-heavy fixture tests the opposite extreme.
+    </p>
+  </main>
+</body>
+</html>

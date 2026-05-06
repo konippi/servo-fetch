@@ -1,1 +1,14 @@
 node_modules/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+bin/
+
+# Preserve published-*.{md,json}, ignore everything else under results/
+results/*.md
+results/*.json
+!results/published-*.md
+!results/published-*.json
+data/

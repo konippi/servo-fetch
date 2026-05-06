@@ -1,0 +1,13 @@
+Why my stylo benchmark times jumped 2x — anyone seen this?
+
+alice — 2 hours ago
+Hey all — I updated my build last week and my wall-clock benchmarks now show a 2x regression. Nothing else changed on the box. Anyone hit this?
+
+bob — 1 hour ago
+Did you rebuild in release mode? Debug builds silently skip LLVM optimization passes and the wall-clock numbers you get are not representative of anything shipped.
+
+carol — 45 min ago
+Also check if your OS updated clock source. I've seen TSC drift after kernel updates on older AMD hardware, which throws off every wall-clock measurement.
+
+alice — 30 min ago
+Both good suggestions. Turned out to be CPU frequency scaling — governor flipped to powersave after a reboot. Setting performance governor restored the 1x numbers. Thanks everyone.

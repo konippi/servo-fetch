@@ -1,0 +1,12 @@
+# Forum threads store the actual discussion inside `comment` / `reply` class
+# names. Article extractors learned to strip those as boilerplate and lose
+# the entire conversation.
+with = stylo benchmark times jumped 2x
+with = rebuild in release mode
+with = OS updated clock source
+with = CPU frequency scaling
+with = performance governor
+without = Home · Forums · Login
+without = Related threads
+without = Benchmark noise on Linux with turbo boost
+without = © 2026 Forum Platform

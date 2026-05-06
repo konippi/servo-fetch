@@ -1,0 +1,12 @@
+# Product pages expose the actual description in JSON-LD structured data,
+# not in the visible DOM. Extractors that only parse the rendered HTML miss
+# the critical content entirely.
+with = Stylo: High-Performance CSS Engines in Rust
+with = deep dive into Servo's Stylo engine
+with = parallel style recalc
+with = bloom-filter rapid rejection
+with = Rust data structures
+without = Home · Catalog · Cart
+without = Add to cart
+without = Readers also bought
+without = © 2026 Servo Press

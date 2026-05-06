@@ -1,0 +1,11 @@
+# Collection pages mix product cards with filter panels and pagination.
+# Single-node extractors grab one card instead of the full collection.
+with = Rust Performance Books
+with = Stylo: High-Performance CSS Engines
+with = SpiderMonkey Internals
+with = WebRender: GPU Composition
+with = Crossbeam Epoch-Based GC
+without = Home · Catalog · Cart
+without = Under $30
+without = Page 1 · 2 · 3
+without = © 2026 Servo Press

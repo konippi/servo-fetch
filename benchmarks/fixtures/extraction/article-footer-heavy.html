@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Footer Heavy challenge · servo-fetch bench</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    main { max-width: 720px; margin: 40px auto; padding: 0 24px; }
+    .mega-footer {
+      background: #f7f7f7;
+      padding: 60px 24px;
+      color: #333;
+      border-top: 1px solid #ddd;
+      font-size: 0.9em;
+    }
+    .mega-footer .grid {
+      max-width: 1080px;
+      margin: auto;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 40px;
+    }
+    .mega-footer h4 { font-size: 0.95em; margin: 0 0 12px; }
+    .mega-footer ul { list-style: none; padding: 0; margin: 0; }
+    .mega-footer li { margin: 6px 0; color: #555; }
+    .mega-footer .legal { margin-top: 40px; border-top: 1px solid #ddd; padding-top: 24px; color: #777; }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <h1>Layout-aware boilerplate removal: why CSS matters</h1>
+
+      <p>
+        Traditional boilerplate-removal libraries operate on the DOM alone.
+        They see a tree of elements, assign density and readability scores
+        based on text length and tag structure, and select the densest
+        subtree as the article. This works well on news articles, which
+        conform to a common template, but breaks on pages with unusual
+        chrome.
+      </p>
+
+      <p>
+        The reason it breaks is that the DOM contains no information about
+        where elements appear on the screen. A fixed navigation bar and a
+        full-width footer look identical to the article body from the DOM's
+        perspective, unless they are tagged with the right semantic elements
+        — and many sites are not.
+      </p>
+
+      <p>
+        A layout-aware extractor observes the computed CSS of each element:
+        position, width, height, stacking context, ARIA role. It can then
+        make decisions that are invisible to a pure-DOM tool. The cost is
+        that the page must actually be rendered, which rules out the fastest
+        pure-HTTP pipelines.
+      </p>
+
+      <p>
+        For bulk archival crawls where speed is paramount and most pages are
+        news-shaped, the DOM-only approach remains the right choice. For
+        precision extraction on structurally diverse pages — product pages,
+        forums, documentation — rendering pays for itself.
+      </p>
+    </article>
+  </main>
+
+  <div class="mega-footer">
+    <div class="grid">
+      <div>
+        <h4>Products</h4>
+        <ul>
+          <li>Platform overview</li>
+          <li>Enterprise</li>
+          <li>Startups</li>
+          <li>Integrations</li>
+          <li>What's new</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Solutions</h4>
+        <ul>
+          <li>By industry</li>
+          <li>By team size</li>
+          <li>By use case</li>
+          <li>Customer stories</li>
+          <li>ROI calculator</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <ul>
+          <li>Documentation</li>
+          <li>Community</li>
+          <li>Blog</li>
+          <li>Podcasts</li>
+          <li>Learning paths</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <ul>
+          <li>About</li>
+          <li>Careers — we're hiring</li>
+          <li>Press kit</li>
+          <li>Investor relations</li>
+          <li>Contact sales</li>
+        </ul>
+      </div>
+    </div>
+    <div class="legal">
+      © Fictional Software Company. All trademarks property of their owners.
+      Privacy policy · Terms of service · Cookie preferences · Do not sell my personal information.
+    </div>
+  </div>
+</body>
+</html>

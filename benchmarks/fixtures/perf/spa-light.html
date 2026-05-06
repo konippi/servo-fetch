@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>servo-fetch bench · spa light</title>
+  <meta name="description" content="Minimal SPA: content only appears after JavaScript runs. Tests whether a tool executes JS.">
+</head>
+<body>
+  <div id="root">Loading…</div>
+  <script>
+    (function () {
+      var root = document.getElementById("root");
+      var title = "SPA light fixture";
+      var paragraphs = [
+        "This fixture represents a minimal single-page application: the HTML " +
+          "shell contains only a placeholder, and the real article content is " +
+          "injected by JavaScript after parse.",
+        "A plain HTTP client (curl, reqwest, etc.) will extract only the " +
+          "placeholder and fail this workload. A tool that executes JavaScript " +
+          "will see the full rendered content below.",
+      ];
+      var main = document.createElement("main");
+      var h1 = document.createElement("h1");
+      h1.textContent = title;
+      main.appendChild(h1);
+      for (var i = 0; i < paragraphs.length; i++) {
+        var p = document.createElement("p");
+        p.textContent = paragraphs[i];
+        main.appendChild(p);
+      }
+      root.replaceWith(main);
+      document.title = title;
+    })();
+  </script>
+</body>
+</html>

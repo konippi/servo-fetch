@@ -9,7 +9,9 @@
   </p>
 </div>
 
-servo-fetch embeds the [Servo](https://servo.org/) browser engine. It executes JavaScript, computes CSS layout, captures screenshots with a software renderer, and extracts clean content — available as both a CLI tool and a Rust library.
+servo-fetch embeds the [Servo](https://servo.org/) browser engine. It executes JavaScript, computes CSS layout,
+captures screenshots with a software renderer, and extracts clean content — available as both a CLI tool and a
+Rust library.
 
 ```bash
 servo-fetch "https://example.com"                        # CLI: clean Markdown
@@ -30,17 +32,24 @@ let md = servo_fetch::markdown("https://example.com")?;  // Library: one-liner
 - **Screenshots without GPU** — software renderer captures PNG/full-page screenshots anywhere
 - **Accessibility tree** — AccessKit integration with roles, names, and bounding boxes
 
-## Performance
+## Performance and quality
 
-Parallel fetch — 4 URLs, JS executed, full CSS rendering:
+Apple M3 Pro, versus Playwright (the typical AI-agent stack):
 
-| Tool | Peak Memory | Time |
-| ---- | ----------- | ---- |
-| **servo-fetch** | **114 MB** | **1.5s** |
-| Playwright | 502 MB | 3.3s |
-| Puppeteer | 1065 MB | 4.3s |
+| Benchmark           | servo-fetch | playwright:optimized |
+| ------------------- | ----------: | -------------------: |
+| Time — static-small |     ~231 ms |              ~645 ms |
+| Time — spa-heavy    |     ~331 ms |              ~798 ms |
+| Memory (peak RSS)   |    51–64 MB |           300–328 MB |
 
-Same rendering capabilities, 4–9× less memory, 2–3× faster. [Methodology →](benchmarks/)
+Extraction quality: mean word-F1 0.823 vs Readability's 0.723 across
+seven page-type fixtures, with `without[]` boilerplate removal at 96.4%
+vs 82.1%. Direct-binary engine peers (chrome-headless-shell, Lightpanda,
+curl) are opt-in.
+
+Methodology, three-axis breakdown, per-fixture F1, and raw JSON:
+[`benchmarks/README.md`](benchmarks/README.md) +
+[`benchmarks/results/`](benchmarks/results/).
 
 ## Install
 
@@ -121,7 +130,8 @@ Full API reference → [`servo-fetch`](crates/servo-fetch/README.md)
 
 ## MCP Server
 
-Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server with five tools: `fetch`, `batch_fetch`, `crawl`, `screenshot`, and `execute_js`.
+Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server with five tools: `fetch`,
+`batch_fetch`, `crawl`, `screenshot`, and `execute_js`.
 
 ```json
 {
@@ -148,7 +158,10 @@ npx skills add https://github.com/konippi/servo-fetch/tree/main/skills/servo-fet
 
 ## Security
 
-servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatracker.ietf.org/doc/html/rfc6890)), strips credentials from URLs, disables HTTP redirects to prevent SSRF bypass, and sanitizes all output against terminal escape injection ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574)). See [SECURITY.md](./SECURITY.md) for details.
+servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatracker.ietf.org/doc/html/rfc6890)),
+strips credentials from URLs, disables HTTP redirects to prevent SSRF bypass, and sanitizes all output against
+terminal escape injection ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574)).
+See [SECURITY.md](./SECURITY.md) for details.
 
 ## Limitations
 

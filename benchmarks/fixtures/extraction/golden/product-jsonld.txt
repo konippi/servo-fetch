@@ -1,0 +1,6 @@
+Stylo: High-Performance CSS Engines in Rust
+
+$42.00
+In stock
+
+A deep dive into Servo's Stylo engine, the selector-matching and style-resolution pipeline adopted by Firefox for Gecko. Covers parallel style recalc, bloom-filter rapid rejection, cascade resolution, and the Rust data structures that make it all possible.

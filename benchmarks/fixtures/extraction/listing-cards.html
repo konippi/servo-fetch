@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Servo Engineering Notes · Blog</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    .listing { max-width: 800px; margin: 40px auto; padding: 0 16px; }
+    .item { padding: 16px 0; border-bottom: 1px solid #eee; }
+    .item h2 { margin: 0 0 8px; }
+    .meta { color: #888; font-size: 14px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <nav>Home · Blog · Archive · About</nav>
+  </header>
+
+  <main class="listing">
+    <h1>Servo Engineering Notes</h1>
+
+    <article class="item">
+      <h2>Parallel style recalc on 128-core ARM</h2>
+      <div class="meta">Alice — Nov 2025 — 6 min read</div>
+      <p>Scaling Stylo's rayon-based parallelism beyond 64 cores required
+      revisiting work-stealing queue contention. We saw speedup plateau
+      around 48 cores on Graviton4 until we switched from a global queue
+      to per-NUMA-node queues.</p>
+    </article>
+
+    <article class="item">
+      <h2>Why SpiderMonkey's inline caches outperform hidden classes</h2>
+      <div class="meta">Bob — Oct 2025 — 9 min read</div>
+      <p>V8 popularized the hidden-class approach, but SpiderMonkey's
+      inline-cache polymorphism has aged better for modern JS patterns.
+      We measured a 12% speedup on real-world React benchmarks after the
+      TI-to-IC refactor landed.</p>
+    </article>
+
+    <article class="item">
+      <h2>Eliminating 200ms of cold-start latency in servo-fetch</h2>
+      <div class="meta">Carol — Oct 2025 — 4 min read</div>
+      <p>A surprise result from flamegraph profiling: 180ms of cold-start
+      was spent registering URL schemes the fetcher never used. Removing
+      them cut wall-clock by 38% on static-small workloads.</p>
+    </article>
+
+    <article class="item">
+      <h2>CryptoProvider: one-line fix, production-grade crash</h2>
+      <div class="meta">Dave — Sep 2025 — 3 min read</div>
+      <p>We hit a rustls init race where two crawl_each calls both tried
+      to install the default provider. The fix was trivial once identified,
+      but the symptoms were anything but obvious.</p>
+    </article>
+  </main>
+
+  <aside>Subscribe · RSS · Twitter</aside>
+  <footer>© 2026 Servo Engineering</footer>
+</body>
+</html>

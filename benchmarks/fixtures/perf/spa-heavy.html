@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>servo-fetch bench · spa heavy</title>
+  <meta name="description" content="JS-heavy SPA: many DOM nodes + compute on load. Amortizes browser startup cost.">
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; }
+    main { max-width: 820px; margin: auto; }
+    .card { padding: 8px 12px; margin: 4px 0; border: 1px solid #ddd; border-radius: 4px; }
+    .card[data-rank="hot"] { background: #fff4f0; }
+    nav, aside, footer { color: #888; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <header><nav>Home · Docs · API · Blog · About</nav></header>
+  <aside>Sidebar content that a layout-aware extractor should strip.</aside>
+  <div id="root">Hydrating…</div>
+  <footer>© footer — should also be stripped by layout-aware extractors.</footer>
+  <script>
+    (function () {
+      var seed = 1;
+      function rand() {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return seed;
+      }
+
+      var acc = 0;
+      for (var i = 0; i < 200000; i++) acc += (rand() % 7);
+
+      var root = document.getElementById("root");
+      var main = document.createElement("main");
+
+      var h1 = document.createElement("h1");
+      h1.textContent = "SPA heavy fixture";
+      main.appendChild(h1);
+
+      var lead = document.createElement("p");
+      lead.textContent =
+        "Rendered after " + (200000).toLocaleString() + " synthetic compute " +
+        "iterations. Accumulator final value: " + acc + ". This value is " +
+        "deterministic; if your tool returns a different number or truncates " +
+        "the list below, the benchmark is not comparing equivalent workloads.";
+      main.appendChild(lead);
+
+      var list = document.createElement("div");
+      list.id = "items";
+      for (var j = 0; j < 1000; j++) {
+        var card = document.createElement("div");
+        card.className = "card";
+        card.setAttribute("data-rank", j < 50 ? "hot" : "cold");
+        card.textContent = "Item " + (j + 1) + " · score " + ((rand() % 10000) / 100).toFixed(2);
+        list.appendChild(card);
+      }
+      main.appendChild(list);
+
+      root.replaceWith(main);
+      document.title = "SPA heavy fixture";
+    })();
+  </script>
+</body>
+</html>

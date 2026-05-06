@@ -1,0 +1,17 @@
+Servo Engineering Notes
+
+Parallel style recalc on 128-core ARM
+Alice — Nov 2025 — 6 min read
+Scaling Stylo's rayon-based parallelism beyond 64 cores required revisiting work-stealing queue contention. We saw speedup plateau around 48 cores on Graviton4 until we switched from a global queue to per-NUMA-node queues.
+
+Why SpiderMonkey's inline caches outperform hidden classes
+Bob — Oct 2025 — 9 min read
+V8 popularized the hidden-class approach, but SpiderMonkey's inline-cache polymorphism has aged better for modern JS patterns. We measured a 12% speedup on real-world React benchmarks after the TI-to-IC refactor landed.
+
+Eliminating 200ms of cold-start latency in servo-fetch
+Carol — Oct 2025 — 4 min read
+A surprise result from flamegraph profiling: 180ms of cold-start was spent registering URL schemes the fetcher never used. Removing them cut wall-clock by 38% on static-small workloads.
+
+CryptoProvider: one-line fix, production-grade crash
+Dave — Sep 2025 — 3 min read
+We hit a rustls init race where two crawl_each calls both tried to install the default provider. The fix was trivial once identified, but the symptoms were anything but obvious.

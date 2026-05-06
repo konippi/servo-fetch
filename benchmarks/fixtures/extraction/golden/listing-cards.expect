@@ -1,0 +1,10 @@
+# Listing pages repeat card elements. Single-node extractors grab one card,
+# missing the collection as a whole.
+with = Servo Engineering Notes
+with = Parallel style recalc on 128-core ARM
+with = inline caches outperform hidden classes
+with = Eliminating 200ms of cold-start latency in servo-fetch
+with = CryptoProvider: one-line fix
+without = Home · Blog · Archive · About
+without = Subscribe · RSS · Twitter
+without = © 2026 Servo Engineering

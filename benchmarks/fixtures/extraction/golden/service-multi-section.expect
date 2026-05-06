@@ -1,0 +1,8 @@
+# Tools that do not execute JS miss all with[] snippets and emit "Loading…".
+with = service or marketing page with content split across multiple sections
+with = Readability-style extractors score subtrees by text density
+with = If the extractor can observe computed CSS
+with = Layout-aware extraction is not a universal win
+without = Loading…
+without = New: our 2026 product update is live
+without = Start free trial

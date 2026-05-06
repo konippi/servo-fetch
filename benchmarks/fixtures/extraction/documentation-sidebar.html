@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Narrow Sidebar challenge · servo-fetch bench</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 40px;
+      max-width: 1080px;
+      margin: 40px auto;
+      padding: 0 24px;
+    }
+    .sidebar {
+      width: 260px;
+      font-size: 0.9em;
+      color: #555;
+    }
+    .sidebar h3 { font-size: 0.95em; margin-top: 0; }
+    .sidebar ul { list-style: none; padding: 0; }
+    .sidebar li { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <article>
+      <h1>Accessibility trees as compact LLM context</h1>
+
+      <p>
+        For large language model agents that need to understand a web page,
+        passing the raw HTML is both expensive and noisy. A rendered
+        accessibility tree — the same data structure screen readers use —
+        gives the model a semantically labeled view of interactive elements
+        at a fraction of the token count.
+      </p>
+
+      <p>
+        Our experiments show that feeding the accessibility tree instead of
+        the HTML reduces input tokens by around an order of magnitude, with
+        no measurable loss in the model's ability to answer questions about
+        the page's content or to pick the right button to click.
+      </p>
+
+      <p>
+        The main remaining limitation is that some applications do not
+        populate their accessibility tree well. For those cases we fall back
+        to a visual rendering pipeline that derives the roles from the
+        computed styles, but this path is more expensive and not yet
+        universally reliable.
+      </p>
+
+      <p>
+        Longer-term, we expect accessibility-tree-first extraction to become
+        a common pattern for agent frameworks, because the compression wins
+        are too large to ignore. The next milestone is making the tree
+        stable across small DOM changes so that agent memory can be cached.
+      </p>
+    </article>
+
+    <div class="sidebar">
+      <h3>Related reading</h3>
+      <ul>
+        <li>AccessKit: a cross-platform accessibility toolkit</li>
+        <li>Servo's new layout engine</li>
+        <li>LLM agents and the web platform</li>
+        <li>Why fewer tokens matter for browser agents</li>
+      </ul>
+      <h3>Newsletter</h3>
+      <p>Get weekly notes on browser engineering — no spam, unsubscribe anytime.</p>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Multi-Section SPA challenge · servo-fetch bench</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; color: #222; }
+    section {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 24px;
+      border-bottom: 1px solid #eee;
+    }
+    h2 { margin-top: 0; }
+
+    .cta-floater {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      padding: 12px 20px;
+      background: #1a73e8;
+      color: #fff;
+      border-radius: 24px;
+      z-index: 1000;
+      font-weight: 600;
+    }
+
+    .hero-bar {
+      position: sticky;
+      top: 0;
+      padding: 10px 24px;
+      background: #111;
+      color: #fff;
+      font-size: 0.9em;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <div class="hero-bar">
+    New: our 2026 product update is live. Learn what's new · Dismiss · Start free trial
+  </div>
+
+  <div id="root">
+    Loading…
+  </div>
+
+  <div class="cta-floater">Start free trial</div>
+
+  <script>
+    (function () {
+      var root = document.getElementById("root");
+
+      function section(id, title, paragraphs) {
+        var sec = document.createElement("section");
+        sec.id = id;
+        var h = document.createElement("h2");
+        h.textContent = title;
+        sec.appendChild(h);
+        for (var i = 0; i < paragraphs.length; i++) {
+          var p = document.createElement("p");
+          p.textContent = paragraphs[i];
+          sec.appendChild(p);
+        }
+        return sec;
+      }
+
+      var main = document.createElement("main");
+      main.appendChild(section("intro", "What is this?", [
+        "This fixture represents a service or marketing page with content " +
+        "split across multiple sections. Traditional extractors that pick " +
+        "a single dominant node miss most of the content on pages like this.",
+        "The individual sections are each shorter than the dominant node " +
+        "heuristic expects, so a DOM-only reader trained on news articles " +
+        "tends to pick one section and discard the others.",
+      ]));
+      main.appendChild(section("mechanism", "Why the sections get lost", [
+        "Readability-style extractors score subtrees by text density and " +
+        "link-to-text ratios. On a page split across six sections of 80 " +
+        "words each, no single subtree stands out, so the algorithm selects " +
+        "either the longest section or an unrelated wrapper.",
+        "Published leaderboards suggest that DOM-only extractors drop noticeably " +
+        "on multi-section service pages versus article pages, and this fixture " +
+        "is designed to reproduce that failure mode.",
+      ]));
+      main.appendChild(section("layout-approach", "A layout-aware fix", [
+        "If the extractor can observe computed CSS — position, width, " +
+        "z-index, ARIA role — then the floating CTA and sticky hero bar " +
+        "are trivially classified as chrome. What remains is a vertical " +
+        "stack of <section> blocks, which a layout-aware reader can " +
+        "concatenate into a single main-content blob.",
+        "This is how servo-fetch's layout.rs preprocessor handles multi-" +
+        "section pages. It is not magic — it is the information that the " +
+        "browser already has after running CSS, surfaced to the extractor.",
+      ]));
+      main.appendChild(section("caveats", "What still goes wrong", [
+        "Layout-aware extraction is not a universal win. On traditional " +
+        "article pages, the benefit is small and the rendering overhead is " +
+        "real. Our own benchmarks show article-page F1 within a point of " +
+        "the best heuristic systems, not ahead of them.",
+        "The advantage shows up precisely on the page types where DOM-only " +
+        "tools fail — service, forum, collection, multi-section — which " +
+        "are exactly the page types most underrepresented in older article-" +
+        "only benchmarks.",
+      ]));
+
+      root.replaceWith(main);
+    })();
+  </script>
+</body>
+</html>

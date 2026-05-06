@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Why my stylo benchmark times jumped 2x · Forum</title>
+</head>
+<body>
+  <header class="site-header">
+    <nav>Home · Forums · Login · Sign up</nav>
+  </header>
+
+  <main>
+    <h1>Why my stylo benchmark times jumped 2x — anyone seen this?</h1>
+
+    <div class="thread">
+      <article class="post op">
+        <div class="post-header">
+          <span class="author">alice</span>
+          <span class="timestamp">2 hours ago</span>
+        </div>
+        <div class="post-body">
+          Hey all — I updated my build last week and my wall-clock benchmarks
+          now show a 2x regression. Nothing else changed on the box. Anyone
+          hit this?
+        </div>
+      </article>
+
+      <article class="post comment">
+        <div class="post-header">
+          <span class="author">bob</span>
+          <span class="timestamp">1 hour ago</span>
+        </div>
+        <div class="post-body">
+          Did you rebuild in release mode? Debug builds silently skip LLVM
+          optimization passes and the wall-clock numbers you get are not
+          representative of anything shipped.
+        </div>
+      </article>
+
+      <div class="reply">
+        <div class="post-header">
+          <span class="author">carol</span>
+          <span class="timestamp">45 min ago</span>
+        </div>
+        <div class="post-body">
+          Also check if your OS updated clock source. I've seen TSC drift
+          after kernel updates on older AMD hardware, which throws off every
+          wall-clock measurement.
+        </div>
+      </div>
+
+      <article class="post comment">
+        <div class="post-header">
+          <span class="author">alice</span>
+          <span class="timestamp">30 min ago</span>
+        </div>
+        <div class="post-body">
+          Both good suggestions. Turned out to be CPU frequency scaling —
+          governor flipped to powersave after a reboot. Setting performance
+          governor restored the 1x numbers. Thanks everyone.
+        </div>
+      </article>
+    </div>
+  </main>
+
+  <aside class="sidebar">
+    <h3>Related threads</h3>
+    <ul>
+      <li>Benchmark noise on Linux with turbo boost</li>
+      <li>Why hyperfine warmup matters for JIT languages</li>
+    </ul>
+  </aside>
+
+  <footer>© 2026 Forum Platform · Terms · Privacy</footer>
+</body>
+</html>

@@ -1,0 +1,7 @@
+Traditional boilerplate-removal libraries operate on the DOM alone. They see a tree of elements, assign density and readability scores based on text length and tag structure, and select the densest subtree as the article. This works well on news articles, which conform to a common template, but breaks on pages with unusual chrome.
+
+The reason it breaks is that the DOM contains no information about where elements appear on the screen. A fixed navigation bar and a full-width footer look identical to the article body from the DOM's perspective, unless they are tagged with the right semantic elements — and many sites are not.
+
+A layout-aware extractor observes the computed CSS of each element: position, width, height, stacking context, ARIA role. It can then make decisions that are invisible to a pure-DOM tool. The cost is that the page must actually be rendered, which rules out the fastest pure-HTTP pipelines.
+
+For bulk archival crawls where speed is paramount and most pages are news-shaped, the DOM-only approach remains the right choice. For precision extraction on structurally diverse pages — product pages, forums, documentation — rendering pays for itself.

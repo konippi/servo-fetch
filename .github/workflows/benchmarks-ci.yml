@@ -1,0 +1,113 @@
+name: Benchmarks CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "true"
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'benchmarks/src/**'
+              - 'benchmarks/tests/**'
+              - 'benchmarks/fixtures/**'
+              - 'benchmarks/tools/**/*.py'
+              - 'benchmarks/bench'
+              - 'benchmarks/pyproject.toml'
+              - 'benchmarks/uv.lock'
+              - '.github/workflows/benchmarks-ci.yml'
+
+  lint:
+    name: Ruff
+    needs: [changes]
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: benchmarks
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: benchmarks/uv.lock
+      - name: Install dev dependencies
+        run: uv sync --group dev
+      - run: uv run ruff check src tests tools
+
+  test:
+    name: Pytest (Python ${{ matrix.python }})
+    needs: [changes]
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    defaults:
+      run:
+        working-directory: benchmarks
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: benchmarks/uv.lock
+          python-version: ${{ matrix.python }}
+      - name: Install dev dependencies
+        run: uv sync --group dev
+      - run: uv run pytest tests/ -v
+
+  ci-passed:
+    name: Benchmarks CI Passed
+    if: always()
+    needs: [changes, lint, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check required jobs
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          LINT: ${{ needs.lint.result }}
+          TEST: ${{ needs.test.result }}
+        run: |
+          set -e
+          echo "changes=$CHANGES lint=$LINT test=$TEST"
+          [ "$CHANGES" = "success" ] || { echo "::error::changes did not succeed ($CHANGES)"; exit 1; }
+          case "$LINT" in success|skipped) ;; *) echo "::error::lint $LINT"; exit 1 ;; esac
+          case "$TEST" in success|skipped) ;; *) echo "::error::test $TEST"; exit 1 ;; esac
+          echo "All required jobs passed"

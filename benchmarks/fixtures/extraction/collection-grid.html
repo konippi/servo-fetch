@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Rust Performance Books · Catalog</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    .layout { display: grid; grid-template-columns: 220px 1fr; gap: 32px; max-width: 1080px; margin: 40px auto; }
+    .filters { background: #f5f5f5; padding: 16px; border-radius: 4px; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .card { border: 1px solid #ddd; padding: 12px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <nav>Home · Catalog · Cart · Account</nav>
+  </header>
+
+  <main class="layout">
+    <aside class="filters">
+      <h2>Filters</h2>
+      <label><input type="checkbox"> Under $30</label>
+      <label><input type="checkbox"> In stock</label>
+      <label><input type="checkbox"> New releases</label>
+      <h3>Topic</h3>
+      <label><input type="checkbox"> Style engine</label>
+      <label><input type="checkbox"> JIT</label>
+      <label><input type="checkbox"> Rendering</label>
+    </aside>
+
+    <section class="grid-container">
+      <h1 class="collection-title">Rust Performance Books</h1>
+
+      <div class="grid">
+        <div class="card">
+          <h3>Stylo: High-Performance CSS Engines</h3>
+          <p>Inside Firefox's parallel style engine written in Rust.</p>
+          <div class="price">$42</div>
+        </div>
+
+        <div class="card">
+          <h3>SpiderMonkey Internals</h3>
+          <p>From baseline interpreter to Warp optimizer — a tour of the JIT pipeline.</p>
+          <div class="price">$39</div>
+        </div>
+
+        <div class="card">
+          <h3>WebRender: GPU Composition</h3>
+          <p>How Servo and Firefox draw every pixel on the GPU, one display list at a time.</p>
+          <div class="price">$44</div>
+        </div>
+
+        <div class="card">
+          <h3>Crossbeam Epoch-Based GC</h3>
+          <p>Lock-free data structures and safe memory reclamation in Rust.</p>
+          <div class="price">$35</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="pagination">Page 1 · 2 · 3 · Next</nav>
+  <footer>© 2026 Servo Press · Returns · Shipping</footer>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# "Item 1000" only appears if the JS compute loop + DOM construction ran
+# to completion; a truncated output misses the tail.
+with = SPA heavy fixture
+with = Item 1 · score
+with = Item 1000 · score
+without = Home · Docs · API · Blog · About
+without = Sidebar content that a layout-aware extractor should strip
+without = © footer — should also be stripped by layout-aware extractors

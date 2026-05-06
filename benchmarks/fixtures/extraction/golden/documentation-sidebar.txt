@@ -1,0 +1,7 @@
+For large language model agents that need to understand a web page, passing the raw HTML is both expensive and noisy. A rendered accessibility tree — the same data structure screen readers use — gives the model a semantically labeled view of interactive elements at a fraction of the token count.
+
+Our experiments show that feeding the accessibility tree instead of the HTML reduces input tokens by around an order of magnitude, with no measurable loss in the model's ability to answer questions about the page's content or to pick the right button to click.
+
+The main remaining limitation is that some applications do not populate their accessibility tree well. For those cases we fall back to a visual rendering pipeline that derives the roles from the computed styles, but this path is more expensive and not yet universally reliable.
+
+Longer-term, we expect accessibility-tree-first extraction to become a common pattern for agent frameworks, because the compression wins are too large to ignore. The next milestone is making the tree stable across small DOM changes so that agent memory can be cached.

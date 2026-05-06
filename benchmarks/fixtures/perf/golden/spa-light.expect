@@ -1,0 +1,4 @@
+# Post-hydration content; a JS-disabled tool sees only "Loading…" and fails.
+with = SPA light fixture
+with = This fixture represents a minimal single-page application
+without = Loading…

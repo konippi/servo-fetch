@@ -1,0 +1,15 @@
+This fixture represents a service or marketing page with content split across multiple sections. Traditional extractors that pick a single dominant node miss most of the content on pages like this.
+
+The individual sections are each shorter than the dominant node heuristic expects, so a DOM-only reader trained on news articles tends to pick one section and discard the others.
+
+Readability-style extractors score subtrees by text density and link-to-text ratios. On a page split across six sections of 80 words each, no single subtree stands out, so the algorithm selects either the longest section or an unrelated wrapper.
+
+The WCXB benchmark paper documents this as the canonical failure mode for service pages, with F1 dropping by 20-30 points compared to article pages for every tested DOM-only extractor.
+
+If the extractor can observe computed CSS — position, width, z-index, ARIA role — then the floating CTA and sticky hero bar are trivially classified as chrome. What remains is a vertical stack of <section> blocks, which a layout-aware reader can concatenate into a single main-content blob.
+
+This is how servo-fetch's layout.rs preprocessor handles multi-section pages. It is not magic — it is the information that the browser already has after running CSS, surfaced to the extractor.
+
+Layout-aware extraction is not a universal win. On traditional article pages, the benefit is small and the rendering overhead is real. Our own benchmarks show article-page F1 within a point of the best heuristic systems, not ahead of them.
+
+The advantage shows up precisely on the page types where DOM-only tools fail — service, forum, collection, multi-section — which are exactly the page types most underrepresented in older article-only benchmarks.

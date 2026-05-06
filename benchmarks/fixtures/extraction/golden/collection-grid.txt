@@ -1,0 +1,17 @@
+Rust Performance Books
+
+Stylo: High-Performance CSS Engines
+Inside Firefox's parallel style engine written in Rust.
+$42
+
+SpiderMonkey Internals
+From baseline interpreter to Warp optimizer — a tour of the JIT pipeline.
+$39
+
+WebRender: GPU Composition
+How Servo and Firefox draw every pixel on the GPU, one display list at a time.
+$44
+
+Crossbeam Epoch-Based GC
+Lock-free data structures and safe memory reclamation in Rust.
+$35

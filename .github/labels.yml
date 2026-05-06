@@ -27,7 +27,7 @@
   color: b60205
   description: "Security-sensitive change"
 
-# User-facing surface
+# Components / areas
 - name: "cli"
   color: 1d76db
   description: "CLI binary, subcommands, flags, installer"
@@ -37,6 +37,9 @@
 - name: "skill"
   color: 1d76db
   description: "Agent Skills package"
+- name: "benchmark"
+  color: 1d76db
+  description: "Benchmark harness, fixtures, runners, measurement methodology"
 
 # Status
 - name: "good first issue"

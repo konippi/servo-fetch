@@ -1,0 +1,7 @@
+with = accessibility tree — the same data structure screen readers use
+with = reduces input tokens by around an order of magnitude
+with = fall back to a visual rendering pipeline
+with = making the tree stable across small DOM changes
+without = Related reading
+without = AccessKit: a cross-platform accessibility toolkit
+without = Get weekly notes on browser engineering

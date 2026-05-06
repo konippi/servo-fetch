@@ -1,0 +1,14 @@
+{
+  "name": "servo-fetch-bench-node",
+  "version": "0.0.0",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@mozilla/readability": "0.6.0",
+    "jsdom": "29.1.1",
+    "playwright": "1.59.1"
+  },
+  "scripts": {
+    "postinstall": "playwright install --only-shell chromium"
+  }
+}

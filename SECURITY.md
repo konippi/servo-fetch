@@ -39,7 +39,4 @@ servo-fetch processes untrusted web content. The following areas are in scope:
 
 ## Supported versions
 
-| Version | Supported   |
-| ------- | ----------- |
-| 0.2.x   | ✅ (0.2.1+) |
-| 0.1.x   | ❌ (yanked) |
+Security fixes are backported only to the latest 0.x minor release line. All earlier releases are considered deprecated; users are encouraged to upgrade to the latest patch version.

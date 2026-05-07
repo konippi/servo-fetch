@@ -713,6 +713,16 @@ mod tests {
     }
 
     #[test]
+    fn page_markdown_with_invalid_selector_returns_error() {
+        let page = Page {
+            html: "<html><body><p>x</p></body></html>".into(),
+            ..Page::default()
+        };
+        let err = page.markdown_with_selector("", "###invalid[[[").unwrap_err();
+        assert!(err.to_string().contains("invalid CSS selector"));
+    }
+
+    #[test]
     fn fetch_rejects_invalid_url() {
         let result = fetch(FetchOptions::new("not a url"));
         assert!(result.is_err());

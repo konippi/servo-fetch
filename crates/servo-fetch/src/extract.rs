@@ -20,6 +20,9 @@ pub enum ExtractError {
     /// Failed to serialize JSON output.
     #[error("JSON serialization failed")]
     Json(#[from] serde_json::Error),
+    /// The provided CSS selector is invalid.
+    #[error("invalid CSS selector")]
+    InvalidSelector,
 }
 
 /// Structured article data for JSON output.
@@ -114,7 +117,7 @@ impl<'a> ExtractInput<'a> {
 /// Returns [`ExtractError::Fmt`] if Markdown assembly fails.
 pub fn extract_text(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
     if let Some(selector) = input.selector {
-        return Ok(extract_by_selector(input.html, input.layout_json, selector));
+        return extract_by_selector(input.html, input.layout_json, selector);
     }
     let article = parse_article(input.html, input.url, input.layout_json, input.inner_text);
 
@@ -138,7 +141,7 @@ pub fn extract_text(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
 /// Returns [`ExtractError::Json`] if JSON serialization fails.
 pub fn extract_json(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
     if let Some(selector) = input.selector {
-        let text = extract_by_selector(input.html, input.layout_json, selector);
+        let text = extract_by_selector(input.html, input.layout_json, selector)?;
         let data = ArticleData {
             title: String::new(),
             content: String::new(),
@@ -220,19 +223,20 @@ fn parse_article(html: &str, url: &str, layout_json: Option<&str>, inner_text: O
     }
 }
 
-fn extract_by_selector(html: &str, layout_json: Option<&str>, selector: &str) -> String {
+fn extract_by_selector(html: &str, layout_json: Option<&str>, selector: &str) -> Result<String, ExtractError> {
+    let matcher = dom_query::Matcher::new(selector).map_err(|_| ExtractError::InvalidSelector)?;
     let filtered = filter(html, layout_json);
     let doc = Document::from(filtered.as_ref());
-    let selected = doc.select(selector);
+    let selected = doc.select_matcher(&matcher);
     let fragment = selected.html();
     if fragment.is_empty() {
-        return String::new();
+        return Ok(String::new());
     }
     let converter = HtmlToMarkdown::builder().skip_tags(vec!["script", "style"]).build();
     let markdown = converter
         .convert(&fragment)
         .unwrap_or_else(|_| selected.text().to_string());
-    clean_markdown(&markdown)
+    Ok(clean_markdown(&markdown))
 }
 
 fn filter<'a>(html: &'a str, layout_json: Option<&str>) -> Cow<'a, str> {

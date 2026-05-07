@@ -18,7 +18,7 @@ use crate::layout;
 
 const JS_EVAL_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn default_user_agent() -> &'static str {
+pub(crate) fn default_user_agent() -> &'static str {
     static UA: OnceLock<String> = OnceLock::new();
     UA.get_or_init(|| {
         let raw = std::env::var("SERVO_FETCH_USER_AGENT")

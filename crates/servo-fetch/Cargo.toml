@@ -42,6 +42,10 @@ os_pipe = "1"
 [target.'cfg(windows)'.dependencies]
 servo = { workspace = true, features = ["no-wgl"] }
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros"] }
+wiremock = "0.6"
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
 

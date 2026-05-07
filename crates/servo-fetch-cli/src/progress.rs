@@ -30,7 +30,9 @@ impl Progress {
 
     pub(crate) fn clear(&self) {
         if self.is_tty {
-            let _ = write!(std::io::stderr(), "\r\x1b[K");
+            let mut err = std::io::stderr();
+            let _ = write!(err, "\r\x1b[2K");
+            let _ = err.flush();
         }
     }
 

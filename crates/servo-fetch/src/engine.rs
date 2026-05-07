@@ -56,6 +56,24 @@ impl Page {
         Ok(crate::extract::extract_json(&input)?)
     }
 
+    /// Extract readable Markdown from the subtree matched by a CSS selector.
+    pub fn markdown_with_selector(&self, url: &str, selector: &str) -> crate::error::Result<String> {
+        let input = crate::extract::ExtractInput::new(&self.html, url)
+            .with_layout_json(self.layout_json.as_deref())
+            .with_inner_text(Some(&self.inner_text))
+            .with_selector(Some(selector));
+        Ok(crate::extract::extract_text(&input)?)
+    }
+
+    /// Extract structured JSON from the subtree matched by a CSS selector.
+    pub fn extract_json_with_selector(&self, url: &str, selector: &str) -> crate::error::Result<String> {
+        let input = crate::extract::ExtractInput::new(&self.html, url)
+            .with_layout_json(self.layout_json.as_deref())
+            .with_inner_text(Some(&self.inner_text))
+            .with_selector(Some(selector));
+        Ok(crate::extract::extract_json(&input)?)
+    }
+
     /// PNG screenshot bytes, if captured via [`FetchOptions::screenshot`].
     #[must_use]
     pub fn screenshot_png(&self) -> Option<&[u8]> {
@@ -668,6 +686,41 @@ mod tests {
     fn page_screenshot_png_none_by_default() {
         let page = Page::default();
         assert!(page.screenshot_png().is_none());
+    }
+
+    #[test]
+    fn page_markdown_with_selector_scopes_to_subtree() {
+        let page = Page {
+            html: "<html><body><article>keep</article><aside>drop</aside></body></html>".into(),
+            ..Page::default()
+        };
+        let md = page.markdown_with_selector("https://example.com", "article").unwrap();
+        assert!(md.contains("keep"));
+        assert!(!md.contains("drop"));
+    }
+
+    #[test]
+    fn page_extract_json_with_selector_includes_url() {
+        let page = Page {
+            html: "<html><body><article>scoped</article></body></html>".into(),
+            ..Page::default()
+        };
+        let json = page
+            .extract_json_with_selector("https://example.com/page", "article")
+            .unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(parsed["url"].as_str(), Some("https://example.com/page"));
+        assert!(parsed["text_content"].as_str().unwrap().contains("scoped"));
+    }
+
+    #[test]
+    fn page_markdown_with_selector_no_match_returns_empty() {
+        let page = Page {
+            html: "<html><body><article>x</article></body></html>".into(),
+            ..Page::default()
+        };
+        let md = page.markdown_with_selector("", ".nonexistent").unwrap();
+        assert!(md.is_empty());
     }
 
     #[test]

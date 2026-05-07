@@ -447,7 +447,7 @@ fn start_fetch(
         Err(e) => return Err((req, anyhow!("bad url: {e}"))),
     };
 
-    let ua = req.user_agent.as_deref().unwrap_or(default_user_agent());
+    let ua = req.user_agent.as_deref().unwrap_or_else(|| default_user_agent());
     servo.set_preference("user_agent", servo::PrefValue::Str(ua.to_owned()));
 
     let dedicated_ctx = if matches!(req.mode, FetchMode::Screenshot { .. }) {

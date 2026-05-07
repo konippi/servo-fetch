@@ -107,6 +107,15 @@ fn selector_no_match_returns_empty() {
 }
 
 #[test]
+fn invalid_selector_returns_error() {
+    let html = fixture("simple.html");
+    let mut input = input(&html);
+    input.selector = Some("###invalid[[[");
+    let err = extract::extract_text(&input).unwrap_err();
+    assert!(err.to_string().contains("invalid CSS selector"));
+}
+
+#[test]
 fn extract_json_selector_includes_url() {
     let html = fixture("article.html");
     let input = ExtractInput::new(&html, "https://example.com/page").with_selector(Some("article"));

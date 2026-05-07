@@ -723,6 +723,15 @@ mod tests {
     }
 
     #[test]
+    fn page_markdown_with_empty_selector_returns_error() {
+        let page = Page {
+            html: "<html><body><p>x</p></body></html>".into(),
+            ..Page::default()
+        };
+        assert!(page.markdown_with_selector("", "").is_err());
+    }
+
+    #[test]
     fn fetch_rejects_invalid_url() {
         let result = fetch(FetchOptions::new("not a url"));
         assert!(result.is_err());

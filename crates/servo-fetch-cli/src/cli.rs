@@ -55,7 +55,7 @@ pub(crate) struct FetchArgs {
     pub settle: u64,
 
     /// CSS selector to extract a specific section
-    #[arg(long, value_name = "CSS")]
+    #[arg(long, value_name = "CSS", value_parser = clap::builder::NonEmptyStringValueParser::new())]
     pub selector: Option<String>,
 
     /// Output raw HTML or plain text instead of Readability extraction
@@ -118,7 +118,7 @@ pub(crate) struct CrawlArgs {
     pub json: bool,
 
     /// CSS selector to extract a specific section per page
-    #[arg(long, value_name = "CSS")]
+    #[arg(long, value_name = "CSS", value_parser = clap::builder::NonEmptyStringValueParser::new())]
     pub selector: Option<String>,
 
     /// Timeout in seconds per page

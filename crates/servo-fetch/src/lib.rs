@@ -23,7 +23,7 @@ pub(crate) mod screenshot;
 pub(crate) mod sys;
 
 pub use engine::{
-    ConsoleLevel, ConsoleMessage, CrawlError, CrawlOptions, CrawlPage, CrawlResult, CrawlStatus, FetchOptions, Page,
-    crawl, crawl_each, extract_json, fetch, markdown, text, validate_url,
+    ConsoleLevel, ConsoleMessage, CrawlError, CrawlOptions, CrawlPage, CrawlResult, FetchOptions, Page, crawl,
+    crawl_each, extract_json, fetch, markdown, text, validate_url,
 };
 pub use error::{Error, Result};

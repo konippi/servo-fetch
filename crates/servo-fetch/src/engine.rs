@@ -465,17 +465,6 @@ impl CrawlResult {
     }
 }
 
-/// Status of a crawled page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum CrawlStatus {
-    /// Page fetched and extracted successfully.
-    Ok,
-    /// Page failed to load or extract.
-    Error,
-}
-
 /// Crawl a site, invoking `on_page` for each result as it arrives.
 #[allow(clippy::needless_pass_by_value)]
 pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlResult)) -> crate::error::Result<()> {

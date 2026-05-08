@@ -288,7 +288,21 @@ struct Engine {
 /// Servo engine — lives for the process lifetime. Shutdown is via process exit.
 static ENGINE: OnceLock<Engine> = OnceLock::new();
 
-/// Fetch a page via Servo. First call spawns a persistent Servo thread.
+/// Page fetching abstraction for testability.
+pub(crate) trait PageFetcher: Send + Sync + 'static {
+    fn fetch_page(&self, opts: FetchOptions<'_>) -> Result<ServoPage>;
+}
+
+/// Production implementation backed by the Servo engine.
+#[derive(Clone)]
+pub(crate) struct ServoFetcher;
+
+impl PageFetcher for ServoFetcher {
+    fn fetch_page(&self, opts: FetchOptions<'_>) -> Result<ServoPage> {
+        fetch_page(opts)
+    }
+}
+
 pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
     /// Max outstanding requests queued toward the engine.
     const PENDING_CAPACITY: usize = 64;

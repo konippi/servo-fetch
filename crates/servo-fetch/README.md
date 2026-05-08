@@ -112,6 +112,7 @@ let page = tokio::task::spawn_blocking(|| {
 | `fetch(opts)` | Fetch with full options → `Page` |
 | `crawl(opts)` | Crawl site → `Vec<CrawlResult>` |
 | `crawl_each(opts, cb)` | Crawl site, streaming results |
+| `map(opts)` | Discover URLs via sitemaps → `Vec<MappedUrl>` |
 
 See [docs.rs](https://docs.rs/servo-fetch) for the full API reference and [`examples/`](examples/) for complete runnable programs.
 

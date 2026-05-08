@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 use url::Url;
 
 use crate::bridge;
-use crate::crawl::{RobotsPolicy, RobotsRules};
-use crate::crawl::{is_same_site, matches_scope, normalize_url};
 use crate::net;
+use crate::robots::{RobotsPolicy, RobotsRules};
+use crate::scope::{is_same_site, matches_scope, normalize_url};
 
 const MAP_SITEMAP_MAX_BYTES: u64 = 50 * 1024 * 1024;
 const MAP_SITEMAP_MAX_DECOMPRESSED: u64 = 10 * 1024 * 1024;

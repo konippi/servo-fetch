@@ -572,12 +572,12 @@ pub fn map(opts: MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
     let include = if opts.include.is_empty() {
         None
     } else {
-        Some(crate::crawl::build_globset(&opts.include)?)
+        Some(crate::scope::build_globset(&opts.include)?)
     };
     let exclude = if opts.exclude.is_empty() {
         None
     } else {
-        Some(crate::crawl::build_globset(&opts.exclude)?)
+        Some(crate::scope::build_globset(&opts.exclude)?)
     };
 
     let internal = crate::map::MapConfig {
@@ -649,12 +649,12 @@ fn build_crawl_options(opts: &CrawlOptions) -> crate::error::Result<crate::crawl
     let include = if opts.include.is_empty() {
         None
     } else {
-        Some(crate::crawl::build_globset(&opts.include)?)
+        Some(crate::scope::build_globset(&opts.include)?)
     };
     let exclude = if opts.exclude.is_empty() {
         None
     } else {
-        Some(crate::crawl::build_globset(&opts.exclude)?)
+        Some(crate::scope::build_globset(&opts.exclude)?)
     };
     Ok(crate::crawl::CrawlOptions {
         seed,

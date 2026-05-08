@@ -111,7 +111,8 @@ pub(crate) async fn run(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlPageRe
     let robots = tokio::task::spawn_blocking({
         let seed = opts.seed.clone();
         let user_agent = opts.user_agent.clone();
-        move || RobotsRules::fetch(&seed, user_agent.as_deref())
+        let timeout = Duration::from_secs(opts.timeout_secs);
+        move || RobotsRules::fetch(&seed, user_agent.as_deref(), timeout)
     })
     .await
     .unwrap_or(RobotsPolicy::Unreachable);

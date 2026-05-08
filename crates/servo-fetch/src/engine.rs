@@ -485,6 +485,122 @@ pub fn crawl(opts: CrawlOptions) -> crate::error::Result<Vec<CrawlResult>> {
     Ok(results)
 }
 
+/// Options for URL discovery (sitemap + link extraction, no rendering).
+#[must_use = "options do nothing until passed to map()"]
+#[derive(Debug, Clone)]
+pub struct MapOptions {
+    url: String,
+    limit: usize,
+    include: Vec<String>,
+    exclude: Vec<String>,
+    user_agent: Option<String>,
+    timeout: u64,
+    no_fallback: bool,
+}
+
+impl MapOptions {
+    /// Create map options for the given URL.
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            limit: 5000,
+            include: Vec::new(),
+            exclude: Vec::new(),
+            user_agent: None,
+            timeout: 30,
+            no_fallback: false,
+        }
+    }
+
+    /// Maximum number of URLs to discover.
+    pub fn limit(mut self, n: usize) -> Self {
+        self.limit = n;
+        self
+    }
+
+    /// URL path glob patterns to include.
+    pub fn include(mut self, patterns: &[&str]) -> Self {
+        self.include = patterns.iter().map(|s| (*s).to_string()).collect();
+        self
+    }
+
+    /// URL path glob patterns to exclude.
+    pub fn exclude(mut self, patterns: &[&str]) -> Self {
+        self.exclude = patterns.iter().map(|s| (*s).to_string()).collect();
+        self
+    }
+
+    /// Override the User-Agent string.
+    pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
+        self.user_agent = Some(ua.into());
+        self
+    }
+
+    /// Timeout in seconds per HTTP request.
+    pub fn timeout(mut self, secs: u64) -> Self {
+        self.timeout = secs;
+        self
+    }
+
+    /// Skip HTML link fallback if no sitemap is found.
+    pub fn no_fallback(mut self, yes: bool) -> Self {
+        self.no_fallback = yes;
+        self
+    }
+}
+
+/// A discovered URL from sitemap or link extraction.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MappedUrl {
+    /// The discovered URL.
+    pub url: String,
+    /// Last modification date from sitemap, if available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lastmod: Option<String>,
+}
+
+/// Discover URLs on a site via sitemaps and link extraction (no rendering).
+#[allow(clippy::needless_pass_by_value)]
+pub fn map(opts: MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
+    ensure_crypto_provider();
+    let seed = url::Url::parse(&opts.url).map_err(|e| Error::InvalidUrl {
+        url: opts.url.clone(),
+        reason: e.to_string(),
+    })?;
+    crate::net::validate_url(seed.as_str()).map_err(|e| map_url_error(&opts.url, e))?;
+
+    let include = if opts.include.is_empty() {
+        None
+    } else {
+        Some(crate::crawl::build_globset(&opts.include)?)
+    };
+    let exclude = if opts.exclude.is_empty() {
+        None
+    } else {
+        Some(crate::crawl::build_globset(&opts.exclude)?)
+    };
+
+    let internal = crate::map::MapConfig {
+        seed,
+        limit: opts.limit,
+        include,
+        exclude,
+        user_agent: opts.user_agent,
+        timeout: Duration::from_secs(opts.timeout),
+        no_fallback: opts.no_fallback,
+    };
+
+    let mut results = Vec::new();
+    crate::runtime::block_on(crate::map::run(&internal, |entry| {
+        results.push(MappedUrl {
+            url: entry.url.clone(),
+            lastmod: entry.lastmod.clone(),
+        });
+    }))
+    .map_err(|e| Error::Engine(e.to_string()))?;
+    Ok(results)
+}
+
 /// Fetch a URL and return readable Markdown.
 pub fn markdown(url: &str) -> crate::error::Result<String> {
     fetch(FetchOptions::new(url))?.markdown_with_url(url)
@@ -533,12 +649,12 @@ fn build_crawl_options(opts: &CrawlOptions) -> crate::error::Result<crate::crawl
     let include = if opts.include.is_empty() {
         None
     } else {
-        Some(crate::crawl::build_globset(&opts.include).map_err(|e| Error::Engine(e.to_string()))?)
+        Some(crate::crawl::build_globset(&opts.include)?)
     };
     let exclude = if opts.exclude.is_empty() {
         None
     } else {
-        Some(crate::crawl::build_globset(&opts.exclude).map_err(|e| Error::Engine(e.to_string()))?)
+        Some(crate::crawl::build_globset(&opts.exclude)?)
     };
     Ok(crate::crawl::CrawlOptions {
         seed,

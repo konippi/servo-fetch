@@ -28,6 +28,7 @@ fn dispatch(args: &Cli) -> anyhow::Result<()> {
     match &args.command {
         Some(Command::Mcp(mcp)) => commands::mcp::run(mcp),
         Some(Command::Crawl(crawl)) => commands::crawl::run(crawl),
+        Some(Command::Map(map)) => commands::map::run(map),
         None => commands::fetch::run(&args.fetch),
     }
 }

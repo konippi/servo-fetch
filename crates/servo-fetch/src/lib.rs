@@ -16,6 +16,7 @@ pub(crate) mod crawl;
 pub(crate) mod engine;
 pub(crate) mod error;
 pub(crate) mod layout;
+pub(crate) mod map;
 pub(crate) mod net;
 pub(crate) mod pdf;
 pub(crate) mod runtime;
@@ -23,7 +24,7 @@ pub(crate) mod screenshot;
 pub(crate) mod sys;
 
 pub use engine::{
-    ConsoleLevel, ConsoleMessage, CrawlError, CrawlOptions, CrawlPage, CrawlResult, FetchOptions, Page, crawl,
-    crawl_each, extract_json, fetch, markdown, text, validate_url,
+    ConsoleLevel, ConsoleMessage, CrawlError, CrawlOptions, CrawlPage, CrawlResult, FetchOptions, MapOptions,
+    MappedUrl, Page, crawl, crawl_each, extract_json, fetch, map, markdown, text, validate_url,
 };
 pub use error::{Error, Result};

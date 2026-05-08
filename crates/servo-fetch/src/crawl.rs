@@ -91,13 +91,13 @@ impl Frontier {
     }
 }
 
-fn normalize_url(url: &Url) -> String {
+pub(crate) fn normalize_url(url: &Url) -> String {
     let mut u = url.clone();
     u.set_fragment(None);
     u.to_string()
 }
 
-fn is_same_site(seed: &Url, candidate: &Url) -> bool {
+pub(crate) fn is_same_site(seed: &Url, candidate: &Url) -> bool {
     match (registrable_domain(seed), registrable_domain(candidate)) {
         (Some(a), Some(b)) => a == b,
         _ => seed.host_str() == candidate.host_str(),
@@ -110,7 +110,7 @@ fn registrable_domain(url: &Url) -> Option<String> {
     Some(std::str::from_utf8(domain.as_bytes()).ok()?.to_string())
 }
 
-fn matches_scope(url: &Url, include: Option<&GlobSet>, exclude: Option<&GlobSet>) -> bool {
+pub(crate) fn matches_scope(url: &Url, include: Option<&GlobSet>, exclude: Option<&GlobSet>) -> bool {
     let path = url.path();
     if let Some(exc) = exclude {
         if exc.is_match(path) {
@@ -124,12 +124,12 @@ fn matches_scope(url: &Url, include: Option<&GlobSet>, exclude: Option<&GlobSet>
 }
 
 /// Build a `GlobSet` from user-provided patterns.
-pub(crate) fn build_globset(patterns: &[String]) -> anyhow::Result<GlobSet> {
+pub(crate) fn build_globset(patterns: &[String]) -> Result<GlobSet, globset::Error> {
     let mut builder = GlobSetBuilder::new();
     for p in patterns {
         builder.add(Glob::new(p)?);
     }
-    Ok(builder.build()?)
+    builder.build()
 }
 
 fn strip_directive<'a>(line: &'a str, directive: &str) -> Option<&'a str> {
@@ -157,7 +157,7 @@ fn product_token(user_agent: &str) -> &str {
 }
 
 /// Outcome of `RobotsRules::fetch`.
-enum RobotsPolicy {
+pub(crate) enum RobotsPolicy {
     Rules(RobotsRules),
     /// 4xx other than 401/403 — treat as no restrictions.
     Unavailable,
@@ -166,7 +166,7 @@ enum RobotsPolicy {
 }
 
 impl RobotsPolicy {
-    fn is_allowed(&self, url: &Url) -> bool {
+    pub(crate) fn is_allowed(&self, url: &Url) -> bool {
         match self {
             Self::Rules(r) => r.is_allowed(url),
             Self::Unavailable => true,
@@ -175,12 +175,13 @@ impl RobotsPolicy {
     }
 }
 
-struct RobotsRules {
-    rules: Vec<(bool, String)>,
+pub(crate) struct RobotsRules {
+    pub(crate) rules: Vec<(bool, String)>,
+    pub(crate) sitemaps: Vec<Url>,
 }
 
 impl RobotsRules {
-    fn fetch(seed: &Url, user_agent: Option<&str>) -> RobotsPolicy {
+    pub(crate) fn fetch(seed: &Url, user_agent: Option<&str>) -> RobotsPolicy {
         let Some(url) = robots_url(seed) else {
             return RobotsPolicy::Unreachable;
         };
@@ -209,10 +210,17 @@ impl RobotsRules {
 
     fn parse(body: &str, product_token: &str) -> Self {
         let mut rules = Vec::new();
+        let mut sitemaps = Vec::new();
         let mut in_matching_agent = false;
         for line in body.lines() {
             let line = line.split('#').next().unwrap_or("").trim();
             if line.is_empty() {
+                continue;
+            }
+            if let Some(val) = strip_directive(line, "sitemap") {
+                if let Ok(url) = Url::parse(val.trim()) {
+                    sitemaps.push(url);
+                }
                 continue;
             }
             if let Some(agent) = strip_directive(line, "user-agent") {
@@ -228,7 +236,7 @@ impl RobotsRules {
                 }
             }
         }
-        Self { rules }
+        Self { rules, sitemaps }
     }
 
     fn is_allowed(&self, url: &Url) -> bool {

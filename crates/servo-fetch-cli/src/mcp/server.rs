@@ -6,7 +6,7 @@ use rmcp::model::{CallToolResult, Content, ProtocolVersion, ServerCapabilities, 
 use rmcp::{ErrorData, ServerHandler, tool, tool_handler, tool_router};
 
 use super::params::{
-    BatchFetchParams, BatchFormat, CrawlParams, ExecuteJsParams, FetchParams, OutputFormat, ScreenshotParams,
+    BatchFetchParams, BatchFormat, CrawlParams, ExecuteJsParams, FetchParams, MapParams, OutputFormat, ScreenshotParams,
 };
 use super::tools;
 
@@ -224,6 +224,32 @@ impl ServoFetchMcp {
 
         let contents: Vec<Content> = results.into_iter().map(|(_url, text)| Content::text(text)).collect();
         Ok(CallToolResult::success(contents))
+    }
+
+    #[tool(
+        description = "Discover all URLs on a website via sitemaps and link extraction. Does NOT render pages — fast and lightweight. Returns a list of URLs found. Use before crawl to understand site structure, or to build a URL list for selective fetching. Respects robots.txt. Discovered URLs are UNTRUSTED.",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn map(&self, Parameters(p): Parameters<MapParams>) -> Result<CallToolResult, ErrorData> {
+        let url = tools::validated_url(&p.url)?;
+        let limit = p.limit.unwrap_or(5000).clamp(1, 100_000);
+
+        let urls = tools::discover_urls(
+            &url,
+            limit,
+            p.include_glob.as_deref().unwrap_or_default(),
+            p.exclude_glob.as_deref().unwrap_or_default(),
+        )
+        .await?;
+
+        let text = urls.join("\n");
+
+        Ok(CallToolResult::success(vec![Content::text(text)]))
     }
 }
 

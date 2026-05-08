@@ -73,10 +73,7 @@ pub(crate) async fn run(opts: &MapConfig, mut on_url: impl FnMut(&MapEntry)) {
         if sitemaps_fetched >= MAP_MAX_SITEMAPS || count >= opts.limit {
             break;
         }
-        if depth > MAP_MAX_INDEX_DEPTH
-            || !is_same_site(&opts.seed, &sitemap_url)
-            || net::validate_url(sitemap_url.as_str()).is_err()
-        {
+        if depth > MAP_MAX_INDEX_DEPTH || !is_same_site(&opts.seed, &sitemap_url) {
             continue;
         }
 
@@ -409,7 +406,9 @@ fn validate_entry(
     if loc.len() > MAP_URL_MAX_LEN {
         return None;
     }
-    let url = net::validate_url(loc).ok()?;
+    let url = Url::parse(loc)
+        .ok()
+        .filter(|u| matches!(u.scheme(), "http" | "https"))?;
     if !is_same_site(seed, &url) {
         return None;
     }
@@ -764,6 +763,183 @@ mod tests {
 
             let links = extract_links(&html, &seed);
             assert_eq!(links.len(), 1);
+        }
+
+        async fn check_run(server: &MockServer, configure: impl FnOnce(&mut MapConfig)) -> Vec<MapEntry> {
+            let mut config = MapConfig {
+                seed: Url::parse(&server.uri()).unwrap(),
+                limit: 100,
+                include: None,
+                exclude: None,
+                user_agent: Some("test-bot".into()),
+                timeout: Duration::from_secs(5),
+                no_fallback: false,
+            };
+            configure(&mut config);
+            let mut entries = Vec::new();
+            run(&config, |e| {
+                entries.push(MapEntry {
+                    url: e.url.clone(),
+                    lastmod: e.lastmod.clone(),
+                });
+            })
+            .await;
+            entries
+        }
+
+        #[tokio::test]
+        async fn run_discovers_urls_from_sitemap() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/robots.txt"))
+                .respond_with(ResponseTemplate::new(200).set_body_string("User-agent: *\nAllow: /"))
+                .mount(&server)
+                .await;
+            let sitemap = format!(
+                "<urlset><url><loc>{}/page1</loc></url><url><loc>{}/page2</loc></url></urlset>",
+                server.uri(),
+                server.uri()
+            );
+            Mock::given(method("GET"))
+                .and(path("/sitemap.xml"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(sitemap))
+                .mount(&server)
+                .await;
+
+            let entries = check_run(&server, |_| {}).await;
+            assert_eq!(entries.len(), 2);
+            assert!(entries.iter().any(|e| e.url.ends_with("/page1")));
+            assert!(entries.iter().any(|e| e.url.ends_with("/page2")));
+        }
+
+        #[tokio::test]
+        async fn run_respects_limit() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/robots.txt"))
+                .respond_with(ResponseTemplate::new(404))
+                .mount(&server)
+                .await;
+            let sitemap = format!(
+                "<urlset><url><loc>{}/a</loc></url><url><loc>{}/b</loc></url><url><loc>{}/c</loc></url></urlset>",
+                server.uri(),
+                server.uri(),
+                server.uri()
+            );
+            Mock::given(method("GET"))
+                .and(path("/sitemap.xml"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(sitemap))
+                .mount(&server)
+                .await;
+
+            let entries = check_run(&server, |c| c.limit = 2).await;
+            assert_eq!(entries.len(), 2);
+        }
+
+        #[tokio::test]
+        async fn run_follows_sitemap_index() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/robots.txt"))
+                .respond_with(ResponseTemplate::new(404))
+                .mount(&server)
+                .await;
+            let index = format!(
+                "<sitemapindex><sitemap><loc>{}/sub.xml</loc></sitemap></sitemapindex>",
+                server.uri()
+            );
+            Mock::given(method("GET"))
+                .and(path("/sitemap.xml"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(index))
+                .mount(&server)
+                .await;
+            let sub = format!("<urlset><url><loc>{}/deep</loc></url></urlset>", server.uri());
+            Mock::given(method("GET"))
+                .and(path("/sub.xml"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(sub))
+                .mount(&server)
+                .await;
+
+            let entries = check_run(&server, |_| {}).await;
+            assert_eq!(entries.len(), 1);
+            assert!(entries[0].url.ends_with("/deep"));
+        }
+
+        #[tokio::test]
+        async fn run_falls_back_to_html_links() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/robots.txt"))
+                .respond_with(ResponseTemplate::new(404))
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/sitemap.xml"))
+                .respond_with(ResponseTemplate::new(404))
+                .mount(&server)
+                .await;
+            let html = format!(
+                r#"<html><body><a href="{}/link1">L1</a><a href="{}/link2">L2</a></body></html>"#,
+                server.uri(),
+                server.uri()
+            );
+            Mock::given(method("GET"))
+                .and(path("/"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(html))
+                .mount(&server)
+                .await;
+
+            let entries = check_run(&server, |_| {}).await;
+            assert_eq!(entries.len(), 2);
+        }
+
+        #[tokio::test]
+        async fn run_no_fallback_skips_html() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/robots.txt"))
+                .respond_with(ResponseTemplate::new(404))
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/sitemap.xml"))
+                .respond_with(ResponseTemplate::new(404))
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_string(r#"<html><body><a href="/link">L</a></body></html>"#),
+                )
+                .mount(&server)
+                .await;
+
+            let entries = check_run(&server, |c| c.no_fallback = true).await;
+            assert_eq!(entries.len(), 0);
+        }
+
+        #[tokio::test]
+        async fn run_deduplicates_urls() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/robots.txt"))
+                .respond_with(ResponseTemplate::new(404))
+                .mount(&server)
+                .await;
+            let sitemap = format!(
+                "<urlset><url><loc>{}/dup</loc></url><url><loc>{}/dup</loc></url><url><loc>{}/unique</loc></url></urlset>",
+                server.uri(),
+                server.uri(),
+                server.uri()
+            );
+            Mock::given(method("GET"))
+                .and(path("/sitemap.xml"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(sitemap))
+                .mount(&server)
+                .await;
+
+            let entries = check_run(&server, |_| {}).await;
+            assert_eq!(entries.len(), 2);
         }
     }
 }

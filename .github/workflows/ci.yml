@@ -170,7 +170,7 @@ jobs:
 
   ci-passed:
     name: CI Passed
-    if: always()
+    if: '!cancelled()'
     needs: [changes, clippy, test, fmt, deny, shear, typos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5

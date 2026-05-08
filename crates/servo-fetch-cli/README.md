@@ -68,6 +68,13 @@ servo-fetch crawl "https://docs.example.com" --include "/docs/**" --exclude "/do
 servo-fetch crawl "https://docs.example.com" --json --max-depth 5
 ```
 
+### Discover URLs (sitemap)
+
+```bash
+servo-fetch map "https://example.com"
+servo-fetch map "https://example.com" --limit 100 --include "/blog/**"
+```
+
 ### SPA / dynamic content
 
 ```bash
@@ -127,6 +134,20 @@ servo-fetch mcp --port 8080    # Streamable HTTP transport
 | `--user-agent <UA>` | Override the User-Agent string |
 | `-t, --timeout <SECS>` | Page load timeout in seconds per page (default: 30) |
 | `--settle <MS>` | Extra wait after load event in ms per page (default: 0, max: 10000) |
+
+### Map subcommand
+
+`servo-fetch map <URL>` discovers all URLs on a site via sitemaps without rendering. Falls back to HTML link extraction if no sitemap exists.
+
+| Flag | Description |
+| ---- | ----------- |
+| `--limit <N>` | Maximum URLs to return (default: 5000) |
+| `--include <GLOB>` | URL path patterns to include |
+| `--exclude <GLOB>` | URL path patterns to exclude |
+| `--json` | Output as JSON array with lastmod metadata |
+| `--user-agent <UA>` | Override the User-Agent string |
+| `-t, --timeout <SECS>` | HTTP request timeout in seconds (default: 30) |
+| `--no-fallback` | Skip HTML link extraction fallback |
 
 ## Logging
 
@@ -212,6 +233,18 @@ Streamable HTTP: `servo-fetch mcp --port 8080`
 | `timeout` | number? | Page load timeout in seconds per page (default 30) |
 | `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
 | `selector` | string? | CSS selector to extract a specific section per page |
+
+</details>
+
+<details>
+<summary><b>map</b> — discover URLs via sitemaps without rendering</summary>
+
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| `url` | string | Site URL to discover pages for (http/https only) |
+| `limit` | number? | Maximum URLs to return (default 5000) |
+| `include_glob` | string[]? | URL path patterns to include |
+| `exclude_glob` | string[]? | URL path patterns to exclude |
 
 </details>
 

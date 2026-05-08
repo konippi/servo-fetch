@@ -30,6 +30,7 @@ let md = servo_fetch::markdown("https://example.com")?;  // Library: one-liner
 - **Layout-aware extraction** — strips navbars, sidebars, footers by actual rendered position
 - **Parallel batch fetch** — multiple URLs fetched concurrently
 - **Site crawling** — BFS link traversal with robots.txt, same-site scope, and rate limiting
+- **URL discovery** — sitemap-based URL mapping without rendering (fast, lightweight)
 - **Screenshots without GPU** — software renderer captures PNG/full-page screenshots anywhere
 - **Accessibility tree** — AccessKit integration with roles, names, and bounding boxes
 
@@ -92,6 +93,7 @@ servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot
 servo-fetch "https://example.com" --js "document.title"  # Run JavaScript
 servo-fetch URL1 URL2 URL3                               # Parallel batch
 servo-fetch crawl "https://docs.example.com" --limit 20  # Crawl a site
+servo-fetch map "https://example.com"                    # Discover URLs via sitemap
 servo-fetch mcp                                          # MCP server (stdio)
 ```
 
@@ -125,14 +127,22 @@ servo_fetch::crawl_each(
         Err(e) => eprintln!("{}: {e}", result.url),
     },
 )?;
+
+// Discover URLs via sitemap (no rendering)
+let urls = servo_fetch::map(
+    servo_fetch::MapOptions::new("https://example.com").limit(1000),
+)?;
+for u in &urls {
+    println!("{}", u.url);
+}
 ```
 
 Full API reference → [`servo-fetch`](crates/servo-fetch/README.md)
 
 ## MCP Server
 
-Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server with five tools: `fetch`,
-`batch_fetch`, `crawl`, `screenshot`, and `execute_js`.
+Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server with six tools: `fetch`,
+`batch_fetch`, `crawl`, `map`, `screenshot`, and `execute_js`.
 
 ```json
 {

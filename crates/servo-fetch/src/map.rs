@@ -52,7 +52,8 @@ pub(crate) async fn run(opts: &MapConfig, mut on_url: impl FnMut(&MapEntry)) {
     let robots = {
         let seed = opts.seed.clone();
         let user_agent = opts.user_agent.clone();
-        tokio::task::spawn_blocking(move || RobotsRules::fetch(&seed, user_agent.as_deref()))
+        let timeout = opts.timeout;
+        tokio::task::spawn_blocking(move || RobotsRules::fetch(&seed, user_agent.as_deref(), timeout))
             .await
             .unwrap_or(RobotsPolicy::Unreachable)
     };

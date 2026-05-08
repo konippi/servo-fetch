@@ -7,7 +7,6 @@ use url::Url;
 use crate::bridge;
 
 const ROBOTS_MAX_BYTES: u64 = 512 * 1024;
-const ROBOTS_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Outcome of `RobotsRules::fetch`.
 pub(crate) enum RobotsPolicy {
@@ -34,7 +33,7 @@ pub(crate) struct RobotsRules {
 }
 
 impl RobotsRules {
-    pub(crate) fn fetch(seed: &Url, user_agent: Option<&str>) -> RobotsPolicy {
+    pub(crate) fn fetch(seed: &Url, user_agent: Option<&str>, timeout: Duration) -> RobotsPolicy {
         let Some(url) = robots_url(seed) else {
             return RobotsPolicy::Unreachable;
         };
@@ -42,7 +41,7 @@ impl RobotsRules {
         let agent = ureq::Agent::new_with_config(
             ureq::config::Config::builder()
                 .max_redirects(0)
-                .timeout_global(Some(ROBOTS_TIMEOUT))
+                .timeout_global(Some(timeout))
                 .user_agent(ua)
                 .build(),
         );
@@ -309,7 +308,7 @@ mod tests {
         }
 
         async fn call(seed: Url, user_agent: Option<&'static str>) -> RobotsPolicy {
-            tokio::task::spawn_blocking(move || RobotsRules::fetch(&seed, user_agent))
+            tokio::task::spawn_blocking(move || RobotsRules::fetch(&seed, user_agent, Duration::from_secs(5)))
                 .await
                 .unwrap()
         }

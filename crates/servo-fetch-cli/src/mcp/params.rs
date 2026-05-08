@@ -106,6 +106,18 @@ pub(super) struct CrawlParams {
     pub selector: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(super) struct MapParams {
+    #[schemars(description = "URL to discover links from (http/https only)")]
+    pub url: String,
+    #[schemars(description = "Maximum URLs to discover. Default: 5000. Max: 100000.")]
+    pub limit: Option<usize>,
+    #[schemars(description = "URL path glob patterns to include (e.g. [\"/docs/**\"])")]
+    pub include_glob: Option<Vec<String>>,
+    #[schemars(description = "URL path glob patterns to exclude (e.g. [\"/archive/**\"])")]
+    pub exclude_glob: Option<Vec<String>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -31,13 +31,14 @@ async fn list_tools_returns_expected_tools() {
     let client = connect().await;
     let tools = client.list_tools(None).await.unwrap();
 
-    assert_eq!(tools.tools.len(), 5);
+    assert_eq!(tools.tools.len(), 6);
     let names: Vec<&str> = tools.tools.iter().map(|t| t.name.as_ref()).collect();
     assert!(names.contains(&"fetch"));
     assert!(names.contains(&"batch_fetch"));
     assert!(names.contains(&"screenshot"));
     assert!(names.contains(&"execute_js"));
     assert!(names.contains(&"crawl"));
+    assert!(names.contains(&"map"));
 }
 
 #[tokio::test]

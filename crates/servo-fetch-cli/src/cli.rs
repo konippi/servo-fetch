@@ -83,6 +83,8 @@ pub(crate) enum Command {
     Mcp(McpArgs),
     /// Crawl a website by following links (BFS). Respects robots.txt.
     Crawl(CrawlArgs),
+    /// Discover URLs on a site via sitemaps (no rendering).
+    Map(MapArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -132,6 +134,40 @@ pub(crate) struct CrawlArgs {
     /// Override the User-Agent string
     #[arg(long, value_name = "UA")]
     pub user_agent: Option<String>,
+}
+
+#[derive(clap::Args, Debug)]
+pub(crate) struct MapArgs {
+    /// Starting URL to discover links from
+    pub url: String,
+
+    /// Maximum number of URLs to discover
+    #[arg(long, default_value_t = 5000, value_name = "N")]
+    pub limit: usize,
+
+    /// URL path glob patterns to include (e.g. "/docs/**")
+    #[arg(long, value_name = "GLOB")]
+    pub include: Vec<String>,
+
+    /// URL path glob patterns to exclude (e.g. "/docs/archive/**")
+    #[arg(long, value_name = "GLOB")]
+    pub exclude: Vec<String>,
+
+    /// Output as JSON array with metadata
+    #[arg(long)]
+    pub json: bool,
+
+    /// Skip HTML link fallback if no sitemap is found
+    #[arg(long)]
+    pub no_fallback: bool,
+
+    /// Override the User-Agent string
+    #[arg(long, value_name = "UA")]
+    pub user_agent: Option<String>,
+
+    /// Timeout in seconds per HTTP request
+    #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..), value_name = "SECS")]
+    pub timeout: u64,
 }
 
 #[cfg(test)]

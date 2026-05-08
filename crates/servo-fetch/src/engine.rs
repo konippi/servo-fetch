@@ -470,9 +470,20 @@ impl CrawlResult {
 pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlResult)) -> crate::error::Result<()> {
     ensure_crypto_provider();
     let internal_opts = build_crawl_options(&opts)?;
-    crate::runtime::block_on(crate::crawl::run(internal_opts, |r| {
-        on_page(&CrawlResult::from_internal(r));
-    }))
+    crate::runtime::block_on(async {
+        let robots = tokio::task::spawn_blocking({
+            let seed = internal_opts.seed.clone();
+            let user_agent = internal_opts.user_agent.clone();
+            let timeout = Duration::from_secs(internal_opts.timeout_secs);
+            move || crate::robots::RobotsRules::fetch(&seed, user_agent.as_deref(), timeout)
+        })
+        .await
+        .unwrap_or(crate::robots::RobotsPolicy::Unreachable);
+        crate::crawl::run(internal_opts, robots, &crate::bridge::ServoFetcher, |r| {
+            on_page(&CrawlResult::from_internal(r));
+        })
+        .await
+    })
     .map_err(|e| Error::Engine(e.to_string()))?;
     Ok(())
 }

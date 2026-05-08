@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 
 use url::Url;
 
-use crate::bridge;
+use crate::bridge::{self, PageFetcher};
 use crate::net;
-use crate::robots::{RobotsPolicy, RobotsRules};
+use crate::robots::RobotsPolicy;
 use crate::scope::{is_same_site, matches_scope, normalize_url};
 
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
@@ -106,17 +106,12 @@ fn extract_links_from_html(html: &str, base: &Url) -> Vec<Url> {
         .collect()
 }
 
-#[expect(clippy::too_many_lines, reason = "BFS loop with inline error handling")]
-pub(crate) async fn run(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlPageResult)) -> Vec<CrawlPageResult> {
-    let robots = tokio::task::spawn_blocking({
-        let seed = opts.seed.clone();
-        let user_agent = opts.user_agent.clone();
-        let timeout = Duration::from_secs(opts.timeout_secs);
-        move || RobotsRules::fetch(&seed, user_agent.as_deref(), timeout)
-    })
-    .await
-    .unwrap_or(RobotsPolicy::Unreachable);
-
+pub(crate) async fn run(
+    opts: CrawlOptions,
+    robots: RobotsPolicy,
+    fetcher: &(impl PageFetcher + Clone),
+    mut on_page: impl FnMut(&CrawlPageResult),
+) -> Vec<CrawlPageResult> {
     let mut frontier = Frontier::new(&opts.seed);
     let mut results = Vec::new();
     let mut last_fetch = Instant::now()
@@ -138,9 +133,10 @@ pub(crate) async fn run(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlPageRe
         let timeout = opts.timeout_secs;
         let settle = opts.settle_ms;
         let user_agent = opts.user_agent.clone();
+        let f = fetcher.clone();
 
         let page = match tokio::task::spawn_blocking(move || {
-            bridge::fetch_page(bridge::FetchOptions {
+            f.fetch_page(bridge::FetchOptions {
                 url: &url_str,
                 timeout_secs: timeout,
                 settle_ms: settle,
@@ -241,6 +237,219 @@ fn error_result(url: &Url, depth: usize, error: String) -> CrawlPageResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct MockFetcher(Arc<HashMap<String, String>>);
+
+    impl MockFetcher {
+        fn new(pages: &[(&str, &str)]) -> Self {
+            Self(Arc::new(
+                pages.iter().map(|(u, h)| (u.to_string(), h.to_string())).collect(),
+            ))
+        }
+    }
+
+    impl PageFetcher for MockFetcher {
+        fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> anyhow::Result<bridge::ServoPage> {
+            self.0
+                .get(opts.url)
+                .map(|html| bridge::ServoPage {
+                    html: html.clone(),
+                    ..Default::default()
+                })
+                .ok_or_else(|| anyhow::anyhow!("not found: {}", opts.url))
+        }
+    }
+
+    fn page(links: &[&str]) -> String {
+        use std::fmt::Write;
+        let mut anchors = String::new();
+        for l in links {
+            write!(anchors, r#"<a href="{l}">link</a>"#).unwrap();
+        }
+        format!("<html><head><title>Test</title></head><body>{anchors}</body></html>")
+    }
+
+    /// Shared test helper following the matklad `check` pattern.
+    /// Encapsulates all crawl API surface so tests only express data + diff + assertion.
+    async fn check(
+        pages: &[(&str, &str)],
+        configure: impl FnOnce(&mut CrawlOptions),
+        assert: impl FnOnce(&[CrawlPageResult]),
+    ) {
+        let fetcher = MockFetcher::new(pages);
+        let seed = pages[0].0;
+        let mut opts = CrawlOptions {
+            seed: Url::parse(seed).unwrap(),
+            limit: 50,
+            max_depth: 3,
+            timeout_secs: 30,
+            settle_ms: 0,
+            include: None,
+            exclude: None,
+            selector: None,
+            json: false,
+            user_agent: None,
+        };
+        configure(&mut opts);
+        let results = run(opts, RobotsPolicy::Unavailable, &fetcher, |_| {}).await;
+        assert(&results);
+    }
+
+    #[tokio::test]
+    async fn crawl_single_page() {
+        check(
+            &[("https://example.com/", &page(&[]))],
+            |_| {},
+            |r| {
+                assert_eq!(r.len(), 1);
+                assert_eq!(r[0].url, "https://example.com/");
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_follows_links() {
+        check(
+            &[
+                ("https://example.com/", &page(&["/a", "/b"])),
+                (
+                    "https://example.com/a",
+                    "<html><head><title>A</title></head><body>page a</body></html>",
+                ),
+                (
+                    "https://example.com/b",
+                    "<html><head><title>B</title></head><body>page b</body></html>",
+                ),
+            ],
+            |_| {},
+            |r| assert_eq!(r.len(), 3),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_respects_depth_limit() {
+        check(
+            &[
+                ("https://example.com/", &page(&["/a"])),
+                ("https://example.com/a", &page(&["/b"])),
+                ("https://example.com/b", &page(&["/c"])),
+                ("https://example.com/c", &page(&[])),
+            ],
+            |o| o.max_depth = 1,
+            |r| assert_eq!(r.len(), 2),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_respects_limit() {
+        check(
+            &[
+                ("https://example.com/", &page(&["/a", "/b", "/c"])),
+                ("https://example.com/a", &page(&[])),
+                ("https://example.com/b", &page(&[])),
+                ("https://example.com/c", &page(&[])),
+            ],
+            |o| o.limit = 2,
+            |r| assert_eq!(r.len(), 2),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_skips_cross_site_links() {
+        check(
+            &[
+                ("https://example.com/", &page(&["https://other.com/x"])),
+                ("https://other.com/x", &page(&[])),
+            ],
+            |_| {},
+            |r| assert_eq!(r.len(), 1),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_deduplicates_urls() {
+        check(
+            &[
+                ("https://example.com/", &page(&["/a", "/a", "/a"])),
+                ("https://example.com/a", &page(&["/"])),
+            ],
+            |_| {},
+            |r| assert_eq!(r.len(), 2),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_handles_fetch_errors() {
+        check(
+            &[("https://example.com/", &page(&["/missing"]))],
+            |_| {},
+            |r| {
+                assert_eq!(r.len(), 2);
+                assert!(matches!(r[1].status, CrawlStatus::Error));
+                assert!(r[1].error.is_some());
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_applies_include_glob() {
+        check(
+            &[
+                ("https://example.com/", &page(&["/docs/a", "/blog/b"])),
+                ("https://example.com/docs/a", &page(&[])),
+                ("https://example.com/blog/b", &page(&[])),
+            ],
+            |o| o.include = Some(crate::scope::build_globset(&["/docs/**".into()]).unwrap()),
+            |r| {
+                assert_eq!(r.len(), 2);
+                assert!(r.iter().any(|p| p.url == "https://example.com/docs/a"));
+                assert!(!r.iter().any(|p| p.url == "https://example.com/blog/b"));
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_applies_exclude_glob() {
+        check(
+            &[
+                ("https://example.com/", &page(&["/public", "/secret/data"])),
+                ("https://example.com/public", &page(&[])),
+                ("https://example.com/secret/data", &page(&[])),
+            ],
+            |o| o.exclude = Some(crate::scope::build_globset(&["/secret/**".into()]).unwrap()),
+            |r| {
+                assert_eq!(r.len(), 2);
+                assert!(!r.iter().any(|p| p.url == "https://example.com/secret/data"));
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_deduplicates_content() {
+        let same = "<html><head><title>Same</title></head><body>identical</body></html>";
+        check(
+            &[
+                ("https://example.com/", &page(&["/a", "/b"])),
+                ("https://example.com/a", same),
+                ("https://example.com/b", same),
+            ],
+            |_| {},
+            |r| assert_eq!(r.len(), 2),
+        )
+        .await;
+    }
 
     #[test]
     fn frontier_dedup() {

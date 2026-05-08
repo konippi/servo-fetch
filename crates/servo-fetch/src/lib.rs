@@ -19,7 +19,9 @@ pub(crate) mod layout;
 pub(crate) mod map;
 pub(crate) mod net;
 pub(crate) mod pdf;
+pub(crate) mod robots;
 pub(crate) mod runtime;
+pub(crate) mod scope;
 pub(crate) mod screenshot;
 pub(crate) mod sys;
 

@@ -106,9 +106,9 @@ struct WebViewState {
     console_messages: RefCell<Vec<ConsoleMessage>>,
 }
 
-#[derive(Default)]
 struct SharedDelegate {
     states: RefCell<HashMap<WebViewId, Rc<WebViewState>>>,
+    policy: crate::net::NetworkPolicy,
 }
 
 impl SharedDelegate {
@@ -189,7 +189,7 @@ impl WebViewDelegate for SharedDelegate {
     fn request_navigation(&self, _webview: WebView, navigation_request: NavigationRequest) {
         let is_http = matches!(navigation_request.url.scheme(), "http" | "https");
         match navigation_request.url.host_str() {
-            Some(host) if is_http && !crate::net::is_private_host(host) => navigation_request.allow(),
+            Some(host) if is_http && self.policy.is_host_allowed(host) => navigation_request.allow(),
             _ => {
                 tracing::warn!(url = %navigation_request.url, "blocked navigation");
                 navigation_request.deny();
@@ -283,10 +283,15 @@ struct PendingFetch {
 struct Engine {
     requests: mpsc::SyncSender<FetchRequest>,
     wake: Arc<WakeFlag>,
+    policy: crate::net::NetworkPolicy,
 }
 
 /// Servo engine — lives for the process lifetime. Shutdown is via process exit.
 static ENGINE: OnceLock<Engine> = OnceLock::new();
+
+pub(crate) fn engine_policy() -> crate::net::NetworkPolicy {
+    ENGINE.get().map_or(crate::net::NetworkPolicy::STRICT, |e| e.policy)
+}
 
 /// Page fetching abstraction for testability.
 pub(crate) trait PageFetcher: Send + Sync + 'static {
@@ -311,11 +316,16 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
         let (tx, rx) = mpsc::sync_channel::<FetchRequest>(PENDING_CAPACITY);
         let wake = Arc::new(WakeFlag::default());
         let wake_for_thread = wake.clone();
+        let policy = crate::net::NetworkPolicy::STRICT;
         std::thread::Builder::new()
             .name("servo-engine".into())
-            .spawn(move || servo_thread(rx, wake_for_thread))
+            .spawn(move || servo_thread(rx, wake_for_thread, policy))
             .expect("failed to spawn servo thread");
-        Engine { requests: tx, wake }
+        Engine {
+            requests: tx,
+            wake,
+            policy,
+        }
     });
 
     let (reply_tx, reply_rx) = mpsc::channel();
@@ -352,7 +362,7 @@ fn is_apple_gl_driver_noise(line: &str) -> bool {
     clippy::needless_pass_by_value,
     reason = "the thread owns its receiver for its lifetime"
 )]
-fn servo_thread(request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag>) {
+fn servo_thread(request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag>, policy: crate::net::NetworkPolicy) {
     let _filter = crate::sys::StderrFilter::install(is_apple_gl_driver_noise).ok();
 
     let (rc_ctx, servo) = match build_servo(FlagWaker(wake.clone())) {
@@ -367,7 +377,10 @@ fn servo_thread(request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag>) {
 
     WAKE.with(|slot| *slot.borrow_mut() = Some(wake.clone()));
 
-    let delegate = Rc::new(SharedDelegate::default());
+    let delegate = Rc::new(SharedDelegate {
+        states: RefCell::new(HashMap::new()),
+        policy,
+    });
     let ucm = Rc::new(UserContentManager::new(&servo));
     ucm.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
 

@@ -190,7 +190,7 @@ pub(crate) async fn run(
                     break;
                 }
                 if !is_same_site(&opts.seed, link)
-                    || net::validate_url(link.as_str()).is_err()
+                    || net::validate_url(link.as_str(), bridge::engine_policy()).is_err()
                     || !robots.is_allowed(link)
                     || !matches_scope(link, opts.include.as_ref(), opts.exclude.as_ref())
                 {

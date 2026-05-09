@@ -249,7 +249,7 @@ impl FetchOptions {
 pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
     ensure_crypto_provider();
 
-    crate::net::validate_url(&opts.url).map_err(|e| map_url_error(&opts.url, e))?;
+    crate::net::validate_url(&opts.url, crate::bridge::engine_policy()).map_err(|e| map_url_error(&opts.url, e))?;
 
     if matches!(opts.mode, FetchMode::Content)
         && let Some(bytes) = crate::pdf::probe(&opts.url, opts.timeout.as_secs().max(1))
@@ -578,7 +578,7 @@ pub fn map(opts: MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
         url: opts.url.clone(),
         reason: e.to_string(),
     })?;
-    crate::net::validate_url(seed.as_str()).map_err(|e| map_url_error(&opts.url, e))?;
+    crate::net::validate_url(seed.as_str(), crate::bridge::engine_policy()).map_err(|e| map_url_error(&opts.url, e))?;
 
     let include = if opts.include.is_empty() {
         None
@@ -629,7 +629,7 @@ pub fn text(url: &str) -> crate::error::Result<String> {
 
 /// Validate a URL for fetching. Rejects disallowed schemes and private addresses.
 pub fn validate_url(url: &str) -> crate::error::Result<url::Url> {
-    crate::net::validate_url(url).map_err(|e| map_url_error(url, e))
+    crate::net::validate_url(url, crate::bridge::engine_policy()).map_err(|e| map_url_error(url, e))
 }
 
 fn ensure_crypto_provider() {
@@ -656,7 +656,8 @@ fn map_url_error(url: &str, e: crate::net::UrlError) -> Error {
 }
 
 fn build_crawl_options(opts: &CrawlOptions) -> crate::error::Result<crate::crawl::CrawlOptions> {
-    let seed = crate::net::validate_url(&opts.url).map_err(|e| map_url_error(&opts.url, e))?;
+    let seed =
+        crate::net::validate_url(&opts.url, crate::bridge::engine_policy()).map_err(|e| map_url_error(&opts.url, e))?;
     let include = if opts.include.is_empty() {
         None
     } else {

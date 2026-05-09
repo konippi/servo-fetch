@@ -117,3 +117,13 @@ servo-fetch serve --port 3000
 ```
 
 `POST /v1/fetch`, `/v1/batch_fetch`, `/v1/screenshot`, `/v1/execute_js`, `/v1/crawl`, `/v1/map` accept the same parameters as the MCP tools as JSON bodies. `GET /health` and `/version` are also exposed.
+
+### Docker
+
+Prebuilt multi-arch image published on every release:
+
+```bash
+docker run --rm -p 3000:3000 ghcr.io/konippi/servo-fetch:latest
+```
+
+The container runs the HTTP API on port 3000 as non-root (UID 1001) and exposes the same endpoints as above.

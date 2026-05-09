@@ -177,6 +177,19 @@ Endpoints: `GET /health`, `GET /version`, `POST /v1/fetch`, `POST /v1/batch_fetc
 
 Full HTTP API reference → [`servo-fetch-cli` README](crates/servo-fetch-cli/README.md#http-api-server)
 
+## Docker
+
+Multi-arch image on GitHub Container Registry (`linux/amd64`, `linux/arm64`):
+
+```bash
+docker run --rm -p 3000:3000 ghcr.io/konippi/servo-fetch:latest
+curl -X POST http://127.0.0.1:3000/v1/fetch \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com"}'
+```
+
+Runs as non-root (UID 1001). Images are signed with [cosign](https://github.com/sigstore/cosign) (keyless) and published with SLSA provenance and SBOM attestations.
+
 ## Agent Skills
 
 servo-fetch ships with an [Agent Skills](https://agentskills.io/) package for AI coding agents:

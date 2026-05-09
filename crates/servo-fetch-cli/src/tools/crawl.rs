@@ -2,13 +2,12 @@
 
 use std::time::Duration;
 
-use rmcp::ErrorData;
-
 use super::common::paginate;
+use super::error::{ToolError, ToolResult};
 
-const MAX_MCP_CRAWL_PAGES: usize = 500;
+pub(crate) const MAX_CRAWL_PAGES: usize = 500;
 
-pub(crate) struct CrawlToolOptions<'a> {
+pub(crate) struct CrawlOptions<'a> {
     pub url: &'a str,
     pub limit: usize,
     pub max_depth: usize,
@@ -21,8 +20,8 @@ pub(crate) struct CrawlToolOptions<'a> {
     pub exclude_glob: Option<&'a [String]>,
 }
 
-pub(crate) async fn crawl_pages(opts: CrawlToolOptions<'_>) -> Result<Vec<(String, String)>, ErrorData> {
-    let limit = opts.limit.min(MAX_MCP_CRAWL_PAGES);
+pub(crate) async fn crawl_pages(opts: CrawlOptions<'_>) -> ToolResult<Vec<(String, String)>> {
+    let limit = opts.limit.min(MAX_CRAWL_PAGES);
 
     let mut builder = servo_fetch::CrawlOptions::new(opts.url)
         .limit(limit)
@@ -53,9 +52,9 @@ pub(crate) async fn crawl_pages(opts: CrawlToolOptions<'_>) -> Result<Vec<(Strin
             };
             results.push((r.url.clone(), text));
         })
-        .map_err(|e| ErrorData::invalid_params(format!("{e:#}"), None))?;
+        .map_err(|e| ToolError::fetch(format!("{e:#}")))?;
         Ok(results)
     })
     .await
-    .map_err(|e| ErrorData::internal_error(format!("spawn_blocking failed: {e}"), None))?
+    .map_err(|e| ToolError::internal(format!("spawn_blocking failed: {e}")))?
 }

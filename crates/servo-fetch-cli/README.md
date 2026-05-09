@@ -89,6 +89,15 @@ servo-fetch mcp                # stdio transport (for AI agents)
 servo-fetch mcp --port 8080    # Streamable HTTP transport
 ```
 
+### HTTP API server
+
+```bash
+servo-fetch serve                            # 127.0.0.1:3000
+servo-fetch serve --host 0.0.0.0 --port 80   # expose to network
+```
+
+See [HTTP API server](#http-api-server) below for the endpoint reference.
+
 ## Options
 
 | Flag | Description |
@@ -271,3 +280,44 @@ Streamable HTTP: `servo-fetch mcp --port 8080`
 | `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
 
 </details>
+
+## HTTP API server
+
+`servo-fetch serve` starts a REST API on the given host/port (default `127.0.0.1:3000`). JSON request/response, binary PNG for screenshots.
+
+| Flag | Description |
+| ---- | ----------- |
+| `--host <HOST>` | Bind address (default `127.0.0.1`) |
+| `--port <PORT>` | TCP port (default `3000`) |
+
+Responses include `x-request-id` (auto-generated if the request does not supply one); use this for tracing in logs. Errors use a consistent `{"error": "..."}` JSON shape across all endpoints. Request bodies are capped at 1 MiB. SSRF protection (private/reserved address blocking) applies to every endpoint.
+
+### Endpoints
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `GET` | `/health` | Liveness probe (`{"status":"ok"}`) |
+| `GET` | `/version` | `{"name":"servo-fetch","version":"..."}` |
+| `POST` | `/v1/fetch` | Fetch one URL; returns extracted content |
+| `POST` | `/v1/batch_fetch` | Fetch up to 20 URLs in parallel |
+| `POST` | `/v1/screenshot` | Capture a PNG; `image/png` body |
+| `POST` | `/v1/execute_js` | Evaluate JavaScript in a loaded page |
+| `POST` | `/v1/crawl` | BFS crawl starting from a URL |
+| `POST` | `/v1/map` | Discover URLs via sitemaps (no rendering) |
+
+Request and response shapes mirror the MCP tool parameters documented above.
+
+### Examples
+
+```bash
+# Fetch → Markdown
+curl -X POST http://127.0.0.1:3000/v1/fetch \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com"}'
+
+# Screenshot → PNG
+curl -X POST http://127.0.0.1:3000/v1/screenshot \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com","full_page":true}' \
+  -o page.png
+```

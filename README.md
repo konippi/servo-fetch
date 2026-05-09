@@ -95,6 +95,7 @@ servo-fetch URL1 URL2 URL3                               # Parallel batch
 servo-fetch crawl "https://docs.example.com" --limit 20  # Crawl a site
 servo-fetch map "https://example.com"                    # Discover URLs via sitemap
 servo-fetch mcp                                          # MCP server (stdio)
+servo-fetch serve                                        # HTTP API server
 ```
 
 Full CLI reference → [`servo-fetch-cli`](crates/servo-fetch-cli/README.md)
@@ -158,6 +159,23 @@ Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server with 
 Streamable HTTP: `servo-fetch mcp --port 8080`
 
 Full MCP tool reference → [`servo-fetch-cli` README](crates/servo-fetch-cli/README.md)
+
+## HTTP API
+
+REST endpoints for containerized deployments and HTTP clients:
+
+```bash
+servo-fetch serve                            # 127.0.0.1:3000
+servo-fetch serve --host 0.0.0.0 --port 80   # expose to network
+
+curl -X POST http://127.0.0.1:3000/v1/fetch \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com"}'
+```
+
+Endpoints: `GET /health`, `GET /version`, `POST /v1/fetch`, `POST /v1/batch_fetch`, `POST /v1/screenshot`, `POST /v1/execute_js`, `POST /v1/crawl`, `POST /v1/map`.
+
+Full HTTP API reference → [`servo-fetch-cli` README](crates/servo-fetch-cli/README.md#http-api-server)
 
 ## Agent Skills
 

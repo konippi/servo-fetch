@@ -158,3 +158,33 @@ jobs:
 
           "${XVFB[@]+"${XVFB[@]}"}" "$BIN" --js 'document.title' 'https://example.com' \
             | grep -q 'Example Domain'
+
+      - name: Smoke (L4 — serve HTTP API, non-blocking)
+        continue-on-error: true
+        shell: bash
+        env:
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          set -eux -o pipefail
+          BIN="target/${TARGET}/release/servo-fetch"
+          [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
+          if [[ "$RUNNER_OS_NAME" == "Linux" ]]; then
+            XVFB=(xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24")
+          else
+            XVFB=()
+          fi
+
+          "${XVFB[@]+"${XVFB[@]}"}" "$BIN" serve --port 39888 &
+          SERVER_PID=$!
+          trap 'kill -TERM $SERVER_PID 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:39888/health; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:39888/version | grep -q '"name":"servo-fetch"'
+          curl -fsS -X POST http://127.0.0.1:39888/v1/fetch \
+            -H 'content-type: application/json' \
+            -d '{"url":"https://example.com","timeout":60}' \
+            | grep -q 'Example Domain'

@@ -26,6 +26,7 @@ servo-fetch processes untrusted web content. The following areas are in scope:
 - All output is sanitized to remove ANSI escape sequences, control characters, and BiDi override characters ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574))
 - `--js` output is sanitized before printing to the terminal
 - MCP `execute_js` rejects scripts longer than 10,000 characters; MCP `fetch` output is bounded by `max_length` / `start_index` to limit response size
+- HTTP API (`serve` subcommand) enforces the same SSRF protection, URL scheme whitelist, and sanitization as the CLI/MCP paths; additionally caps request bodies at 1 MiB, clamps `execute_js` expressions at 10,000 characters, and defaults to binding on `127.0.0.1` (explicit `--host` required to expose). Rate limiting, authentication, and TLS must be provided by a reverse proxy or ingress.
 - Crawl validates every discovered link against RFC 6890 before following it, enforces same-site (eTLD+1) scope by default, applies `robots.txt` per RFC 9309 (4xx → allow, 5xx/network → disallow, redirects disabled to avoid cross-authority SSRF), and rate-limits requests to a minimum 500ms interval
 
 ## Known limitations

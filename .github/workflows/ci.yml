@@ -199,7 +199,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
             libssl-dev libglib2.0-dev libegl1-mesa-dev
-      - run: cargo nextest run -p servo-fetch-cli --run-ignored only --locked --cargo-profile ci --no-fail-fast -E 'not test(parallel)'
+      - run: cargo nextest run -p servo-fetch-cli --run-ignored only --locked --cargo-profile ci --no-fail-fast
       - name: sccache stats
         if: always()
         run: sccache --show-stats

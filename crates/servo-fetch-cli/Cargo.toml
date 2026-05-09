@@ -11,10 +11,23 @@ readme = "README.md"
 keywords = ["servo", "headless-browser", "fetch", "mcp", "cli"]
 categories = ["command-line-utilities", "web-programming"]
 include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "LICENSE-APACHE", "README.md"]
+autotests = false
 
 [[bin]]
 name = "servo-fetch"
 path = "src/main.rs"
+
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
+
+[[test]]
+name = "mcp"
+path = "tests/mcp.rs"
+
+[[test]]
+name = "parallel"
+path = "tests/parallel.rs"
 
 [dependencies]
 servo-fetch = { workspace = true }

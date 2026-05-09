@@ -2,10 +2,15 @@
 
 use rmcp::ServiceExt;
 use rmcp::transport::TokioChildProcess;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer};
+
+mod common;
+use common::mock_page;
 
 async fn connect() -> rmcp::service::RunningService<rmcp::RoleClient, impl rmcp::service::Service<rmcp::RoleClient>> {
     let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
-    cmd.arg("mcp");
+    cmd.args(["mcp", "--allow-private-addresses"]);
     let transport = TokioChildProcess::new(cmd).unwrap();
     ().serve(transport).await.expect("MCP handshake failed")
 }
@@ -18,24 +23,39 @@ fn call_params(name: &str, args: &serde_json::Value) -> rmcp::model::CallToolReq
 }
 
 #[tokio::test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 async fn parallel_fetches_do_not_cross_contaminate() {
-    // Two public test URLs with distinct, stable content markers.
-    const URLS: &[(&str, &str)] = &[
-        ("https://example.com", "Example Domain"),
-        ("https://example.org", "Example Domain"),
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/alpha"))
+        .respond_with(mock_page(
+            "<html><head><title>Alpha</title></head><body><h1>Alpha Marker</h1></body></html>",
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/beta"))
+        .respond_with(mock_page(
+            "<html><head><title>Beta</title></head><body><h1>Beta Marker</h1></body></html>",
+        ))
+        .mount(&server)
+        .await;
+
+    let cases = [
+        (format!("{}/alpha", server.uri()), "Alpha Marker", "Beta Marker"),
+        (format!("{}/beta", server.uri()), "Beta Marker", "Alpha Marker"),
     ];
 
     let client = connect().await;
-    let calls = URLS.iter().map(|(url, _)| {
+    let calls = cases.iter().map(|(url, _, _)| {
         client.call_tool(call_params(
             "fetch",
-            &serde_json::json!({ "url": url, "max_length": 2000, "timeout": 60 }),
+            &serde_json::json!({ "url": url, "max_length": 2000, "timeout": 30 }),
         ))
     });
     let results = futures_util::future::join_all(calls).await;
 
-    for ((url, marker), result) in URLS.iter().zip(results) {
+    for ((url, expected, forbidden), result) in cases.iter().zip(results) {
         let r = result.unwrap_or_else(|e| panic!("fetch {url} failed: {e}"));
         let text = r
             .content
@@ -44,34 +64,55 @@ async fn parallel_fetches_do_not_cross_contaminate() {
             .map(|t| t.text.as_str())
             .collect::<String>();
         assert!(
-            text.contains(marker),
-            "response for {url} missing marker {marker:?}; got: {text}"
+            text.contains(expected),
+            "response for {url} missing {expected:?}; got: {text}"
+        );
+        assert!(
+            !text.contains(forbidden),
+            "response for {url} leaked {forbidden:?} from a sibling request"
         );
     }
 }
 
 #[tokio::test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 async fn concurrent_full_page_screenshots_are_distinct() {
-    // Stress the dedicated `SoftwareRenderingContext`: each PNG must be unique.
-    // All URLs must render visually distinct pages.
-    const URLS: &[&str] = &[
-        "https://example.com",
-        "https://www.iana.org/help/example-domains",
-        "https://httpbin.org/html",
+    let server = MockServer::start().await;
+    let pages = [
+        (
+            "/red",
+            "<html><body style=\"background:#ff0000;height:800px\"><h1>RED</h1></body></html>",
+        ),
+        (
+            "/green",
+            "<html><body style=\"background:#00ff00;height:800px\"><h1>GREEN</h1></body></html>",
+        ),
+        (
+            "/blue",
+            "<html><body style=\"background:#0000ff;height:800px\"><h1>BLUE</h1></body></html>",
+        ),
     ];
+    for (p, html) in &pages {
+        Mock::given(method("GET"))
+            .and(path(*p))
+            .respond_with(mock_page(*html))
+            .mount(&server)
+            .await;
+    }
+
+    let urls: Vec<String> = pages.iter().map(|(p, _)| format!("{}{p}", server.uri())).collect();
 
     let client = connect().await;
-    let calls = URLS.iter().map(|url| {
+    let calls = urls.iter().map(|url| {
         client.call_tool(call_params(
             "screenshot",
-            &serde_json::json!({ "url": url, "full_page": true, "timeout": 60 }),
+            &serde_json::json!({ "url": url, "full_page": true, "timeout": 30 }),
         ))
     });
     let results = futures_util::future::join_all(calls).await;
 
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (url, result) in URLS.iter().zip(results) {
+    for (url, result) in urls.iter().zip(results) {
         let r = result.unwrap_or_else(|e| panic!("screenshot {url} failed: {e}"));
         let png_b64 = r
             .content

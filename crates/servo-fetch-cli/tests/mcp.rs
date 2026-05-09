@@ -5,6 +5,9 @@ use rmcp::transport::TokioChildProcess;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod common;
+use common::mock_page;
+
 async fn connect() -> rmcp::service::RunningService<rmcp::RoleClient, impl rmcp::service::Service<rmcp::RoleClient>> {
     let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
     cmd.arg("mcp");
@@ -97,13 +100,9 @@ async fn fetch_returns_content() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/html")
-                .set_body_string(
-                    "<html><head><title>Test Page</title></head><body><p>Hello from Servo</p></body></html>",
-                ),
-        )
+        .respond_with(mock_page(
+            "<html><head><title>Test Page</title></head><body><p>Hello from Servo</p></body></html>",
+        ))
         .mount(&server)
         .await;
 
@@ -126,11 +125,9 @@ async fn execute_js_returns_title() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/html")
-                .set_body_string("<html><head><title>JS Title</title></head><body></body></html>"),
-        )
+        .respond_with(mock_page(
+            "<html><head><title>JS Title</title></head><body></body></html>",
+        ))
         .mount(&server)
         .await;
 
@@ -210,22 +207,16 @@ async fn crawl_returns_multiple_pages() {
     let link = format!(r#"<a href="{}/page2">next</a>"#, server.uri());
     Mock::given(method("GET"))
         .and(path("/"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/html")
-                .set_body_string(format!(
-                    "<html><head><title>Root</title></head><body>{link}</body></html>"
-                )),
-        )
+        .respond_with(mock_page(format!(
+            "<html><head><title>Root</title></head><body>{link}</body></html>"
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/page2"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/html")
-                .set_body_string("<html><head><title>Page 2</title></head><body><p>Second page</p></body></html>"),
-        )
+        .respond_with(mock_page(
+            "<html><head><title>Page 2</title></head><body><p>Second page</p></body></html>",
+        ))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -256,20 +247,16 @@ async fn batch_fetch_returns_multiple_results() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/a"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/html")
-                .set_body_string("<html><head><title>A</title></head><body>Page A</body></html>"),
-        )
+        .respond_with(mock_page(
+            "<html><head><title>A</title></head><body>Page A</body></html>",
+        ))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("content-type", "text/html")
-                .set_body_string("<html><head><title>B</title></head><body>Page B</body></html>"),
-        )
+        .respond_with(mock_page(
+            "<html><head><title>B</title></head><body>Page B</body></html>",
+        ))
         .mount(&server)
         .await;
 

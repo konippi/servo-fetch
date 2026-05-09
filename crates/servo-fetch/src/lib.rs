@@ -30,3 +30,4 @@ pub use engine::{
     MappedUrl, Page, crawl, crawl_each, extract_json, fetch, map, markdown, text, validate_url,
 };
 pub use error::{Error, Result};
+pub use net::NetworkPolicy;

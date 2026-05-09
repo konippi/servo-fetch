@@ -168,7 +168,7 @@ fn fetch_following_redirects(agent: &ureq::Agent, url: &Url, seed: &Url) -> Opti
         if matches!(status, 301 | 302 | 303 | 307 | 308) {
             let location = resp.headers().get("location")?.to_str().ok()?;
             let next = current.join(location).ok()?;
-            if net::validate_url(next.as_str()).is_err() || !is_same_site(seed, &next) {
+            if net::validate_url(next.as_str(), bridge::engine_policy()).is_err() || !is_same_site(seed, &next) {
                 return None;
             }
             current = next;

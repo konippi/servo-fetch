@@ -1,7 +1,49 @@
 //! Network address validation — blocks private, reserved, and special-purpose IPs.
 
-/// Returns `true` if the host resolves to a private or reserved address.
-pub(crate) fn is_private_host(host: &str) -> bool {
+/// Network access policy — determines which hosts are reachable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NetworkPolicy {
+    deny_private: bool,
+}
+
+impl NetworkPolicy {
+    /// Block all private/reserved addresses (production default).
+    pub const STRICT: Self = Self { deny_private: true };
+    /// Allow all addresses including private (testing only).
+    pub const PERMISSIVE: Self = Self { deny_private: false };
+
+    /// Check whether a host is allowed by this policy.
+    #[must_use]
+    pub fn is_host_allowed(self, host: &str) -> bool {
+        !self.deny_private || !is_private_host(host)
+    }
+}
+
+/// Validate a URL against the given [`NetworkPolicy`].
+pub(crate) fn validate_url(input: &str, policy: NetworkPolicy) -> Result<url::Url, UrlError> {
+    let mut parsed = url::Url::parse(input).map_err(|e| UrlError::Invalid(format!("invalid URL: {input}: {e}")))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        s => {
+            return Err(UrlError::Invalid(format!(
+                "scheme '{s}' not allowed; only http:// and https:// are supported"
+            )));
+        }
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        tracing::warn!("credentials stripped from URL");
+        let _ = parsed.set_username("");
+        let _ = parsed.set_password(None);
+    }
+    if let Some(host) = parsed.host_str() {
+        if !policy.is_host_allowed(host) {
+            return Err(UrlError::PrivateAddress(host.to_string()));
+        }
+    }
+    Ok(parsed)
+}
+
+fn is_private_host(host: &str) -> bool {
     const BLOCKED_HOSTS: &[&str] = &[
         "localhost",
         "127.0.0.1",
@@ -88,31 +130,6 @@ impl std::fmt::Display for UrlError {
             }
         }
     }
-}
-
-/// Only `http`/`https` schemes are accepted, embedded credentials are stripped,
-/// and hosts that resolve to private or reserved addresses are rejected.
-pub(crate) fn validate_url(input: &str) -> Result<url::Url, UrlError> {
-    let mut parsed = url::Url::parse(input).map_err(|e| UrlError::Invalid(format!("invalid URL: {input}: {e}")))?;
-    match parsed.scheme() {
-        "http" | "https" => {}
-        s => {
-            return Err(UrlError::Invalid(format!(
-                "scheme '{s}' not allowed; only http:// and https:// are supported"
-            )));
-        }
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        tracing::warn!("credentials stripped from URL");
-        let _ = parsed.set_username("");
-        let _ = parsed.set_password(None);
-    }
-    if let Some(host) = parsed.host_str() {
-        if is_private_host(host) {
-            return Err(UrlError::PrivateAddress(host.to_string()));
-        }
-    }
-    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -210,7 +227,7 @@ mod tests {
 
     #[test]
     fn validate_url_empty_string() {
-        assert!(validate_url("").is_err());
+        assert!(validate_url("", NetworkPolicy::STRICT).is_err());
     }
 
     #[test]

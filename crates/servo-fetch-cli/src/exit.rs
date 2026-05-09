@@ -7,7 +7,7 @@ pub(crate) fn exit_code(result: anyhow::Result<()>) -> i32 {
         Ok(()) => 0,
         Err(err) if is_broken_pipe(&err) => 0,
         Err(err) => {
-            tracing::error!("{err:#}");
+            eprintln!("error: {err:#}");
             1
         }
     }

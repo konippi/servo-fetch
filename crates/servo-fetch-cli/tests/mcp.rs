@@ -2,10 +2,20 @@
 
 use rmcp::ServiceExt;
 use rmcp::transport::TokioChildProcess;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 async fn connect() -> rmcp::service::RunningService<rmcp::RoleClient, impl rmcp::service::Service<rmcp::RoleClient>> {
     let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
     cmd.arg("mcp");
+    let transport = TokioChildProcess::new(cmd).unwrap();
+    ().serve(transport).await.expect("MCP handshake failed")
+}
+
+async fn connect_loopback()
+-> rmcp::service::RunningService<rmcp::RoleClient, impl rmcp::service::Service<rmcp::RoleClient>> {
+    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
+    cmd.args(["mcp", "--allow-private-addresses"]);
     let transport = TokioChildProcess::new(cmd).unwrap();
     ().serve(transport).await.expect("MCP handshake failed")
 }
@@ -82,27 +92,53 @@ async fn execute_js_rejects_private_ip() {
 }
 
 #[tokio::test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 async fn fetch_returns_content() {
-    let client = connect().await;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/html")
+                .set_body_string(
+                    "<html><head><title>Test Page</title></head><body><p>Hello from Servo</p></body></html>",
+                ),
+        )
+        .mount(&server)
+        .await;
+
+    let client = connect_loopback().await;
     let result = client
         .call_tool(call_params(
             "fetch",
-            &serde_json::json!({"url": "https://example.com", "max_length": 500, "timeout": 60}),
+            &serde_json::json!({"url": server.uri(), "timeout": 30}),
         ))
         .await
         .unwrap();
     assert!(!result.content.is_empty());
+    let text = &result.content[0].raw.as_text().unwrap().text;
+    assert!(text.contains("Hello from Servo"), "got: {text}");
 }
 
 #[tokio::test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 async fn execute_js_returns_title() {
-    let client = connect().await;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/html")
+                .set_body_string("<html><head><title>JS Title</title></head><body></body></html>"),
+        )
+        .mount(&server)
+        .await;
+
+    let client = connect_loopback().await;
     let result = client
         .call_tool(call_params(
             "execute_js",
-            &serde_json::json!({"url": "https://example.com", "expression": "document.title", "timeout": 60}),
+            &serde_json::json!({"url": server.uri(), "expression": "document.title", "timeout": 30}),
         ))
         .await
         .unwrap();
@@ -168,35 +204,82 @@ async fn crawl_rejects_file_scheme() {
 }
 
 #[tokio::test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 async fn crawl_returns_multiple_pages() {
-    let client = connect().await;
+    let server = MockServer::start().await;
+    let link = format!(r#"<a href="{}/page2">next</a>"#, server.uri());
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/html")
+                .set_body_string(format!(
+                    "<html><head><title>Root</title></head><body>{link}</body></html>"
+                )),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/page2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/html")
+                .set_body_string("<html><head><title>Page 2</title></head><body><p>Second page</p></body></html>"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/robots.txt"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+
+    let client = connect_loopback().await;
     let result = client
         .call_tool(call_params(
             "crawl",
             &serde_json::json!({
-                "url": "https://example.com",
+                "url": server.uri(),
                 "limit": 3,
                 "max_depth": 1,
-                "timeout": 60
+                "timeout": 30
             }),
         ))
         .await
-        .unwrap();
-    assert!(!result.content.is_empty(), "crawl should return at least the seed page");
+        .expect("crawl tool call failed");
+    assert!(!result.content.is_empty());
 }
 
 #[tokio::test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 async fn batch_fetch_returns_multiple_results() {
-    let client = connect().await;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/a"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/html")
+                .set_body_string("<html><head><title>A</title></head><body>Page A</body></html>"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/b"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/html")
+                .set_body_string("<html><head><title>B</title></head><body>Page B</body></html>"),
+        )
+        .mount(&server)
+        .await;
+
+    let client = connect_loopback().await;
     let result = client
         .call_tool(call_params(
             "batch_fetch",
             &serde_json::json!({
-                "urls": ["https://example.com", "https://www.iana.org/help/example-domains"],
-                "max_length": 500,
-                "timeout": 60
+                "urls": [format!("{}/a", server.uri()), format!("{}/b", server.uri())],
+                "timeout": 30
             }),
         ))
         .await

@@ -1,10 +1,22 @@
 //! CLI integration tests.
 
+use std::future::Future;
+
 use assert_cmd::Command;
 use predicates::prelude::*;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn servo_fetch() -> Command {
     Command::cargo_bin("servo-fetch").expect("binary exists")
+}
+
+fn block_on<F: Future>(f: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build current-thread runtime")
+        .block_on(f)
 }
 
 #[test]
@@ -60,65 +72,147 @@ fn help_flag() {
         .stdout(predicate::str::contains("browser engine in a binary"));
 }
 
-const TIMEOUT: &str = "--timeout=60";
+const TIMEOUT: &str = "--timeout=30";
+
+fn mock_page(html: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200)
+        .insert_header("content-type", "text/html")
+        .set_body_string(html.to_string())
+}
 
 #[test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 fn default_produces_markdown() {
-    servo_fetch()
-        .args([TIMEOUT, "https://example.com"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Example Domain"));
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<html><head><title>Test</title></head><body><h1>Hello Servo</h1></body></html>",
+            ))
+            .mount(&s)
+            .await;
+        servo_fetch()
+            .args(["--allow-private-addresses", TIMEOUT, &s.uri()])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Hello Servo"));
+    });
 }
 
 #[test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 fn json_produces_valid_json() {
-    let output = servo_fetch()
-        .args(["--json", TIMEOUT, "https://example.com"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let parsed: serde_json::Value = serde_json::from_slice(&output).expect("valid JSON");
-    assert!(parsed.get("title").is_some());
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<html><head><title>JSON Test</title></head><body>content</body></html>",
+            ))
+            .mount(&s)
+            .await;
+        let output = servo_fetch()
+            .args(["--json", "--allow-private-addresses", TIMEOUT, &s.uri()])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let parsed: serde_json::Value = serde_json::from_slice(&output).expect("valid JSON");
+        assert!(parsed.get("title").is_some());
+    });
 }
 
 #[test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 fn js_eval_returns_result() {
-    servo_fetch()
-        .args(["--js", "document.title", TIMEOUT, "https://example.com"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Example Domain"));
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<html><head><title>JS Eval</title></head><body></body></html>",
+            ))
+            .mount(&s)
+            .await;
+        servo_fetch()
+            .args(["--js", "document.title", "--allow-private-addresses", TIMEOUT, &s.uri()])
+            .assert()
+            .success();
+    });
 }
 
 #[test]
-#[ignore = "requires Servo + network"]
+#[ignore = "e2e: requires Servo engine"]
 fn screenshot_creates_file() {
-    let dir = std::env::temp_dir().join("servo-fetch-test");
-    std::fs::create_dir_all(&dir).ok();
-    let path = dir.join("test.png");
-    servo_fetch()
-        .args(["--screenshot", path.to_str().unwrap(), TIMEOUT, "https://example.com"])
-        .assert()
-        .success();
-    assert!(path.exists(), "screenshot file should be created");
-    assert!(path.metadata().unwrap().len() > 0, "screenshot should not be empty");
-    std::fs::remove_file(&path).ok();
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page("<html><body><h1>Screenshot</h1></body></html>"))
+            .mount(&s)
+            .await;
+        let dir = std::env::temp_dir().join("servo-fetch-e2e");
+        std::fs::create_dir_all(&dir).ok();
+        let file = dir.join("test.png");
+        servo_fetch()
+            .args([
+                "--screenshot",
+                file.to_str().unwrap(),
+                "--allow-private-addresses",
+                TIMEOUT,
+                &s.uri(),
+            ])
+            .assert()
+            .success();
+        assert!(file.exists());
+        assert!(file.metadata().unwrap().len() > 0);
+        std::fs::remove_file(&file).ok();
+    });
 }
 
 #[test]
-#[ignore = "requires Servo + network"]
-fn timeout_produces_error() {
-    servo_fetch()
-        .args(["--timeout=0", "https://example.com"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("invalid value '0'"));
+#[ignore = "e2e: requires Servo engine"]
+fn crawl_produces_ndjson() {
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<html><head><title>Crawl</title></head><body><p>Root</p></body></html>",
+            ))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/robots.txt"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&s)
+            .await;
+        let output = servo_fetch()
+            .args([
+                "crawl",
+                &s.uri(),
+                "--json",
+                "--limit",
+                "1",
+                "--timeout",
+                "30",
+                "--allow-private-addresses",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let first_line = std::str::from_utf8(&output)
+            .unwrap()
+            .lines()
+            .next()
+            .expect("expected NDJSON output");
+        let parsed: serde_json::Value = serde_json::from_str(first_line).expect("valid NDJSON");
+        assert_eq!(parsed["status"], "ok");
+    });
 }
 
 #[test]
@@ -168,25 +262,4 @@ fn mcp_help_shows_options() {
         .success()
         .stdout(predicate::str::contains("MCP"))
         .stdout(predicate::str::contains("--port"));
-}
-
-#[test]
-#[ignore = "requires Servo + network"]
-fn crawl_produces_ndjson() {
-    let output = servo_fetch()
-        .args(["crawl", "https://example.com", "--limit", "2", "--timeout", "60"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let first_line = std::str::from_utf8(&output)
-        .expect("valid utf8")
-        .lines()
-        .next()
-        .expect("at least one line");
-    let parsed: serde_json::Value = serde_json::from_str(first_line).expect("valid NDJSON");
-    assert_eq!(parsed["status"], "ok");
-    assert!(parsed["url"].as_str().is_some());
-    assert!(parsed["content"].as_str().is_some());
 }

@@ -43,15 +43,19 @@ pub(crate) async fn crawl_pages(opts: CrawlToolOptions<'_>) -> Result<Vec<(Strin
         builder = builder.exclude(&refs);
     }
 
-    let mut results = Vec::new();
-    servo_fetch::crawl_each(builder, |r| {
-        let text = match &r.outcome {
-            Ok(page) => paginate(&servo_fetch::sanitize::sanitize(&page.content), 0, opts.max_len),
-            Err(e) => format!("[error] {e}"),
-        };
-        results.push((r.url.clone(), text));
+    let max_len = opts.max_len;
+    tokio::task::spawn_blocking(move || {
+        let mut results = Vec::new();
+        servo_fetch::crawl_each(builder, |r| {
+            let text = match &r.outcome {
+                Ok(page) => paginate(&servo_fetch::sanitize::sanitize(&page.content), 0, max_len),
+                Err(e) => format!("[error] {e}"),
+            };
+            results.push((r.url.clone(), text));
+        })
+        .map_err(|e| ErrorData::invalid_params(format!("{e:#}"), None))?;
+        Ok(results)
     })
-    .map_err(|e| ErrorData::invalid_params(format!("{e:#}"), None))?;
-
-    Ok(results)
+    .await
+    .map_err(|e| ErrorData::internal_error(format!("spawn_blocking failed: {e}"), None))?
 }

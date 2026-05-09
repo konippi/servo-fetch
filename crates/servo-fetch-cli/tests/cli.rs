@@ -7,6 +7,9 @@ use predicates::prelude::*;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod common;
+use common::mock_page;
+
 fn servo_fetch() -> Command {
     Command::cargo_bin("servo-fetch").expect("binary exists")
 }
@@ -73,12 +76,6 @@ fn help_flag() {
 }
 
 const TIMEOUT: &str = "--timeout=30";
-
-fn mock_page(html: &str) -> ResponseTemplate {
-    ResponseTemplate::new(200)
-        .insert_header("content-type", "text/html")
-        .set_body_string(html.to_string())
-}
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]

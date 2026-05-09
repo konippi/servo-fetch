@@ -1,13 +1,13 @@
 //! Map tool helper.
 
-use rmcp::ErrorData;
+use super::error::{ToolError, ToolResult};
 
 pub(crate) async fn discover_urls(
     url: &str,
     limit: usize,
     include_glob: &[String],
     exclude_glob: &[String],
-) -> Result<Vec<String>, ErrorData> {
+) -> ToolResult<Vec<String>> {
     let opts = servo_fetch::MapOptions::new(url).limit(limit);
     let opts = if include_glob.is_empty() {
         opts
@@ -22,8 +22,8 @@ pub(crate) async fn discover_urls(
 
     let results = tokio::task::spawn_blocking(move || servo_fetch::map(opts))
         .await
-        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
-        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        .map_err(|e| ToolError::internal(e.to_string()))?
+        .map_err(|e| ToolError::fetch(e.to_string()))?;
 
     Ok(results.iter().map(|entry| entry.url.clone()).collect())
 }

@@ -1,13 +1,13 @@
-//! Shared utilities for MCP tools.
+//! Shared helpers for servo-fetch tool operations.
 
 use std::sync::OnceLock;
 
-use rmcp::ErrorData;
-use rmcp::model::{CallToolResult, Content};
 use tokio::sync::Semaphore;
 
 use servo_fetch::Page;
 use servo_fetch::extract::{self, ExtractInput};
+
+use super::error::{ToolError, ToolResult};
 
 const DEFAULT_MAX_CONCURRENT_FETCHES: usize = 4;
 const MAX_ALLOWED_CONCURRENCY: usize = 16;
@@ -24,17 +24,13 @@ pub(crate) fn fetch_semaphore() -> &'static Semaphore {
     })
 }
 
-pub(crate) fn validated_url(url: &str) -> Result<String, ErrorData> {
+pub(crate) fn validated_url(url: &str) -> ToolResult<String> {
     servo_fetch::validate_url(url)
         .map(|u| u.to_string())
-        .map_err(|e| ErrorData::invalid_params(format!("{e:#}"), None))
+        .map_err(|e| ToolError::invalid(format!("{e:#}")))
 }
 
-pub(crate) fn tool_error(msg: impl Into<String>) -> CallToolResult {
-    CallToolResult::error(vec![Content::text(msg.into())])
-}
-
-pub(crate) fn extract(page: &Page, url: &str, json: bool, selector: Option<&str>) -> Result<String, String> {
+pub(crate) fn extract(page: &Page, url: &str, json: bool, selector: Option<&str>) -> ToolResult<String> {
     let input = ExtractInput::new(&page.html, url)
         .with_layout_json(page.layout_json.as_deref())
         .with_inner_text(Some(&page.inner_text))
@@ -44,7 +40,7 @@ pub(crate) fn extract(page: &Page, url: &str, json: bool, selector: Option<&str>
     } else {
         extract::extract_text(&input)
     }
-    .map_err(|e| e.to_string())
+    .map_err(|e| ToolError::internal(e.to_string()))
 }
 
 pub(crate) fn paginate(content: &str, start: usize, max_len: usize) -> String {

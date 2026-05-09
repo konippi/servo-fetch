@@ -85,6 +85,8 @@ pub(crate) enum RawMode {
 pub(crate) enum Command {
     /// Start MCP server (stdio transport by default, or HTTP with --port)
     Mcp(McpArgs),
+    /// Start HTTP API server for fetch/screenshot/crawl/map operations.
+    Serve(ServeArgs),
     /// Crawl a website by following links (BFS). Respects robots.txt.
     Crawl(CrawlArgs),
     /// Discover URLs on a site via sitemaps (no rendering).
@@ -96,6 +98,17 @@ pub(crate) struct McpArgs {
     /// Port for Streamable HTTP transport. Omit for stdio.
     #[arg(long, value_name = "PORT")]
     pub port: Option<u16>,
+}
+
+#[derive(clap::Args, Debug)]
+pub(crate) struct ServeArgs {
+    /// Host to bind on.
+    #[arg(long, value_name = "HOST", default_value = "127.0.0.1")]
+    pub host: String,
+
+    /// Port to listen on.
+    #[arg(long, value_name = "PORT", default_value_t = 3000)]
+    pub port: u16,
 }
 
 #[derive(clap::Args, Debug)]

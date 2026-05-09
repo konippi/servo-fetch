@@ -107,3 +107,13 @@ servo-fetch mcp --port 8080
 ```
 
 Connect your MCP client to `http://127.0.0.1:8080/mcp`.
+
+### HTTP REST API
+
+For non-MCP HTTP clients (direct REST calls, Docker deployments):
+
+```bash
+servo-fetch serve --port 3000
+```
+
+`POST /v1/fetch`, `/v1/batch_fetch`, `/v1/screenshot`, `/v1/execute_js`, `/v1/crawl`, `/v1/map` accept the same parameters as the MCP tools as JSON bodies. `GET /health` and `/version` are also exposed.

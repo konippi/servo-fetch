@@ -9,6 +9,8 @@ mod logging;
 mod mcp;
 mod output;
 mod progress;
+mod serve;
+mod tools;
 
 use clap::Parser;
 
@@ -34,6 +36,7 @@ fn dispatch(args: &Cli) -> anyhow::Result<()> {
     servo_fetch::init(policy);
     match &args.command {
         Some(Command::Mcp(mcp)) => commands::mcp::run(mcp),
+        Some(Command::Serve(serve)) => commands::serve::run(serve),
         Some(Command::Crawl(crawl)) => commands::crawl::run(crawl),
         Some(Command::Map(map)) => commands::map::run(map),
         None => commands::fetch::run(&args.fetch),

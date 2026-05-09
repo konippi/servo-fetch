@@ -6,12 +6,13 @@ use servo_fetch::extract::{self, ExtractInput};
 use servo_fetch::{FetchOptions, Page};
 
 use super::common::{fetch_semaphore, paginate};
+use super::error::{ToolError, ToolResult};
 
-pub(crate) async fn fetch_page(url: &str, timeout: u64, settle_ms: u64) -> Result<Page, String> {
+pub(crate) async fn fetch_page(url: &str, timeout: u64, settle_ms: u64) -> ToolResult<Page> {
     let _permit = fetch_semaphore()
         .acquire()
         .await
-        .map_err(|e| format!("fetch semaphore closed: {e}"))?;
+        .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
     let url = url.to_string();
     tokio::task::spawn_blocking(move || {
         servo_fetch::fetch(
@@ -21,15 +22,15 @@ pub(crate) async fn fetch_page(url: &str, timeout: u64, settle_ms: u64) -> Resul
         )
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| format!("{e:#}"))
+    .map_err(|e| ToolError::internal(e.to_string()))?
+    .map_err(|e| ToolError::fetch(format!("{e:#}")))
 }
 
-pub(crate) async fn fetch_js(url: &str, expression: &str, timeout: u64, settle_ms: u64) -> Result<Page, String> {
+pub(crate) async fn fetch_js(url: &str, expression: &str, timeout: u64, settle_ms: u64) -> ToolResult<Page> {
     let _permit = fetch_semaphore()
         .acquire()
         .await
-        .map_err(|e| format!("fetch semaphore closed: {e}"))?;
+        .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
     let url = url.to_string();
     let expression = expression.to_string();
     tokio::task::spawn_blocking(move || {
@@ -40,15 +41,15 @@ pub(crate) async fn fetch_js(url: &str, expression: &str, timeout: u64, settle_m
         )
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| format!("{e:#}"))
+    .map_err(|e| ToolError::internal(e.to_string()))?
+    .map_err(|e| ToolError::fetch(format!("{e:#}")))
 }
 
-pub(crate) async fn fetch_screenshot(url: &str, full_page: bool, timeout: u64, settle_ms: u64) -> Result<Page, String> {
+pub(crate) async fn fetch_screenshot(url: &str, full_page: bool, timeout: u64, settle_ms: u64) -> ToolResult<Page> {
     let _permit = fetch_semaphore()
         .acquire()
         .await
-        .map_err(|e| format!("fetch semaphore closed: {e}"))?;
+        .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
     let url = url.to_string();
     tokio::task::spawn_blocking(move || {
         servo_fetch::fetch(
@@ -58,8 +59,8 @@ pub(crate) async fn fetch_screenshot(url: &str, full_page: bool, timeout: u64, s
         )
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| format!("{e:#}"))
+    .map_err(|e| ToolError::internal(e.to_string()))?
+    .map_err(|e| ToolError::fetch(format!("{e:#}")))
 }
 
 pub(crate) async fn batch_fetch_pages(

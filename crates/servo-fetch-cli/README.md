@@ -321,3 +321,40 @@ curl -X POST http://127.0.0.1:3000/v1/screenshot \
   -d '{"url":"https://example.com","full_page":true}' \
   -o page.png
 ```
+
+## Docker
+
+Multi-arch image (`linux/amd64`, `linux/arm64`) on GitHub Container Registry:
+
+```bash
+docker run --rm -p 3000:3000 ghcr.io/konippi/servo-fetch:latest
+```
+
+Override the default `serve` with any `servo-fetch` subcommand:
+
+```bash
+docker run --rm ghcr.io/konippi/servo-fetch:latest https://example.com
+docker run --rm ghcr.io/konippi/servo-fetch:latest --version
+```
+
+Minimum-privilege deployment:
+
+```bash
+docker run --rm -p 3000:3000 \
+  --read-only --tmpfs /tmp \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges \
+  ghcr.io/konippi/servo-fetch:latest
+```
+
+The image runs as UID 1001 and includes a `HEALTHCHECK` against `/health`.
+
+### Image signing
+
+Images are signed with [cosign](https://github.com/sigstore/cosign) keyless via GitHub OIDC and ship with [SLSA build provenance](https://slsa.dev/) and an [SPDX SBOM](https://spdx.dev/) as OCI attestations.
+
+```bash
+cosign verify ghcr.io/konippi/servo-fetch:latest \
+  --certificate-identity-regexp '^https://github.com/konippi/servo-fetch/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```

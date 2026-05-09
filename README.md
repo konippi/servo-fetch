@@ -1,6 +1,6 @@
 <div align="center">
   <h1 align="center">servo-fetch</h1>
-  <p align="center">A self-contained browser engine that fetches, renders, and extracts web content. No Chrome, no API key, no setup.</p>
+  <p align="center">A self-contained browser engine that fetches, renders, and extracts web content as Markdown, JSON, or screenshots — no Chromium, no API key, no setup.</p>
   <p>
     <a href="https://github.com/konippi/servo-fetch/actions"><img src="https://github.com/konippi/servo-fetch/workflows/CI/badge.svg" alt="CI"></a>
     <a href="https://crates.io/crates/servo-fetch"><img src="https://img.shields.io/crates/v/servo-fetch.svg" alt="crates.io"></a>
@@ -25,7 +25,7 @@ let md = servo_fetch::markdown("https://example.com")?;  // Library: one-liner
 
 ## Why servo-fetch
 
-- **Zero dependencies** — single binary, no Chrome, no Docker, no API key
+- **Zero dependencies** — single binary, no Chromium, no API key
 - **Real JS execution** — SpiderMonkey runs JavaScript, parallel CSS engine computes layout
 - **Layout-aware extraction** — strips navbars, sidebars, footers by actual rendered position
 - **Parallel batch fetch** — multiple URLs fetched concurrently

@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/servo-fetch-cli.svg)](https://crates.io/crates/servo-fetch-cli)
 
-A browser engine in a binary — fetch, render, and extract web content powered by [Servo](https://servo.org/).
+A browser engine in a binary — fetch, render, and extract web content as Markdown, JSON, or screenshots. Powered by [Servo](https://servo.org/).
 
 For programmatic use in Rust, see the [`servo-fetch`](https://crates.io/crates/servo-fetch) library crate.
 

@@ -3,8 +3,8 @@
 [![crates.io](https://img.shields.io/crates/v/servo-fetch.svg)](https://crates.io/crates/servo-fetch)
 [![docs.rs](https://docs.rs/servo-fetch/badge.svg)](https://docs.rs/servo-fetch)
 
-Fetch, render, and extract web content with an embedded [Servo](https://servo.org/) browser engine.
-No Chrome, no containers, no external processes.
+Fetch, render, and extract web content as Markdown, JSON, or screenshots with an embedded [Servo](https://servo.org/) browser engine.
+No Chromium, no containers, no external processes.
 
 Looking for the CLI? See [`servo-fetch-cli`](https://crates.io/crates/servo-fetch-cli).
 

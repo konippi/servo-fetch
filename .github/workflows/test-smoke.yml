@@ -113,8 +113,8 @@ jobs:
             }
           }
           check 'file:///etc/passwd'                          "scheme 'file' not allowed"
-          check 'http://127.0.0.1'                            'access to private/local addresses is not allowed: 127\.0\.0\.1'
-          check 'http://169.254.169.254/latest/meta-data/'    'access to private/local addresses is not allowed: 169\.254\.169\.254'
+          check 'http://127.0.0.1'                            'address not allowed: 127\.0\.0\.1'
+          check 'http://169.254.169.254/latest/meta-data/'    'address not allowed: 169\.254\.169\.254'
 
       - name: Smoke (L2 — network, in-shell retry)
         shell: bash

@@ -7,9 +7,15 @@ on:
         description: "Branch or tag to validate"
         required: true
         default: "main"
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
 
 permissions:
   contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -38,7 +44,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
@@ -60,9 +66,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake clang llvm pkg-config libfontconfig-dev libfreetype-dev \
-            libssl-dev libglib2.0-dev libegl1-mesa-dev \
-            xvfb libegl1 libgles2 libgl1-mesa-dri mesa-utils \
-            libfontconfig1 libfreetype6 libharfbuzz0b libx11-6 libxcb1 libxcb-render0 libxcb-shape0 libxcb-xfixes0
+            libssl-dev libglib2.0-dev libegl1-mesa-dev
 
       - name: Set LIBCLANG_PATH (Windows)
         if: runner.os == 'Windows'
@@ -119,21 +123,15 @@ jobs:
           set -eux -o pipefail
           BIN="target/${TARGET}/release/servo-fetch"
           [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
-          if [[ "$RUNNER_OS_NAME" == "Linux" ]]; then
-            XVFB=(xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24")
-          else
-            XVFB=()
-          fi
 
           for i in 1 2 3; do
-            "${XVFB[@]+"${XVFB[@]}"}" "$BIN" 'https://example.com' | grep -q 'Example Domain' && exit 0
+            "$BIN" 'https://example.com' | grep -q 'Example Domain' && exit 0
             echo "attempt $i failed; sleeping 15s" >&2
             sleep 15
           done
           exit 1
 
-      - name: Smoke (L3 — full scenarios, non-blocking)
-        continue-on-error: true
+      - name: Smoke (L3 — full scenarios)
         shell: bash
         env:
           RUNNER_OS_NAME: ${{ runner.os }}
@@ -141,26 +139,20 @@ jobs:
           set -eux -o pipefail
           BIN="target/${TARGET}/release/servo-fetch"
           [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
-          if [[ "$RUNNER_OS_NAME" == "Linux" ]]; then
-            XVFB=(xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24")
-          else
-            XVFB=()
-          fi
           SHOT="$RUNNER_TEMP/shot.png"
 
-          "${XVFB[@]+"${XVFB[@]}"}" "$BIN" --json 'https://example.com' \
+          "$BIN" --json 'https://example.com' \
             | python3 -c 'import json,sys; json.load(sys.stdin)'
           sleep 2
 
-          "${XVFB[@]+"${XVFB[@]}"}" "$BIN" --screenshot "$SHOT" 'https://example.com'
+          "$BIN" --screenshot "$SHOT" 'https://example.com'
           head -c 8 "$SHOT" | cmp -s - <(printf '\x89PNG\r\n\x1a\n')
           sleep 2
 
-          "${XVFB[@]+"${XVFB[@]}"}" "$BIN" --js 'document.title' 'https://example.com' \
+          "$BIN" --js 'document.title' 'https://example.com' \
             | grep -q 'Example Domain'
 
-      - name: Smoke (L4 — serve HTTP API, non-blocking)
-        continue-on-error: true
+      - name: Smoke (L4 — serve HTTP API)
         shell: bash
         env:
           RUNNER_OS_NAME: ${{ runner.os }}
@@ -168,23 +160,18 @@ jobs:
           set -eux -o pipefail
           BIN="target/${TARGET}/release/servo-fetch"
           [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
-          if [[ "$RUNNER_OS_NAME" == "Linux" ]]; then
-            XVFB=(xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24")
-          else
-            XVFB=()
-          fi
 
-          "${XVFB[@]+"${XVFB[@]}"}" "$BIN" serve --port 39888 &
+          "$BIN" serve --port 39888 &
           SERVER_PID=$!
           trap 'kill -TERM $SERVER_PID 2>/dev/null || true' EXIT
           for _ in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:39888/health; then
+            if curl -fsS --max-time 2 http://127.0.0.1:39888/health; then
               break
             fi
             sleep 1
           done
-          curl -fsS http://127.0.0.1:39888/version | grep -q '"name":"servo-fetch"'
-          curl -fsS -X POST http://127.0.0.1:39888/v1/fetch \
+          curl -fsS --max-time 2 http://127.0.0.1:39888/version | grep -q '"name":"servo-fetch"'
+          curl -fsS --max-time 90 -X POST http://127.0.0.1:39888/v1/fetch \
             -H 'content-type: application/json' \
             -d '{"url":"https://example.com","timeout":60}' \
             | grep -q 'Example Domain'

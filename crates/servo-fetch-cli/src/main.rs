@@ -25,6 +25,13 @@ fn main() -> ! {
 }
 
 fn dispatch(args: &Cli) -> anyhow::Result<()> {
+    let policy = if args.allow_private_addresses || std::env::var_os("SERVO_FETCH_ALLOW_PRIVATE").is_some() {
+        tracing::warn!("SSRF protection disabled: private/loopback addresses are reachable");
+        servo_fetch::NetworkPolicy::PERMISSIVE
+    } else {
+        servo_fetch::NetworkPolicy::STRICT
+    };
+    servo_fetch::init(policy);
     match &args.command {
         Some(Command::Mcp(mcp)) => commands::mcp::run(mcp),
         Some(Command::Crawl(crawl)) => commands::crawl::run(crawl),

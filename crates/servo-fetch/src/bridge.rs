@@ -288,9 +288,25 @@ struct Engine {
 
 /// Servo engine — lives for the process lifetime. Shutdown is via process exit.
 static ENGINE: OnceLock<Engine> = OnceLock::new();
+static POLICY: OnceLock<crate::net::NetworkPolicy> = OnceLock::new();
+
+pub(crate) fn set_engine_policy(policy: crate::net::NetworkPolicy) {
+    assert!(
+        ENGINE.get().is_none(),
+        "servo_fetch::init called after engine initialization"
+    );
+    assert!(POLICY.set(policy).is_ok(), "servo_fetch::init called more than once");
+}
+
+fn pending_policy() -> crate::net::NetworkPolicy {
+    POLICY.get().copied().unwrap_or(crate::net::NetworkPolicy::STRICT)
+}
 
 pub(crate) fn engine_policy() -> crate::net::NetworkPolicy {
-    ENGINE.get().map_or(crate::net::NetworkPolicy::STRICT, |e| e.policy)
+    match ENGINE.get() {
+        Some(e) => e.policy,
+        None => pending_policy(),
+    }
 }
 
 /// Page fetching abstraction for testability.
@@ -316,7 +332,7 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
         let (tx, rx) = mpsc::sync_channel::<FetchRequest>(PENDING_CAPACITY);
         let wake = Arc::new(WakeFlag::default());
         let wake_for_thread = wake.clone();
-        let policy = crate::net::NetworkPolicy::STRICT;
+        let policy = pending_policy();
         std::thread::Builder::new()
             .name("servo-engine".into())
             .spawn(move || servo_thread(rx, wake_for_thread, policy))

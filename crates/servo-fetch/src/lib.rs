@@ -27,7 +27,7 @@ pub(crate) mod sys;
 
 pub use engine::{
     ConsoleLevel, ConsoleMessage, CrawlError, CrawlOptions, CrawlPage, CrawlResult, FetchOptions, MapOptions,
-    MappedUrl, Page, crawl, crawl_each, extract_json, fetch, map, markdown, text, validate_url,
+    MappedUrl, Page, crawl, crawl_each, extract_json, fetch, init, map, markdown, text, validate_url,
 };
 pub use error::{Error, Result};
 pub use net::NetworkPolicy;

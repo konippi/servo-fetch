@@ -22,6 +22,10 @@ pub(crate) struct Cli {
     /// Suppress all logs except errors
     #[arg(short = 'q', long, global = true)]
     pub quiet: bool,
+
+    /// Allow requests to loopback/private addresses (for testing with local servers).
+    #[arg(long = "allow-private-addresses", hide = true, global = true)]
+    pub allow_private_addresses: bool,
 }
 
 #[derive(clap::Args, Debug)]

@@ -627,7 +627,13 @@ pub fn text(url: &str) -> crate::error::Result<String> {
     Ok(fetch(FetchOptions::new(url))?.inner_text)
 }
 
-/// Validate a URL for fetching. Rejects disallowed schemes and private addresses.
+/// Set the network policy. Must be called at most once, before any engine use.
+pub fn init(policy: crate::net::NetworkPolicy) {
+    crate::bridge::set_engine_policy(policy);
+}
+
+/// Validate a URL for fetching. Rejects disallowed schemes and private addresses
+/// based on the policy set via [`init`].
 pub fn validate_url(url: &str) -> crate::error::Result<url::Url> {
     crate::net::validate_url(url, crate::bridge::engine_policy()).map_err(|e| map_url_error(url, e))
 }

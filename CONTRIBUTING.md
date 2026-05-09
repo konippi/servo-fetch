@@ -31,6 +31,10 @@ cargo deny check                                            # License & advisory
 typos                                                       # Spell check
 ```
 
+### Profiling
+
+`cargo build --profile profiling` produces a release-optimized binary with debug symbols and thin LTO for use with `cargo flamegraph` or `perf record`.
+
 ### Coverage
 
 ```sh

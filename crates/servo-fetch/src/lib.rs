@@ -1,5 +1,5 @@
-//! Fetch, render, and extract web content with an embedded Servo browser engine.
-//! No Chrome, no containers, no external processes.
+//! Fetch, render, and extract web content as Markdown, JSON, or screenshots with an embedded Servo browser engine.
+//! No Chromium, no containers, no external processes.
 //!
 //! ```no_run
 //! let md = servo_fetch::markdown("https://example.com")?;

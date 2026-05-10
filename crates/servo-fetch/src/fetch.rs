@@ -240,6 +240,8 @@ impl FetchOptions {
 /// Fetch a single page via the embedded Servo engine.
 #[allow(clippy::needless_pass_by_value)]
 pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
+    crate::net::ensure_crypto_provider();
+
     crate::net::validate_url(&opts.url)?;
 
     if matches!(opts.mode, FetchMode::Content)

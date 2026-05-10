@@ -99,6 +99,7 @@ pub struct MappedUrl {
 /// Discover URLs on a site via sitemaps and link extraction (no rendering).
 #[allow(clippy::needless_pass_by_value)]
 pub fn map(opts: MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
+    net::ensure_crypto_provider();
     let seed = net::validate_url(&opts.url)?;
 
     let include = if opts.include.is_empty() {

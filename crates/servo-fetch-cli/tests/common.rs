@@ -5,7 +5,5 @@
 use wiremock::ResponseTemplate;
 
 pub fn mock_page(html: impl Into<String>) -> ResponseTemplate {
-    ResponseTemplate::new(200)
-        .insert_header("content-type", "text/html")
-        .set_body_string(html.into())
+    ResponseTemplate::new(200).set_body_raw(html.into().into_bytes(), "text/html; charset=utf-8")
 }

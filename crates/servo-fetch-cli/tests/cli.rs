@@ -213,6 +213,102 @@ fn crawl_produces_ndjson() {
 }
 
 #[test]
+#[ignore = "e2e: requires Servo engine"]
+fn crawl_selector_scopes_content() {
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<html><head><title>T</title></head><body><h1>Kept</h1><p>Dropped paragraph</p></body></html>",
+            ))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/robots.txt"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&s)
+            .await;
+        let output = servo_fetch()
+            .args([
+                "crawl",
+                &s.uri(),
+                "--selector",
+                "h1",
+                "--limit",
+                "1",
+                "--max-depth",
+                "0",
+                "--timeout",
+                "30",
+                "--allow-private-addresses",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = std::str::from_utf8(&output).unwrap();
+        assert!(text.contains("Kept"), "selector should keep h1 text, got: {text}");
+        assert!(
+            !text.contains("Dropped paragraph"),
+            "selector should scope away from <p>, got: {text}"
+        );
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn crawl_json_embeds_structured_content() {
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<html><head><title>JSONCrawl</title></head><body><article>Structured body content for extraction.</article></body></html>",
+            ))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/robots.txt"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&s)
+            .await;
+        let output = servo_fetch()
+            .args([
+                "crawl",
+                &s.uri(),
+                "--json",
+                "--limit",
+                "1",
+                "--max-depth",
+                "0",
+                "--timeout",
+                "30",
+                "--allow-private-addresses",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let line = std::str::from_utf8(&output)
+            .unwrap()
+            .lines()
+            .next()
+            .expect("expected NDJSON line");
+        let outer: serde_json::Value = serde_json::from_str(line).expect("outer NDJSON must parse");
+        let content_str = outer["content"].as_str().expect("content must be a string");
+        let inner: serde_json::Value =
+            serde_json::from_str(content_str).expect("content must be structured JSON, not markdown");
+        assert!(
+            inner.get("title").is_some(),
+            "inner JSON should have a 'title' field, got: {content_str}"
+        );
+    });
+}
+
+#[test]
 fn crawl_rejects_private_ip() {
     servo_fetch()
         .args(["crawl", "http://127.0.0.1/"])

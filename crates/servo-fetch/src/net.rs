@@ -1,5 +1,7 @@
 //! Network address validation — blocks private, reserved, and special-purpose IPs.
 
+use std::sync::Once;
+
 use crate::error::{UrlError, map_url_error};
 
 /// Network access policy — determines which hosts are reachable.
@@ -58,6 +60,15 @@ pub(crate) fn sanitize_user_agent(ua: String) -> String {
     } else {
         ua
     }
+}
+
+pub(crate) fn ensure_crypto_provider() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        }
+    });
 }
 
 fn is_private_host(host: &str) -> bool {

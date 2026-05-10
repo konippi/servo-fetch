@@ -209,6 +209,7 @@ impl CrawlResult {
 /// Crawl a site, invoking `on_page` for each result as it arrives.
 #[allow(clippy::needless_pass_by_value)]
 pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlResult)) -> crate::error::Result<()> {
+    net::ensure_crypto_provider();
     let plan = build_crawl_plan(&opts)?;
     crate::runtime::block_on(async {
         let robots = tokio::task::spawn_blocking({

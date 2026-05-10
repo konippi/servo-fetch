@@ -770,7 +770,7 @@ mod tests {
             let xml = r#"<?xml version="1.0"?><urlset><url><loc>https://example.com/a</loc></url></urlset>"#;
             Mock::given(method("GET"))
                 .and(path("/sitemap.xml"))
-                .respond_with(ResponseTemplate::new(200).set_body_string(xml))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(xml.as_bytes().to_vec(), "application/xml"))
                 .mount(&server)
                 .await;
 
@@ -789,9 +789,10 @@ mod tests {
             let server = MockServer::start().await;
             Mock::given(method("GET"))
                 .and(path("/sitemap.xml"))
-                .respond_with(
-                    ResponseTemplate::new(200).set_body_string("<!DOCTYPE html><html><body>Not Found</body></html>"),
-                )
+                .respond_with(ResponseTemplate::new(200).set_body_raw(
+                    b"<!DOCTYPE html><html><body>Not Found</body></html>".to_vec(),
+                    "text/html; charset=utf-8",
+                ))
                 .mount(&server)
                 .await;
 
@@ -836,11 +837,7 @@ mod tests {
 
             Mock::given(method("GET"))
                 .and(path("/sitemap.xml.gz"))
-                .respond_with(
-                    ResponseTemplate::new(200)
-                        .set_body_bytes(compressed)
-                        .insert_header("content-type", "application/gzip"),
-                )
+                .respond_with(ResponseTemplate::new(200).set_body_raw(compressed, "application/gzip"))
                 .mount(&server)
                 .await;
 
@@ -859,9 +856,10 @@ mod tests {
             let server = MockServer::start().await;
             Mock::given(method("GET"))
                 .and(path("/"))
-                .respond_with(
-                    ResponseTemplate::new(200).set_body_string(r#"<html><body><a href="/link">x</a></body></html>"#),
-                )
+                .respond_with(ResponseTemplate::new(200).set_body_raw(
+                    br#"<html><body><a href="/link">x</a></body></html>"#.to_vec(),
+                    "text/html; charset=utf-8",
+                ))
                 .mount(&server)
                 .await;
 

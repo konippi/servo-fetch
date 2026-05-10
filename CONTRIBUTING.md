@@ -28,6 +28,7 @@ cargo test -- --ignored                                     # Run Servo+network 
 cargo clippy                                                # Lint (pedantic)
 cargo fmt                                                   # Format
 cargo deny check                                            # License & advisory check
+taplo fmt                                                   # Format TOML files (install: cargo install taplo-cli --locked)
 typos                                                       # Spell check
 ```
 

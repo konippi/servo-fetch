@@ -1,9 +1,5 @@
 [files]
-extend-exclude = [
-    "target/",
-    "Cargo.lock",
-    "tests/fixtures/",
-]
+extend-exclude = ["target/", "Cargo.lock", "tests/fixtures/"]
 
 [default]
 extend-ignore-identifiers-re = ["^[0-9a-f]{7,10}$"]

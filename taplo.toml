@@ -1,0 +1,7 @@
+exclude = ["benchmarks/**"]
+
+[formatting]
+array_auto_collapse = false
+array_auto_expand = false
+align_comments = false
+column_width = 120

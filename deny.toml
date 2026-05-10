@@ -2,34 +2,34 @@
 version = 2
 yanked = "deny"
 ignore = [
-    "RUSTSEC-2023-0071", # bincode unmaintained
-    "RUSTSEC-2024-0436", # paste unmaintained
-    "RUSTSEC-2025-0075", # unic-common unmaintained
-    "RUSTSEC-2025-0080", # unic-ucd-version unmaintained
-    "RUSTSEC-2025-0081", # unic-ucd-ident unmaintained
-    "RUSTSEC-2025-0098", # unic-char-range unmaintained
-    "RUSTSEC-2025-0100", # unic-char-property unmaintained
-    "RUSTSEC-2025-0141", # ml-dsa timing side-channel
-    "RUSTSEC-2025-0144", # rsa marvin attack
+  "RUSTSEC-2023-0071", # bincode unmaintained
+  "RUSTSEC-2024-0436", # paste unmaintained
+  "RUSTSEC-2025-0075", # unic-common unmaintained
+  "RUSTSEC-2025-0080", # unic-ucd-version unmaintained
+  "RUSTSEC-2025-0081", # unic-ucd-ident unmaintained
+  "RUSTSEC-2025-0098", # unic-char-range unmaintained
+  "RUSTSEC-2025-0100", # unic-char-property unmaintained
+  "RUSTSEC-2025-0141", # ml-dsa timing side-channel
+  "RUSTSEC-2025-0144", # rsa marvin attack
 ]
 
 [licenses]
 version = 2
 allow = [
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "BSL-1.0",
-    "CC0-1.0",
-    "CDLA-Permissive-2.0",
-    "ISC",
-    "MIT",
-    "MIT-0",
-    "MPL-2.0",
-    "NCSA",
-    "Unicode-3.0",
-    "Zlib",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "NCSA",
+  "Unicode-3.0",
+  "Zlib",
 ]
 
 [bans]

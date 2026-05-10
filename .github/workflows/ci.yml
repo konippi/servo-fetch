@@ -36,6 +36,7 @@ jobs:
               - 'clippy.toml'
               - '.rustfmt.toml'
               - 'rust-toolchain.toml'
+              - 'taplo.toml'
               - '.config/nextest.toml'
               - '.github/workflows/ci.yml'
 
@@ -132,6 +133,23 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
+  taplo:
+    name: TOML Lint
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@b5fddbb5361bce8a06fb168c9d403a6cc552b084 # v2.75.29
+        with:
+          tool: taplo-cli
+      - run: taplo fmt --check --diff
+
   deny:
     name: Licenses & Advisories
     needs: [changes]
@@ -223,7 +241,7 @@ jobs:
   ci-passed:
     name: CI Passed
     if: '!cancelled()'
-    needs: [changes, clippy, test, e2e, fmt, deny, shear, typos]
+    needs: [changes, clippy, test, e2e, fmt, taplo, deny, shear, typos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

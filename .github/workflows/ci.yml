@@ -36,6 +36,7 @@ jobs:
               - 'clippy.toml'
               - '.rustfmt.toml'
               - 'rust-toolchain.toml'
+              - '.config/nextest.toml'
               - '.github/workflows/ci.yml'
 
   clippy:
@@ -99,8 +100,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
             libssl-dev libglib2.0-dev libegl1-mesa-dev
-      - run: cargo nextest run --workspace --locked --cargo-profile ci --no-fail-fast
+      - run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci
       - run: cargo test --workspace --locked --profile ci --doc
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nextest-junit-ci
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
       - name: sccache stats
         if: always()
         run: sccache --show-stats
@@ -182,7 +191,6 @@ jobs:
       RUSTC_WRAPPER: sccache
       CCACHE: sccache
       RUST_BACKTRACE: 1
-      NEXTEST_RETRIES: 2
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -199,7 +207,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
             libssl-dev libglib2.0-dev libegl1-mesa-dev
-      - run: cargo nextest run -p servo-fetch-cli --run-ignored only --locked --cargo-profile ci --no-fail-fast
+      - run: cargo nextest run -p servo-fetch-cli --run-ignored only --locked --cargo-profile ci --profile ci-e2e
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nextest-junit-e2e
+          path: target/nextest/ci-e2e/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
       - name: sccache stats
         if: always()
         run: sccache --show-stats

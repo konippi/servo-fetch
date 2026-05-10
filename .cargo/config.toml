@@ -1,14 +1,9 @@
 [target.'cfg(all())']
-rustflags = [
-  "-C", "symbol-mangling-version=v0",
-]
+rustflags = ["-C", "symbol-mangling-version=v0"]
 
 [target.'cfg(all(target_env = "msvc", target_os = "windows"))']
 linker = "rust-lld"
-rustflags = [
-  "-C", "target-feature=+crt-static",
-  "-C", "link-arg=/Brepro",
-]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/Brepro"]
 
 [env]
 MACOSX_DEPLOYMENT_TARGET = "13.0"

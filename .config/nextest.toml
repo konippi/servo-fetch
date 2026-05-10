@@ -1,0 +1,26 @@
+[profile.default]
+slow-timeout = { period = "5s", terminate-after = 4 }
+final-status-level = "slow"
+
+[[profile.default.overrides]]
+filter = 'package(=servo-fetch-cli) & test(=concurrent_full_page_screenshots_are_distinct)'
+threads-required = "num-test-threads"
+slow-timeout = { period = "120s", terminate-after = 3 }
+
+[[profile.default.overrides]]
+filter = 'package(=servo-fetch-cli) & kind(=test)'
+threads-required = 2
+slow-timeout = { period = "60s", terminate-after = 4 }
+
+[profile.ci]
+fail-fast = false
+failure-output = "immediate-final"
+
+[profile.ci.junit]
+path = "junit.xml"
+store-failure-output = true
+store-success-output = false
+
+[profile.ci-e2e]
+inherits = "ci"
+retries = { backoff = "fixed", count = 2, delay = "2s" }

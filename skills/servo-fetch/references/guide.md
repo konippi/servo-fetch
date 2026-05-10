@@ -40,7 +40,7 @@ crawl(url: "https://docs.example.com", limit: 20, max_depth: 3)
 crawl(url: "https://docs.example.com", include_glob: ["/guide/**"])
 ```
 
-Crawl follows same-site links only (eTLD+1), respects `robots.txt`, and enforces a minimum 500ms interval between requests. Output is one content entry per page.
+Crawl follows same-site links only (eTLD+1), respects `robots.txt`, and applies a 500ms interval between requests by default (CLI: `--delay-ms`, library: `CrawlOptions::delay()`). Output is one content entry per page.
 
 CLI equivalent:
 

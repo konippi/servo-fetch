@@ -45,7 +45,7 @@ os_pipe = "1"
 servo = { workspace = true, features = ["no-wgl"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "test-util"] }
 wiremock = { workspace = true }
 
 [package.metadata.docs.rs]

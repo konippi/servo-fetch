@@ -1,5 +1,7 @@
 //! Network address validation — blocks private, reserved, and special-purpose IPs.
 
+use crate::error::{UrlError, map_url_error};
+
 /// Network access policy — determines which hosts are reachable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NetworkPolicy {
@@ -19,8 +21,14 @@ impl NetworkPolicy {
     }
 }
 
+/// Validate a URL for fetching. Rejects disallowed schemes and private addresses
+/// based on the policy set via [`crate::init`].
+pub fn validate_url(url: &str) -> crate::error::Result<url::Url> {
+    validate_url_with_policy(url, crate::bridge::engine_policy()).map_err(|e| map_url_error(url, e))
+}
+
 /// Validate a URL against the given [`NetworkPolicy`].
-pub(crate) fn validate_url(input: &str, policy: NetworkPolicy) -> Result<url::Url, UrlError> {
+pub(crate) fn validate_url_with_policy(input: &str, policy: NetworkPolicy) -> Result<url::Url, UrlError> {
     let mut parsed = url::Url::parse(input).map_err(|e| UrlError::Invalid(format!("invalid URL: {input}: {e}")))?;
     match parsed.scheme() {
         "http" | "https" => {}
@@ -41,6 +49,15 @@ pub(crate) fn validate_url(input: &str, policy: NetworkPolicy) -> Result<url::Ur
         }
     }
     Ok(parsed)
+}
+
+/// Replace CR, LF, and NUL with SP per RFC 9110.
+pub(crate) fn sanitize_user_agent(ua: String) -> String {
+    if ua.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
+        ua.replace(['\r', '\n', '\0'], " ")
+    } else {
+        ua
+    }
 }
 
 fn is_private_host(host: &str) -> bool {
@@ -110,26 +127,6 @@ fn is_private_ipv6(ip: &std::net::Ipv6Addr) -> bool {
         || s0 & 0xfe00 == 0xfc00                                       // fc00::/7  unique local
         || s0 & 0xffc0 == 0xfe80                                       // fe80::/10 link-local
         || s0 & 0xff00 == 0xff00 // ff00::/8  multicast
-}
-
-/// Why a URL was rejected by [`validate_url`].
-#[derive(Debug)]
-pub(crate) enum UrlError {
-    /// Malformed URL or disallowed scheme.
-    Invalid(String),
-    /// Host resolves to a private or reserved address.
-    PrivateAddress(String),
-}
-
-impl std::fmt::Display for UrlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Invalid(reason) => f.write_str(reason),
-            Self::PrivateAddress(host) => {
-                write!(f, "access to private/local addresses is not allowed: {host}")
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -227,7 +224,7 @@ mod tests {
 
     #[test]
     fn validate_url_empty_string() {
-        assert!(validate_url("", NetworkPolicy::STRICT).is_err());
+        assert!(validate_url_with_policy("", NetworkPolicy::STRICT).is_err());
     }
 
     #[test]

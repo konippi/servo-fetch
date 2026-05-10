@@ -1,8 +1,9 @@
-//! Servo browser engine facade.
+//! Single-page fetching and rendered content extraction.
 
 use std::time::Duration;
 
 use crate::error::Error;
+use crate::net::sanitize_user_agent;
 
 /// Rendered page returned by [`fetch`].
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -179,11 +180,6 @@ pub(crate) enum FetchMode {
 }
 
 /// Options for a single page fetch.
-///
-/// # Thread Safety
-///
-/// [`fetch`] is safe to call from multiple threads. Each call queues a request
-/// to the shared Servo engine thread, which processes them sequentially.
 #[must_use = "options do nothing until passed to fetch()"]
 #[derive(Debug, Clone)]
 pub struct FetchOptions {
@@ -242,14 +238,9 @@ impl FetchOptions {
 }
 
 /// Fetch a single page via the embedded Servo engine.
-///
-/// The first call spawns a persistent engine thread that lives for the process
-/// lifetime. If the engine thread panics, this returns [`Error::Engine`].
 #[allow(clippy::needless_pass_by_value)]
 pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
-    ensure_crypto_provider();
-
-    crate::net::validate_url(&opts.url, crate::bridge::engine_policy()).map_err(|e| map_url_error(&opts.url, e))?;
+    crate::net::validate_url(&opts.url)?;
 
     if matches!(opts.mode, FetchMode::Content)
         && let Some(bytes) = crate::pdf::probe(&opts.url, opts.timeout.as_secs().max(1))
@@ -291,344 +282,6 @@ pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
     Ok(Page::from_servo(servo_page))
 }
 
-/// Options for crawling a site.
-#[must_use = "options do nothing until passed to crawl() or crawl_each()"]
-#[derive(Debug, Clone)]
-pub struct CrawlOptions {
-    pub(crate) url: String,
-    pub(crate) limit: usize,
-    pub(crate) max_depth: usize,
-    pub(crate) timeout: Duration,
-    pub(crate) settle: Duration,
-    pub(crate) include: Vec<String>,
-    pub(crate) exclude: Vec<String>,
-    pub(crate) selector: Option<String>,
-    pub(crate) json: bool,
-    pub(crate) user_agent: Option<String>,
-    pub(crate) concurrency: usize,
-    pub(crate) delay: Option<Duration>,
-}
-
-impl CrawlOptions {
-    /// Create crawl options for the given seed URL.
-    pub fn new(url: &str) -> Self {
-        Self {
-            url: url.into(),
-            limit: 50,
-            max_depth: 3,
-            timeout: Duration::from_secs(30),
-            settle: Duration::ZERO,
-            include: Vec::new(),
-            exclude: Vec::new(),
-            selector: None,
-            json: false,
-            user_agent: None,
-            concurrency: 1,
-            delay: Some(Duration::from_millis(500)),
-        }
-    }
-
-    /// Maximum number of pages to crawl (default: 50).
-    pub fn limit(mut self, n: usize) -> Self {
-        self.limit = n;
-        self
-    }
-
-    /// Maximum link depth from the seed URL (default: 3).
-    pub fn max_depth(mut self, n: usize) -> Self {
-        self.max_depth = n;
-        self
-    }
-
-    /// Page load timeout per page (default: 30s).
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
-    }
-
-    /// Extra wait after load event per page (default: 0).
-    pub fn settle(mut self, settle: Duration) -> Self {
-        self.settle = settle;
-        self
-    }
-
-    /// URL path glob patterns to include (e.g. `"/docs/**"`).
-    pub fn include(mut self, patterns: &[&str]) -> Self {
-        self.include = patterns.iter().map(|s| (*s).to_string()).collect();
-        self
-    }
-
-    /// URL path glob patterns to exclude (e.g. `"/docs/archive/**"`).
-    pub fn exclude(mut self, patterns: &[&str]) -> Self {
-        self.exclude = patterns.iter().map(|s| (*s).to_string()).collect();
-        self
-    }
-
-    /// Output crawled content as JSON instead of Markdown.
-    pub fn json(mut self, json: bool) -> Self {
-        self.json = json;
-        self
-    }
-
-    /// CSS selector to extract a specific section per page.
-    pub fn selector(mut self, selector: impl Into<String>) -> Self {
-        self.selector = Some(selector.into());
-        self
-    }
-
-    /// Override the User-Agent string for all pages in this crawl.
-    pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
-        self.user_agent = Some(sanitize_user_agent(ua.into()));
-        self
-    }
-
-    /// Maximum parallel fetches (default: 1). Values below 1 are clamped to 1.
-    /// Results are yielded in completion order when greater than 1.
-    pub fn concurrency(mut self, n: usize) -> Self {
-        self.concurrency = n.max(1);
-        self
-    }
-
-    /// Minimum dispatch interval (default: `Some(500ms)`). `None` disables rate limiting.
-    pub fn delay(mut self, delay: Option<Duration>) -> Self {
-        self.delay = delay;
-        self
-    }
-}
-
-/// Result for a single crawled page.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct CrawlResult {
-    /// URL of the crawled page.
-    pub url: String,
-    /// Link depth from the seed URL.
-    pub depth: usize,
-    /// Page content if successful, or error if failed.
-    pub outcome: Result<CrawlPage, CrawlError>,
-}
-
-/// Successfully crawled page.
-#[derive(Debug, Clone)]
-pub struct CrawlPage {
-    /// Page title.
-    pub title: Option<String>,
-    /// Extracted content (Markdown or JSON depending on options).
-    pub content: String,
-    /// Number of links discovered on this page.
-    pub links_found: usize,
-}
-
-/// Error from a failed crawl attempt.
-#[derive(Debug, Clone)]
-pub struct CrawlError {
-    /// Error message.
-    pub message: String,
-}
-
-impl std::fmt::Display for CrawlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for CrawlError {}
-
-impl serde::Serialize for CrawlResult {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeMap;
-        match &self.outcome {
-            Ok(page) => {
-                let mut map = serializer.serialize_map(None)?;
-                map.serialize_entry("url", &self.url)?;
-                map.serialize_entry("depth", &self.depth)?;
-                map.serialize_entry("status", "ok")?;
-                if let Some(t) = &page.title {
-                    map.serialize_entry("title", t)?;
-                }
-                map.serialize_entry("content", &page.content)?;
-                map.serialize_entry("links_found", &page.links_found)?;
-                map.end()
-            }
-            Err(e) => {
-                let mut map = serializer.serialize_map(None)?;
-                map.serialize_entry("url", &self.url)?;
-                map.serialize_entry("depth", &self.depth)?;
-                map.serialize_entry("status", "error")?;
-                map.serialize_entry("error", &e.message)?;
-                map.end()
-            }
-        }
-    }
-}
-
-impl CrawlResult {
-    fn from_internal(r: &crate::crawl::CrawlPageResult) -> Self {
-        let outcome = match r.status {
-            crate::crawl::CrawlStatus::Ok => Ok(CrawlPage {
-                title: r.title.clone(),
-                content: r.content.clone().unwrap_or_default(),
-                links_found: r.links_found,
-            }),
-            crate::crawl::CrawlStatus::Error => Err(CrawlError {
-                message: r.error.clone().unwrap_or_default(),
-            }),
-        };
-        Self {
-            url: r.url.clone(),
-            depth: r.depth,
-            outcome,
-        }
-    }
-}
-
-/// Crawl a site, invoking `on_page` for each result as it arrives.
-#[allow(clippy::needless_pass_by_value)]
-pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlResult)) -> crate::error::Result<()> {
-    ensure_crypto_provider();
-    let internal_opts = build_crawl_options(&opts)?;
-    crate::runtime::block_on(async {
-        let robots = tokio::task::spawn_blocking({
-            let seed = internal_opts.seed.clone();
-            let user_agent = internal_opts.user_agent.clone();
-            let timeout = Duration::from_secs(internal_opts.timeout_secs);
-            move || crate::robots::RobotsRules::fetch(&seed, user_agent.as_deref(), timeout)
-        })
-        .await
-        .unwrap_or(crate::robots::RobotsPolicy::Unreachable);
-        crate::crawl::run(internal_opts, robots, &crate::bridge::ServoFetcher, |r| {
-            on_page(&CrawlResult::from_internal(r));
-        })
-        .await
-    })
-    .map_err(|e| Error::Engine(e.to_string()))?;
-    Ok(())
-}
-
-/// Crawl a site and collect all results.
-#[allow(clippy::needless_pass_by_value)]
-pub fn crawl(opts: CrawlOptions) -> crate::error::Result<Vec<CrawlResult>> {
-    let mut results = Vec::new();
-    crawl_each(opts, |r| results.push(r.clone()))?;
-    Ok(results)
-}
-
-/// Options for URL discovery (sitemap + link extraction, no rendering).
-#[must_use = "options do nothing until passed to map()"]
-#[derive(Debug, Clone)]
-pub struct MapOptions {
-    url: String,
-    limit: usize,
-    include: Vec<String>,
-    exclude: Vec<String>,
-    user_agent: Option<String>,
-    timeout: u64,
-    no_fallback: bool,
-}
-
-impl MapOptions {
-    /// Create map options for the given URL.
-    pub fn new(url: impl Into<String>) -> Self {
-        Self {
-            url: url.into(),
-            limit: 5000,
-            include: Vec::new(),
-            exclude: Vec::new(),
-            user_agent: None,
-            timeout: 30,
-            no_fallback: false,
-        }
-    }
-
-    /// Maximum number of URLs to discover.
-    pub fn limit(mut self, n: usize) -> Self {
-        self.limit = n;
-        self
-    }
-
-    /// URL path glob patterns to include.
-    pub fn include(mut self, patterns: &[&str]) -> Self {
-        self.include = patterns.iter().map(|s| (*s).to_string()).collect();
-        self
-    }
-
-    /// URL path glob patterns to exclude.
-    pub fn exclude(mut self, patterns: &[&str]) -> Self {
-        self.exclude = patterns.iter().map(|s| (*s).to_string()).collect();
-        self
-    }
-
-    /// Override the User-Agent string.
-    pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
-        self.user_agent = Some(ua.into());
-        self
-    }
-
-    /// Timeout in seconds per HTTP request.
-    pub fn timeout(mut self, secs: u64) -> Self {
-        self.timeout = secs;
-        self
-    }
-
-    /// Skip HTML link fallback if no sitemap is found.
-    pub fn no_fallback(mut self, yes: bool) -> Self {
-        self.no_fallback = yes;
-        self
-    }
-}
-
-/// A discovered URL from sitemap or link extraction.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct MappedUrl {
-    /// The discovered URL.
-    pub url: String,
-    /// Last modification date from sitemap, if available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lastmod: Option<String>,
-}
-
-/// Discover URLs on a site via sitemaps and link extraction (no rendering).
-#[allow(clippy::needless_pass_by_value)]
-pub fn map(opts: MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
-    ensure_crypto_provider();
-    let seed = url::Url::parse(&opts.url).map_err(|e| Error::InvalidUrl {
-        url: opts.url.clone(),
-        reason: e.to_string(),
-    })?;
-    crate::net::validate_url(seed.as_str(), crate::bridge::engine_policy()).map_err(|e| map_url_error(&opts.url, e))?;
-
-    let include = if opts.include.is_empty() {
-        None
-    } else {
-        Some(crate::scope::build_globset(&opts.include)?)
-    };
-    let exclude = if opts.exclude.is_empty() {
-        None
-    } else {
-        Some(crate::scope::build_globset(&opts.exclude)?)
-    };
-
-    let internal = crate::map::MapConfig {
-        seed,
-        limit: opts.limit,
-        include,
-        exclude,
-        user_agent: opts.user_agent,
-        timeout: Duration::from_secs(opts.timeout),
-        no_fallback: opts.no_fallback,
-    };
-
-    let mut results = Vec::new();
-    crate::runtime::block_on(crate::map::run(&internal, |entry| {
-        results.push(MappedUrl {
-            url: entry.url.clone(),
-            lastmod: entry.lastmod.clone(),
-        });
-    }))
-    .map_err(|e| Error::Engine(e.to_string()))?;
-    Ok(results)
-}
-
 /// Fetch a URL and return readable Markdown.
 pub fn markdown(url: &str) -> crate::error::Result<String> {
     fetch(FetchOptions::new(url))?.markdown_with_url(url)
@@ -642,69 +295,6 @@ pub fn extract_json(url: &str) -> crate::error::Result<String> {
 /// Fetch a URL and return plain text (`document.body.innerText`).
 pub fn text(url: &str) -> crate::error::Result<String> {
     Ok(fetch(FetchOptions::new(url))?.inner_text)
-}
-
-/// Set the network policy. Must be called at most once, before any engine use.
-pub fn init(policy: crate::net::NetworkPolicy) {
-    crate::bridge::set_engine_policy(policy);
-}
-
-/// Validate a URL for fetching. Rejects disallowed schemes and private addresses
-/// based on the policy set via [`init`].
-pub fn validate_url(url: &str) -> crate::error::Result<url::Url> {
-    crate::net::validate_url(url, crate::bridge::engine_policy()).map_err(|e| map_url_error(url, e))
-}
-
-fn ensure_crypto_provider() {
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-}
-
-/// Replace CR, LF, and NUL with SP per RFC 9110.
-pub(crate) fn sanitize_user_agent(ua: String) -> String {
-    if ua.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
-        ua.replace(['\r', '\n', '\0'], " ")
-    } else {
-        ua
-    }
-}
-
-fn map_url_error(url: &str, e: crate::net::UrlError) -> Error {
-    match e {
-        crate::net::UrlError::PrivateAddress(host) => Error::AddressNotAllowed(host),
-        crate::net::UrlError::Invalid(reason) => Error::InvalidUrl {
-            url: url.into(),
-            reason,
-        },
-    }
-}
-
-fn build_crawl_options(opts: &CrawlOptions) -> crate::error::Result<crate::crawl::CrawlOptions> {
-    let seed =
-        crate::net::validate_url(&opts.url, crate::bridge::engine_policy()).map_err(|e| map_url_error(&opts.url, e))?;
-    let include = if opts.include.is_empty() {
-        None
-    } else {
-        Some(crate::scope::build_globset(&opts.include)?)
-    };
-    let exclude = if opts.exclude.is_empty() {
-        None
-    } else {
-        Some(crate::scope::build_globset(&opts.exclude)?)
-    };
-    Ok(crate::crawl::CrawlOptions {
-        seed,
-        limit: opts.limit,
-        max_depth: opts.max_depth,
-        timeout_secs: opts.timeout.as_secs().max(1),
-        settle_ms: u64::try_from(opts.settle.as_millis()).unwrap_or(u64::MAX),
-        include,
-        exclude,
-        selector: opts.selector.clone(),
-        json: opts.json,
-        user_agent: opts.user_agent.clone(),
-        concurrency: opts.concurrency,
-        delay: opts.delay,
-    })
 }
 
 #[cfg(test)]
@@ -742,49 +332,6 @@ mod tests {
     }
 
     #[test]
-    fn crawl_options_defaults() {
-        let opts = CrawlOptions::new("https://example.com");
-        assert_eq!(opts.url, "https://example.com");
-        assert_eq!(opts.limit, 50);
-        assert_eq!(opts.max_depth, 3);
-        assert_eq!(opts.timeout, Duration::from_secs(30));
-        assert!(opts.include.is_empty());
-        assert!(opts.exclude.is_empty());
-        assert_eq!(opts.concurrency, 1);
-        assert_eq!(opts.delay, Some(Duration::from_millis(500)));
-    }
-
-    #[test]
-    fn crawl_options_chaining() {
-        let opts = CrawlOptions::new("https://example.com")
-            .limit(100)
-            .max_depth(5)
-            .timeout(Duration::from_secs(60))
-            .include(&["/docs/**"])
-            .exclude(&["/docs/archive/**"])
-            .concurrency(4)
-            .delay(None);
-        assert_eq!(opts.limit, 100);
-        assert_eq!(opts.max_depth, 5);
-        assert_eq!(opts.include, vec!["/docs/**"]);
-        assert_eq!(opts.exclude, vec!["/docs/archive/**"]);
-        assert_eq!(opts.concurrency, 4);
-        assert_eq!(opts.delay, None);
-    }
-
-    #[test]
-    fn crawl_options_concurrency_clamps_below_one() {
-        let opts = CrawlOptions::new("https://example.com").concurrency(0);
-        assert_eq!(opts.concurrency, 1);
-    }
-
-    #[test]
-    fn crawl_options_delay_custom_value() {
-        let opts = CrawlOptions::new("https://example.com").delay(Some(Duration::from_secs(2)));
-        assert_eq!(opts.delay, Some(Duration::from_secs(2)));
-    }
-
-    #[test]
     fn fetch_user_agent_set() {
         let opts = FetchOptions::new("https://example.com").user_agent("MyBot/1.0");
         assert_eq!(opts.user_agent.as_deref(), Some("MyBot/1.0"));
@@ -812,12 +359,6 @@ mod tests {
     fn fetch_user_agent_empty_string() {
         let opts = FetchOptions::new("https://example.com").user_agent("");
         assert_eq!(opts.user_agent.as_deref(), Some(""));
-    }
-
-    #[test]
-    fn crawl_user_agent_sanitizes_crlf() {
-        let opts = CrawlOptions::new("https://example.com").user_agent("Crawler\r\n/2.0");
-        assert_eq!(opts.user_agent.as_deref(), Some("Crawler  /2.0"));
     }
 
     #[test]

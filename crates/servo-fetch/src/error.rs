@@ -87,6 +87,36 @@ const _: () = {
     }
 };
 
+/// Why a URL was rejected by [`validate_url`].
+#[derive(Debug)]
+pub(crate) enum UrlError {
+    /// Malformed URL or disallowed scheme.
+    Invalid(String),
+    /// Host resolves to a private or reserved address.
+    PrivateAddress(String),
+}
+
+impl std::fmt::Display for UrlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(reason) => f.write_str(reason),
+            Self::PrivateAddress(host) => {
+                write!(f, "access to private/local addresses is not allowed: {host}")
+            }
+        }
+    }
+}
+
+pub(crate) fn map_url_error(url: &str, e: UrlError) -> Error {
+    match e {
+        UrlError::PrivateAddress(host) => Error::AddressNotAllowed(host),
+        UrlError::Invalid(reason) => Error::InvalidUrl {
+            url: url.into(),
+            reason,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

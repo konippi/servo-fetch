@@ -25,7 +25,7 @@ pub(crate) fn default_user_agent() -> &'static str {
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("servo-fetch/{}", env!("CARGO_PKG_VERSION")));
-        crate::engine::sanitize_user_agent(raw)
+        crate::net::sanitize_user_agent(raw)
     })
 }
 /// Max wait before we re-check time-based conditions.

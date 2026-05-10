@@ -15,8 +15,257 @@ use crate::scope::{is_same_site, matches_scope, normalize_url};
 
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
 
+/// Options for crawling a site.
+#[must_use = "options do nothing until passed to crawl() or crawl_each()"]
+#[derive(Debug, Clone)]
+pub struct CrawlOptions {
+    pub(crate) url: String,
+    pub(crate) limit: usize,
+    pub(crate) max_depth: usize,
+    pub(crate) timeout: Duration,
+    pub(crate) settle: Duration,
+    pub(crate) include: Vec<String>,
+    pub(crate) exclude: Vec<String>,
+    pub(crate) selector: Option<String>,
+    pub(crate) json: bool,
+    pub(crate) user_agent: Option<String>,
+    pub(crate) concurrency: usize,
+    pub(crate) delay: Option<Duration>,
+}
+
+impl CrawlOptions {
+    /// Create crawl options for the given seed URL.
+    pub fn new(url: &str) -> Self {
+        Self {
+            url: url.into(),
+            limit: 50,
+            max_depth: 3,
+            timeout: Duration::from_secs(30),
+            settle: Duration::ZERO,
+            include: Vec::new(),
+            exclude: Vec::new(),
+            selector: None,
+            json: false,
+            user_agent: None,
+            concurrency: 1,
+            delay: Some(Duration::from_millis(500)),
+        }
+    }
+
+    /// Maximum number of pages to crawl (default: 50).
+    pub fn limit(mut self, n: usize) -> Self {
+        self.limit = n;
+        self
+    }
+
+    /// Maximum link depth from the seed URL (default: 3).
+    pub fn max_depth(mut self, n: usize) -> Self {
+        self.max_depth = n;
+        self
+    }
+
+    /// Page load timeout per page (default: 30s).
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Extra wait after load event per page (default: 0).
+    pub fn settle(mut self, settle: Duration) -> Self {
+        self.settle = settle;
+        self
+    }
+
+    /// URL path glob patterns to include (e.g. `"/docs/**"`).
+    pub fn include(mut self, patterns: &[&str]) -> Self {
+        self.include = patterns.iter().map(|s| (*s).to_string()).collect();
+        self
+    }
+
+    /// URL path glob patterns to exclude (e.g. `"/docs/archive/**"`).
+    pub fn exclude(mut self, patterns: &[&str]) -> Self {
+        self.exclude = patterns.iter().map(|s| (*s).to_string()).collect();
+        self
+    }
+
+    /// Output crawled content as JSON instead of Markdown.
+    pub fn json(mut self, json: bool) -> Self {
+        self.json = json;
+        self
+    }
+
+    /// CSS selector to extract a specific section per page.
+    pub fn selector(mut self, selector: impl Into<String>) -> Self {
+        self.selector = Some(selector.into());
+        self
+    }
+
+    /// Override the User-Agent string for all pages in this crawl.
+    pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
+        self.user_agent = Some(net::sanitize_user_agent(ua.into()));
+        self
+    }
+
+    /// Maximum parallel fetches (default: 1). Values below 1 are clamped to 1.
+    /// Results are yielded in completion order when greater than 1.
+    pub fn concurrency(mut self, n: usize) -> Self {
+        self.concurrency = n.max(1);
+        self
+    }
+
+    /// Minimum dispatch interval (default: `Some(500ms)`). `None` disables rate limiting.
+    pub fn delay(mut self, delay: Option<Duration>) -> Self {
+        self.delay = delay;
+        self
+    }
+}
+
+/// Result for a single crawled page.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct CrawlResult {
+    /// URL of the crawled page.
+    pub url: String,
+    /// Link depth from the seed URL.
+    pub depth: usize,
+    /// Page content if successful, or error if failed.
+    pub outcome: Result<CrawlPage, CrawlError>,
+}
+
+/// Successfully crawled page.
+#[derive(Debug, Clone)]
+pub struct CrawlPage {
+    /// Page title.
+    pub title: Option<String>,
+    /// Extracted content (Markdown or JSON depending on options).
+    pub content: String,
+    /// Number of links discovered on this page.
+    pub links_found: usize,
+}
+
+/// Error from a failed crawl attempt.
+#[derive(Debug, Clone)]
+pub struct CrawlError {
+    /// Error message.
+    pub message: String,
+}
+
+impl std::fmt::Display for CrawlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CrawlError {}
+
+impl serde::Serialize for CrawlResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match &self.outcome {
+            Ok(page) => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("url", &self.url)?;
+                map.serialize_entry("depth", &self.depth)?;
+                map.serialize_entry("status", "ok")?;
+                if let Some(t) = &page.title {
+                    map.serialize_entry("title", t)?;
+                }
+                map.serialize_entry("content", &page.content)?;
+                map.serialize_entry("links_found", &page.links_found)?;
+                map.end()
+            }
+            Err(e) => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("url", &self.url)?;
+                map.serialize_entry("depth", &self.depth)?;
+                map.serialize_entry("status", "error")?;
+                map.serialize_entry("error", &e.message)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl CrawlResult {
+    fn from_internal(r: &CrawlPageResult) -> Self {
+        let outcome = match r.status {
+            CrawlStatus::Ok => Ok(CrawlPage {
+                title: r.title.clone(),
+                content: r.content.clone().unwrap_or_default(),
+                links_found: r.links_found,
+            }),
+            CrawlStatus::Error => Err(CrawlError {
+                message: r.error.clone().unwrap_or_default(),
+            }),
+        };
+        Self {
+            url: r.url.clone(),
+            depth: r.depth,
+            outcome,
+        }
+    }
+}
+
+/// Crawl a site, invoking `on_page` for each result as it arrives.
+#[allow(clippy::needless_pass_by_value)]
+pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlResult)) -> crate::error::Result<()> {
+    let plan = build_crawl_plan(&opts)?;
+    crate::runtime::block_on(async {
+        let robots = tokio::task::spawn_blocking({
+            let seed = plan.seed.clone();
+            let user_agent = plan.user_agent.clone();
+            let timeout = Duration::from_secs(plan.timeout_secs);
+            move || crate::robots::RobotsRules::fetch(&seed, user_agent.as_deref(), timeout)
+        })
+        .await
+        .unwrap_or(RobotsPolicy::Unreachable);
+        run(plan, robots, &bridge::ServoFetcher, |r| {
+            on_page(&CrawlResult::from_internal(r));
+        })
+        .await
+    })
+    .map_err(|e| crate::error::Error::Engine(e.to_string()))?;
+    Ok(())
+}
+
+/// Crawl a site and collect all results.
+#[allow(clippy::needless_pass_by_value)]
+pub fn crawl(opts: CrawlOptions) -> crate::error::Result<Vec<CrawlResult>> {
+    let mut results = Vec::new();
+    crawl_each(opts, |r| results.push(r.clone()))?;
+    Ok(results)
+}
+
+fn build_crawl_plan(opts: &CrawlOptions) -> crate::error::Result<CrawlPlan> {
+    let seed = net::validate_url(&opts.url)?;
+    let include = if opts.include.is_empty() {
+        None
+    } else {
+        Some(crate::scope::build_globset(&opts.include)?)
+    };
+    let exclude = if opts.exclude.is_empty() {
+        None
+    } else {
+        Some(crate::scope::build_globset(&opts.exclude)?)
+    };
+    Ok(CrawlPlan {
+        seed,
+        limit: opts.limit,
+        max_depth: opts.max_depth,
+        timeout_secs: opts.timeout.as_secs().max(1),
+        settle_ms: u64::try_from(opts.settle.as_millis()).unwrap_or(u64::MAX),
+        include,
+        exclude,
+        selector: opts.selector.clone(),
+        json: opts.json,
+        user_agent: opts.user_agent.clone(),
+        concurrency: opts.concurrency,
+        delay: opts.delay,
+    })
+}
+
 /// Crawl configuration.
-pub(crate) struct CrawlOptions {
+pub(crate) struct CrawlPlan {
     pub seed: Url,
     pub limit: usize,
     pub max_depth: usize,
@@ -112,7 +361,7 @@ fn extract_links_from_html(html: &str, base: &Url) -> Vec<Url> {
 }
 
 pub(crate) async fn run(
-    opts: CrawlOptions,
+    opts: CrawlPlan,
     robots: RobotsPolicy,
     fetcher: &(impl PageFetcher + Clone),
     mut on_page: impl FnMut(&CrawlPageResult),
@@ -179,7 +428,7 @@ pub(crate) async fn run(
 fn spawn_fetch(
     in_flight: &mut JoinSet<FetchOutcome>,
     fetcher: &(impl PageFetcher + Clone),
-    opts: &CrawlOptions,
+    opts: &CrawlPlan,
     url: Url,
     depth: usize,
 ) {
@@ -210,7 +459,7 @@ fn process_ok_fetch(
     page: &bridge::ServoPage,
     frontier: &mut Frontier,
     robots: &RobotsPolicy,
-    opts: &CrawlOptions,
+    opts: &CrawlPlan,
     budget_used: usize,
 ) -> Option<CrawlPageResult> {
     let html = if page.html.len() > MAX_HTML_BYTES {
@@ -243,7 +492,7 @@ fn process_ok_fetch(
                 break;
             }
             if !is_same_site(&opts.seed, link)
-                || net::validate_url(link.as_str(), bridge::engine_policy()).is_err()
+                || net::validate_url_with_policy(link.as_str(), bridge::engine_policy()).is_err()
                 || !robots.is_allowed(link)
                 || !matches_scope(link, opts.include.as_ref(), opts.exclude.as_ref())
             {
@@ -295,6 +544,55 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
+    #[test]
+    fn crawl_options_defaults() {
+        let opts = CrawlOptions::new("https://example.com");
+        assert_eq!(opts.url, "https://example.com");
+        assert_eq!(opts.limit, 50);
+        assert_eq!(opts.max_depth, 3);
+        assert_eq!(opts.timeout, Duration::from_secs(30));
+        assert!(opts.include.is_empty());
+        assert!(opts.exclude.is_empty());
+        assert_eq!(opts.concurrency, 1);
+        assert_eq!(opts.delay, Some(Duration::from_millis(500)));
+    }
+
+    #[test]
+    fn crawl_options_chaining() {
+        let opts = CrawlOptions::new("https://example.com")
+            .limit(100)
+            .max_depth(5)
+            .timeout(Duration::from_secs(60))
+            .include(&["/docs/**"])
+            .exclude(&["/docs/archive/**"])
+            .concurrency(4)
+            .delay(None);
+        assert_eq!(opts.limit, 100);
+        assert_eq!(opts.max_depth, 5);
+        assert_eq!(opts.include, vec!["/docs/**"]);
+        assert_eq!(opts.exclude, vec!["/docs/archive/**"]);
+        assert_eq!(opts.concurrency, 4);
+        assert_eq!(opts.delay, None);
+    }
+
+    #[test]
+    fn crawl_options_concurrency_clamps_below_one() {
+        let opts = CrawlOptions::new("https://example.com").concurrency(0);
+        assert_eq!(opts.concurrency, 1);
+    }
+
+    #[test]
+    fn crawl_options_delay_custom_value() {
+        let opts = CrawlOptions::new("https://example.com").delay(Some(Duration::from_secs(2)));
+        assert_eq!(opts.delay, Some(Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn crawl_user_agent_sanitizes_crlf() {
+        let opts = CrawlOptions::new("https://example.com").user_agent("Crawler\r\n/2.0");
+        assert_eq!(opts.user_agent.as_deref(), Some("Crawler  /2.0"));
+    }
+
     #[derive(Clone)]
     struct MockFetcher(Arc<HashMap<String, String>>);
 
@@ -332,15 +630,15 @@ mod tests {
         format!("<html><head><title>{tag}</title></head><body>page {tag}</body></html>")
     }
 
-    /// Test helper: build `CrawlOptions`, run, assert. `delay=None` keeps tests fast.
+    /// Test helper: build `CrawlPlan`, run, assert. `delay=None` keeps tests fast.
     async fn check(
         pages: &[(&str, &str)],
-        configure: impl FnOnce(&mut CrawlOptions),
+        configure: impl FnOnce(&mut CrawlPlan),
         assert: impl FnOnce(&[CrawlPageResult]),
     ) {
         let fetcher = MockFetcher::new(pages);
         let seed = pages[0].0;
-        let mut opts = CrawlOptions {
+        let mut opts = CrawlPlan {
             seed: Url::parse(seed).unwrap(),
             limit: 50,
             max_depth: 3,

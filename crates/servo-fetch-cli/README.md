@@ -130,7 +130,7 @@ See [HTTP API server](#http-api-server) below for the endpoint reference.
 
 ### Crawl subcommand
 
-`servo-fetch crawl <URL>` follows same-site links using BFS. Respects `robots.txt` (RFC 9309) with a minimum 500ms interval.
+`servo-fetch crawl <URL>` follows same-site links using BFS. Respects `robots.txt` (RFC 9309) with a default 500ms interval.
 
 | Flag | Description |
 | ---- | ----------- |
@@ -140,6 +140,8 @@ See [HTTP API server](#http-api-server) below for the endpoint reference.
 | `--exclude <GLOB>` | URL path patterns to exclude |
 | `--json` | Output content as JSON per page |
 | `--selector <CSS>` | Extract specific section per page |
+| `--concurrency <N>` | Maximum parallel page fetches (default: 1; completion order when >1) |
+| `--delay-ms <MS>` | Minimum dispatch interval in ms (default: 500; 0 disables rate limiting) |
 | `--user-agent <UA>` | Override the User-Agent string |
 | `-t, --timeout <SECS>` | Page load timeout in seconds per page (default: 30) |
 | `--settle <MS>` | Extra wait after load event in ms per page (default: 0, max: 10000) |

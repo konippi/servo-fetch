@@ -148,6 +148,14 @@ pub(crate) struct CrawlArgs {
     #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=10_000), value_name = "MS")]
     pub settle: u64,
 
+    /// Maximum parallel page fetches. Yields in completion order when greater than 1.
+    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u64).range(1..=64), value_name = "N")]
+    pub concurrency: u64,
+
+    /// Minimum dispatch interval in ms (0 to disable).
+    #[arg(long, default_value_t = 500, value_parser = clap::value_parser!(u64).range(0..=60_000), value_name = "MS")]
+    pub delay_ms: u64,
+
     /// Override the User-Agent string
     #[arg(long, value_name = "UA")]
     pub user_agent: Option<String>,

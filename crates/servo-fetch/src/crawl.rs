@@ -2,8 +2,10 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use tokio::task::JoinSet;
+use tokio::time::{MissedTickBehavior, interval};
 use url::Url;
 
 use crate::bridge::{self, PageFetcher};
@@ -12,7 +14,6 @@ use crate::robots::RobotsPolicy;
 use crate::scope::{is_same_site, matches_scope, normalize_url};
 
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
-const MIN_CRAWL_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Crawl configuration.
 pub(crate) struct CrawlOptions {
@@ -26,6 +27,10 @@ pub(crate) struct CrawlOptions {
     pub selector: Option<String>,
     pub json: bool,
     pub user_agent: Option<String>,
+    /// Parallel fetch limit (clamped to >=1; yields in completion order when >1).
+    pub concurrency: usize,
+    /// Dispatch interval; `None` disables rate limiting.
+    pub delay: Option<Duration>,
 }
 
 /// Result for a single crawled page.
@@ -114,45 +119,45 @@ pub(crate) async fn run(
 ) -> Vec<CrawlPageResult> {
     let mut frontier = Frontier::new(&opts.seed);
     let mut results = Vec::new();
-    let mut last_fetch = Instant::now()
-        .checked_sub(MIN_CRAWL_INTERVAL)
-        .unwrap_or_else(Instant::now);
+    let mut in_flight: JoinSet<FetchOutcome> = JoinSet::new();
 
-    while let Some((url, depth)) = frontier.pop() {
-        if results.len() >= opts.limit {
-            break;
+    // `Delay` keeps the steady-state rate correct after fetches exceed `delay`.
+    let mut ticker = opts.delay.map(|period| {
+        let mut t = interval(period);
+        t.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        t
+    });
+
+    let concurrency = opts.concurrency.max(1);
+
+    loop {
+        while in_flight.len() < concurrency && results.len() + in_flight.len() < opts.limit {
+            let Some((url, depth)) = frontier.pop() else {
+                break;
+            };
+            if let Some(t) = ticker.as_mut() {
+                t.tick().await;
+            }
+            spawn_fetch(&mut in_flight, fetcher, &opts, url, depth);
         }
 
-        let elapsed = last_fetch.elapsed();
-        if elapsed < MIN_CRAWL_INTERVAL {
-            tokio::time::sleep(MIN_CRAWL_INTERVAL.saturating_sub(elapsed)).await;
-        }
-        last_fetch = Instant::now();
+        let outcome = match in_flight.join_next().await {
+            None => break,
+            Some(Ok(o)) => o,
+            Some(Err(e)) if e.is_panic() => {
+                tracing::error!(err = %e, "crawl fetch task panicked");
+                continue;
+            }
+            Some(Err(e)) => {
+                tracing::warn!(err = %e, "crawl fetch task cancelled");
+                continue;
+            }
+        };
 
-        let url_str = url.to_string();
-        let timeout = opts.timeout_secs;
-        let settle = opts.settle_ms;
-        let user_agent = opts.user_agent.clone();
-        let f = fetcher.clone();
-
-        let page = match tokio::task::spawn_blocking(move || {
-            f.fetch_page(bridge::FetchOptions {
-                url: &url_str,
-                timeout_secs: timeout,
-                settle_ms: settle,
-                mode: bridge::FetchMode::Content { include_a11y: false },
-                user_agent: user_agent.as_deref(),
-            })
-        })
-        .await
-        {
-            Ok(Ok(p)) => p,
-            result => {
-                let msg = match result {
-                    Ok(Err(e)) => format!("{e:#}"),
-                    Err(e) => format!("{e}"),
-                    Ok(Ok(_)) => unreachable!(),
-                };
+        let FetchOutcome { url, depth, result } = outcome;
+        let page = match result {
+            Ok(p) => p,
+            Err(msg) => {
                 let r = error_result(&url, depth, msg);
                 on_page(&r);
                 results.push(r);
@@ -160,66 +165,116 @@ pub(crate) async fn run(
             }
         };
 
-        let html = if page.html.len() > MAX_HTML_BYTES {
-            &page.html[..crate::sanitize::floor_char_boundary(&page.html, MAX_HTML_BYTES)]
-        } else {
-            &page.html
-        };
-
-        let input = crate::extract::ExtractInput::new(html, url.as_str())
-            .with_layout_json(page.layout_json.as_deref())
-            .with_inner_text(page.inner_text.as_deref())
-            .with_selector(opts.selector.as_deref());
-
-        let content = if opts.json {
-            crate::extract::extract_json(&input).ok()
-        } else {
-            crate::extract::extract_text(&input).ok()
-        };
-
-        if content.as_ref().is_some_and(|c| frontier.is_duplicate_content(c)) {
-            continue;
+        // +1 counts the current page, which is about to be pushed.
+        let budget_used = results.len() + in_flight.len() + 1;
+        if let Some(r) = process_ok_fetch(&url, depth, &page, &mut frontier, &robots, &opts, budget_used) {
+            on_page(&r);
+            results.push(r);
         }
-
-        let links = extract_links_from_html(html, &url);
-        let links_found = links.len();
-
-        if depth < opts.max_depth {
-            for link in &links {
-                if results.len() + frontier.pending() >= opts.limit {
-                    break;
-                }
-                if !is_same_site(&opts.seed, link)
-                    || net::validate_url(link.as_str(), bridge::engine_policy()).is_err()
-                    || !robots.is_allowed(link)
-                    || !matches_scope(link, opts.include.as_ref(), opts.exclude.as_ref())
-                {
-                    continue;
-                }
-                frontier.try_enqueue(link.clone(), depth + 1);
-            }
-        }
-
-        let title = {
-            let doc = dom_query::Document::from(html);
-            let t = doc.select("title").text().to_string();
-            (!t.is_empty()).then_some(t)
-        };
-
-        let r = CrawlPageResult {
-            url: url.to_string(),
-            depth,
-            status: CrawlStatus::Ok,
-            title,
-            content: content.map(|c| crate::sanitize::sanitize(&c).into_owned()),
-            error: None,
-            links_found,
-        };
-        on_page(&r);
-        results.push(r);
     }
 
     results
+}
+
+fn spawn_fetch(
+    in_flight: &mut JoinSet<FetchOutcome>,
+    fetcher: &(impl PageFetcher + Clone),
+    opts: &CrawlOptions,
+    url: Url,
+    depth: usize,
+) {
+    let url_str = url.to_string();
+    let timeout = opts.timeout_secs;
+    let settle = opts.settle_ms;
+    let user_agent = opts.user_agent.clone();
+    let f = fetcher.clone();
+    in_flight.spawn_blocking(move || FetchOutcome {
+        url,
+        depth,
+        result: f
+            .fetch_page(bridge::FetchOptions {
+                url: &url_str,
+                timeout_secs: timeout,
+                settle_ms: settle,
+                mode: bridge::FetchMode::Content { include_a11y: false },
+                user_agent: user_agent.as_deref(),
+            })
+            .map_err(|e| format!("{e:#}")),
+    });
+}
+
+/// Build a `CrawlPageResult` and enqueue discovered links.
+fn process_ok_fetch(
+    url: &Url,
+    depth: usize,
+    page: &bridge::ServoPage,
+    frontier: &mut Frontier,
+    robots: &RobotsPolicy,
+    opts: &CrawlOptions,
+    budget_used: usize,
+) -> Option<CrawlPageResult> {
+    let html = if page.html.len() > MAX_HTML_BYTES {
+        &page.html[..crate::sanitize::floor_char_boundary(&page.html, MAX_HTML_BYTES)]
+    } else {
+        &page.html
+    };
+
+    let input = crate::extract::ExtractInput::new(html, url.as_str())
+        .with_layout_json(page.layout_json.as_deref())
+        .with_inner_text(page.inner_text.as_deref())
+        .with_selector(opts.selector.as_deref());
+
+    let content = if opts.json {
+        crate::extract::extract_json(&input).ok()
+    } else {
+        crate::extract::extract_text(&input).ok()
+    };
+
+    if content.as_ref().is_some_and(|c| frontier.is_duplicate_content(c)) {
+        return None;
+    }
+
+    let links = extract_links_from_html(html, url);
+    let links_found = links.len();
+
+    if depth < opts.max_depth {
+        for link in &links {
+            if budget_used + frontier.pending() >= opts.limit {
+                break;
+            }
+            if !is_same_site(&opts.seed, link)
+                || net::validate_url(link.as_str(), bridge::engine_policy()).is_err()
+                || !robots.is_allowed(link)
+                || !matches_scope(link, opts.include.as_ref(), opts.exclude.as_ref())
+            {
+                continue;
+            }
+            frontier.try_enqueue(link.clone(), depth + 1);
+        }
+    }
+
+    let title = {
+        let doc = dom_query::Document::from(html);
+        let t = doc.select("title").text().to_string();
+        (!t.is_empty()).then_some(t)
+    };
+
+    Some(CrawlPageResult {
+        url: url.to_string(),
+        depth,
+        status: CrawlStatus::Ok,
+        title,
+        content: content.map(|c| crate::sanitize::sanitize(&c).into_owned()),
+        error: None,
+        links_found,
+    })
+}
+
+/// Fetch result crossing the `JoinSet` boundary; error is pre-stringified for `Send`.
+struct FetchOutcome {
+    url: Url,
+    depth: usize,
+    result: Result<bridge::ServoPage, String>,
 }
 
 fn error_result(url: &Url, depth: usize, error: String) -> CrawlPageResult {
@@ -272,8 +327,12 @@ mod tests {
         format!("<html><head><title>Test</title></head><body>{anchors}</body></html>")
     }
 
-    /// Shared test helper following the matklad `check` pattern.
-    /// Encapsulates all crawl API surface so tests only express data + diff + assertion.
+    /// Leaf page with unique body to avoid content-hash dedup.
+    fn distinct_page(tag: &str) -> String {
+        format!("<html><head><title>{tag}</title></head><body>page {tag}</body></html>")
+    }
+
+    /// Test helper: build `CrawlOptions`, run, assert. `delay=None` keeps tests fast.
     async fn check(
         pages: &[(&str, &str)],
         configure: impl FnOnce(&mut CrawlOptions),
@@ -292,6 +351,8 @@ mod tests {
             selector: None,
             json: false,
             user_agent: None,
+            concurrency: 1,
+            delay: None,
         };
         configure(&mut opts);
         let results = run(opts, RobotsPolicy::Unavailable, &fetcher, |_| {}).await;
@@ -449,6 +510,96 @@ mod tests {
             |r| assert_eq!(r.len(), 2),
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_concurrency_visits_all_pages() {
+        check(
+            &[
+                ("https://example.com/", &page(&["/a", "/b", "/c", "/d"])),
+                ("https://example.com/a", &distinct_page("a")),
+                ("https://example.com/b", &distinct_page("b")),
+                ("https://example.com/c", &distinct_page("c")),
+                ("https://example.com/d", &distinct_page("d")),
+            ],
+            |o| o.concurrency = 4,
+            |r| {
+                assert_eq!(r.len(), 5);
+                let urls: HashSet<&str> = r.iter().map(|p| p.url.as_str()).collect();
+                for u in [
+                    "https://example.com/",
+                    "https://example.com/a",
+                    "https://example.com/b",
+                    "https://example.com/c",
+                    "https://example.com/d",
+                ] {
+                    assert!(urls.contains(u), "missing {u}");
+                }
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_concurrency_respects_limit() {
+        check(
+            &[
+                ("https://example.com/", &page(&["/a", "/b", "/c", "/d"])),
+                ("https://example.com/a", &distinct_page("a")),
+                ("https://example.com/b", &distinct_page("b")),
+                ("https://example.com/c", &distinct_page("c")),
+                ("https://example.com/d", &distinct_page("d")),
+            ],
+            |o| {
+                o.concurrency = 4;
+                o.limit = 3;
+            },
+            |r| assert_eq!(r.len(), 3),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_concurrency_one_preserves_bfs_order() {
+        check(
+            &[
+                ("https://example.com/", &page(&["/a", "/b"])),
+                ("https://example.com/a", &distinct_page("a")),
+                ("https://example.com/b", &distinct_page("b")),
+            ],
+            |o| o.concurrency = 1,
+            |r| {
+                assert_eq!(r.len(), 3);
+                assert_eq!(r[0].url, "https://example.com/");
+                assert_eq!(r[1].url, "https://example.com/a");
+                assert_eq!(r[2].url, "https://example.com/b");
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn crawl_delay_enforces_minimum_interval() {
+        // 3 pages at 500ms delay = 2 ticks >= 1s (first dispatch is free).
+        let start = tokio::time::Instant::now();
+        check(
+            &[
+                ("https://example.com/", &page(&["/a", "/b"])),
+                ("https://example.com/a", &distinct_page("a")),
+                ("https://example.com/b", &distinct_page("b")),
+            ],
+            |o| {
+                o.concurrency = 1;
+                o.delay = Some(Duration::from_millis(500));
+            },
+            |r| assert_eq!(r.len(), 3),
+        )
+        .await;
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed >= Duration::from_secs(1),
+            "expected >= 1s for 3 pages with 500ms delay, got {elapsed:?}"
+        );
     }
 
     #[test]

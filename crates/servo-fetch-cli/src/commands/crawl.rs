@@ -11,7 +11,13 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
         .limit(args.limit)
         .max_depth(args.max_depth)
         .timeout(std::time::Duration::from_secs(args.timeout))
-        .settle(std::time::Duration::from_millis(args.settle));
+        .settle(std::time::Duration::from_millis(args.settle))
+        .concurrency(usize::try_from(args.concurrency).unwrap_or(usize::MAX))
+        .delay(if args.delay_ms == 0 {
+            None
+        } else {
+            Some(std::time::Duration::from_millis(args.delay_ms))
+        });
     let opts = if args.include.is_empty() {
         opts
     } else {

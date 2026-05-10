@@ -305,6 +305,8 @@ pub struct CrawlOptions {
     pub(crate) selector: Option<String>,
     pub(crate) json: bool,
     pub(crate) user_agent: Option<String>,
+    pub(crate) concurrency: usize,
+    pub(crate) delay: Option<Duration>,
 }
 
 impl CrawlOptions {
@@ -321,6 +323,8 @@ impl CrawlOptions {
             selector: None,
             json: false,
             user_agent: None,
+            concurrency: 1,
+            delay: Some(Duration::from_millis(500)),
         }
     }
 
@@ -375,6 +379,19 @@ impl CrawlOptions {
     /// Override the User-Agent string for all pages in this crawl.
     pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
         self.user_agent = Some(sanitize_user_agent(ua.into()));
+        self
+    }
+
+    /// Maximum parallel fetches (default: 1). Values below 1 are clamped to 1.
+    /// Results are yielded in completion order when greater than 1.
+    pub fn concurrency(mut self, n: usize) -> Self {
+        self.concurrency = n.max(1);
+        self
+    }
+
+    /// Minimum dispatch interval (default: `Some(500ms)`). `None` disables rate limiting.
+    pub fn delay(mut self, delay: Option<Duration>) -> Self {
+        self.delay = delay;
         self
     }
 }
@@ -685,6 +702,8 @@ fn build_crawl_options(opts: &CrawlOptions) -> crate::error::Result<crate::crawl
         selector: opts.selector.clone(),
         json: opts.json,
         user_agent: opts.user_agent.clone(),
+        concurrency: opts.concurrency,
+        delay: opts.delay,
     })
 }
 
@@ -731,6 +750,8 @@ mod tests {
         assert_eq!(opts.timeout, Duration::from_secs(30));
         assert!(opts.include.is_empty());
         assert!(opts.exclude.is_empty());
+        assert_eq!(opts.concurrency, 1);
+        assert_eq!(opts.delay, Some(Duration::from_millis(500)));
     }
 
     #[test]
@@ -740,11 +761,27 @@ mod tests {
             .max_depth(5)
             .timeout(Duration::from_secs(60))
             .include(&["/docs/**"])
-            .exclude(&["/docs/archive/**"]);
+            .exclude(&["/docs/archive/**"])
+            .concurrency(4)
+            .delay(None);
         assert_eq!(opts.limit, 100);
         assert_eq!(opts.max_depth, 5);
         assert_eq!(opts.include, vec!["/docs/**"]);
         assert_eq!(opts.exclude, vec!["/docs/archive/**"]);
+        assert_eq!(opts.concurrency, 4);
+        assert_eq!(opts.delay, None);
+    }
+
+    #[test]
+    fn crawl_options_concurrency_clamps_below_one() {
+        let opts = CrawlOptions::new("https://example.com").concurrency(0);
+        assert_eq!(opts.concurrency, 1);
+    }
+
+    #[test]
+    fn crawl_options_delay_custom_value() {
+        let opts = CrawlOptions::new("https://example.com").delay(Some(Duration::from_secs(2)));
+        assert_eq!(opts.delay, Some(Duration::from_secs(2)));
     }
 
     #[test]

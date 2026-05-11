@@ -224,6 +224,8 @@ jobs:
       id-token: write
     env:
       VERSION: ${{ needs.create-release.outputs.version }}
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -283,9 +285,38 @@ jobs:
         run: |
           cosign sign --yes --recursive "ghcr.io/${{ github.repository }}@${DIGEST}"
 
+  trivy-scan:
+    name: Scan Docker image
+    needs: [publish-docker]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      security-events: write
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ github.repository }}@${{ needs.publish-docker.outputs.digest }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          format: sarif
+          output: trivy-results.sarif
+          limit-severities-for-sarif: true
+        env:
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
+          TRIVY_DISABLE_VEX_NOTICE: "true"
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+
   publish-release:
     name: Publish Release
-    needs: [create-release, build-release, publish-crate, publish-docker]
+    needs: [create-release, build-release, publish-crate, publish-docker, trivy-scan]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

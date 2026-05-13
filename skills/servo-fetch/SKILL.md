@@ -128,6 +128,7 @@ servo-fetch URL1 URL2 --json                       # Parallel batch (NDJSON)
 servo-fetch https://example.com --screenshot out.png
 servo-fetch https://example.com --js "document.title"
 servo-fetch https://example.com --selector article
+servo-fetch https://example.com --schema schema.json  # Schema-driven JSON
 servo-fetch https://example.com --raw html         # Raw HTML
 servo-fetch https://example.com --raw text         # Plain text
 servo-fetch https://example.com -t 60              # Custom timeout

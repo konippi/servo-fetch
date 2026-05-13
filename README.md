@@ -28,6 +28,7 @@ let md = servo_fetch::markdown("https://example.com")?;  // Library: one-liner
 - **Zero dependencies** — single binary, no Chromium, no API key
 - **Real JS execution** — SpiderMonkey runs JavaScript, parallel CSS engine computes layout
 - **Layout-aware extraction** — strips navbars, sidebars, footers by actual rendered position
+- **Schema-driven JSON** — declarative CSS-selector schema pulls structured data
 - **Parallel batch fetch** — multiple URLs fetched concurrently
 - **Site crawling** — BFS link traversal with robots.txt, same-site scope, and rate limiting
 - **URL discovery** — sitemap-based URL mapping without rendering (fast, lightweight)
@@ -91,6 +92,7 @@ servo-fetch "https://example.com"                        # Markdown (default)
 servo-fetch "https://example.com" --json                 # Structured JSON
 servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot
 servo-fetch "https://example.com" --js "document.title"  # Run JavaScript
+servo-fetch "https://example.com" --schema schema.json   # Schema-driven JSON
 servo-fetch URL1 URL2 URL3                               # Parallel batch
 servo-fetch crawl "https://docs.example.com" --limit 20  # Crawl a site
 servo-fetch map "https://example.com"                    # Discover URLs via sitemap

@@ -68,6 +68,30 @@ fetch(url: "https://example.com", selector: "article")
 fetch(url: "https://example.com", selector: ".main-content", format: "json")
 ```
 
+## Schema extraction
+
+For structured data (product catalogs, listings, comment threads), use `--schema` on the CLI with a schema file. No LLM required — selectors pull fields declaratively.
+
+```bash
+servo-fetch "https://shop.example.com" --schema schema.json
+servo-fetch URL1 URL2 --schema schema.json    # batch → NDJSON
+```
+
+Schema:
+
+```json
+{
+  "base_selector": ".product",
+  "fields": [
+    { "name": "title", "selector": "h2", "type": "text" },
+    { "name": "price", "selector": ".price", "type": "text" },
+    { "name": "url", "selector": "a", "type": "attribute", "attribute": "href" }
+  ]
+}
+```
+
+Field `type` values: `text`, `attribute`, `html`, `inner_html`, `nested_list`. An empty selector (`""`) reads from the matched element itself — handy inside `nested_list` when you want each item's own text or attribute. Schema selectors are validated at load time.
+
 ## Troubleshooting
 
 | Symptom | Solution |

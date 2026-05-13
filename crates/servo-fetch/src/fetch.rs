@@ -26,6 +26,9 @@ pub struct Page {
     /// Accessibility tree (AccessKit), if requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accessibility_tree: Option<String>,
+    /// Structured data extracted via [`FetchOptions::schema`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extracted: Option<serde_json::Value>,
     #[serde(skip)]
     screenshot_png: Option<Vec<u8>>,
 }
@@ -115,6 +118,7 @@ impl Page {
                 .collect(),
             screenshot_png,
             accessibility_tree: page.accessibility_tree,
+            extracted: None,
         }
     }
 }
@@ -188,6 +192,7 @@ pub struct FetchOptions {
     pub(crate) settle: Duration,
     pub(crate) mode: FetchMode,
     pub(crate) user_agent: Option<String>,
+    pub(crate) extract_schema: Option<crate::schema::ExtractSchema>,
 }
 
 impl FetchOptions {
@@ -199,6 +204,7 @@ impl FetchOptions {
             settle: Duration::ZERO,
             mode: FetchMode::Content,
             user_agent: None,
+            extract_schema: None,
         }
     }
 
@@ -233,6 +239,12 @@ impl FetchOptions {
     /// Override the User-Agent string for this request.
     pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
         self.user_agent = Some(sanitize_user_agent(ua.into()));
+        self
+    }
+
+    /// Extract structured data from the rendered page using the given schema.
+    pub fn schema(mut self, schema: crate::schema::ExtractSchema) -> Self {
+        self.extract_schema = Some(schema);
         self
     }
 }
@@ -281,7 +293,11 @@ pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
         }
     })?;
 
-    Ok(Page::from_servo(servo_page))
+    let mut page = Page::from_servo(servo_page);
+    if let Some(schema) = opts.extract_schema.as_ref() {
+        page.extracted = Some(schema.extract_from(&page.html));
+    }
+    Ok(page)
 }
 
 /// Fetch a URL and return readable Markdown.

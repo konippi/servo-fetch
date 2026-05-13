@@ -10,6 +10,7 @@
 
 pub mod extract;
 pub mod sanitize;
+pub mod schema;
 
 pub(crate) mod bridge;
 pub(crate) mod crawl;

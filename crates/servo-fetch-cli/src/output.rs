@@ -98,6 +98,33 @@ impl JsEval<'_> {
     }
 }
 
+pub(crate) struct Extracted<'a> {
+    pub page: &'a Page,
+    pub url: &'a str,
+}
+
+impl Extracted<'_> {
+    pub(crate) fn execute(&self) -> Result<()> {
+        let body = serde_json::to_string_pretty(&self.payload())?;
+        writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&body))?;
+        Ok(())
+    }
+
+    /// Emit a single-line NDJSON record for batch output.
+    pub(crate) fn execute_compact(&self) -> Result<()> {
+        let line = serde_json::to_string(&self.payload())?;
+        writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(&line))?;
+        Ok(())
+    }
+
+    fn payload(&self) -> serde_json::Value {
+        serde_json::json!({
+            "url": self.url,
+            "extracted": self.page.extracted.as_ref().unwrap_or(&serde_json::Value::Null),
+        })
+    }
+}
+
 pub(crate) struct Raw<'a> {
     pub page: &'a Page,
     pub mode: &'a crate::cli::RawMode,

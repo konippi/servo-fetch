@@ -60,6 +60,28 @@ servo-fetch "https://example.com" --selector "article"
 servo-fetch "https://example.com" --selector ".main-content" --json
 ```
 
+### Structured extraction (schema)
+
+Pull a declarative set of fields into JSON using CSS selectors — no LLM required. Define a schema once, reuse it across URLs:
+
+```bash
+servo-fetch "https://shop.example.com" --schema schema.json
+servo-fetch URL1 URL2 URL3 --schema schema.json     # batch → NDJSON
+```
+
+```json
+{
+  "base_selector": ".product",
+  "fields": [
+    { "name": "title", "selector": "h2", "type": "text" },
+    { "name": "price", "selector": ".price", "type": "text" },
+    { "name": "url", "selector": "a", "type": "attribute", "attribute": "href" }
+  ]
+}
+```
+
+Field `type` values: `text`, `attribute`, `html`, `inner_html`, `nested_list`. See [`servo_fetch::schema`](https://docs.rs/servo-fetch/latest/servo_fetch/schema/) for the full reference.
+
 ### Crawl a site
 
 ```bash
@@ -108,6 +130,7 @@ See [HTTP API server](#http-api-server) below for the endpoint reference.
 | `--js <EXPR>` | Execute JavaScript and print result |
 | `--selector <CSS>` | Extract specific section by CSS selector |
 | `--raw html\|text` | Raw HTML or plain text output |
+| `--schema <FILE>` | Extract structured JSON using a CSS-selector schema file |
 | `-t, --timeout <SECS>` | Page load timeout in seconds (default: 30) |
 | `--settle <MS>` | Extra wait after load event in ms (default: 0, max: 10000) |
 | `--user-agent <UA>` | Override the User-Agent string |

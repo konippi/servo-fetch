@@ -30,7 +30,7 @@ fn run_single(args: &FetchArgs, url_str: &str) -> Result<()> {
     let progress = Progress::new();
     progress.ticker(&format!("Fetching {url_str}..."));
 
-    let opts = build_fetch_options(args, url_str);
+    let opts = build_fetch_options(args, url_str)?;
     let page = servo_fetch::fetch(opts).map_err(anyhow::Error::from);
     progress.clear();
     let page = page?;
@@ -42,6 +42,8 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
     let progress = Progress::new();
     progress.header(&format!("Fetching {total} URLs..."));
 
+    let schema = args.schema.as_ref().map(|p| load_schema(p)).transpose()?;
+
     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, std::result::Result<Page, servo_fetch::Error>)>(total);
 
@@ -52,14 +54,17 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
         let timeout = args.timeout;
         let settle = args.settle;
         let user_agent = args.user_agent.clone();
+        let schema = schema.clone();
         tokio::task::spawn_blocking(move || {
-            let opts = FetchOptions::new(&url_str)
+            let mut opts = FetchOptions::new(&url_str)
                 .timeout(Duration::from_secs(timeout))
                 .settle(Duration::from_millis(settle));
-            let opts = match user_agent {
-                Some(ua) => opts.user_agent(ua),
-                None => opts,
-            };
+            if let Some(ua) = user_agent {
+                opts = opts.user_agent(ua);
+            }
+            if let Some(s) = schema {
+                opts = opts.schema(s);
+            }
             let result = servo_fetch::fetch(opts);
             let _ = tx.blocking_send((url_str, result));
             drop(permit);
@@ -90,6 +95,9 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
 }
 
 fn batch_emit(args: &FetchArgs, page: &Page, url: &str) -> Result<()> {
+    if args.schema.is_some() {
+        return output::Extracted { page, url }.execute_compact();
+    }
     if args.json {
         output::Json {
             page,
@@ -120,6 +128,9 @@ fn dispatch_output(args: &FetchArgs, page: &Page, url: &str) -> Result<()> {
     if let Some(mode) = args.raw.as_ref() {
         return output::Raw { page, mode }.execute();
     }
+    if args.schema.is_some() {
+        return output::Extracted { page, url }.execute();
+    }
     let selector = args.selector.as_deref();
     if args.json {
         output::Json { page, url, selector }.execute()
@@ -128,7 +139,7 @@ fn dispatch_output(args: &FetchArgs, page: &Page, url: &str) -> Result<()> {
     }
 }
 
-fn build_fetch_options(args: &FetchArgs, url: &str) -> FetchOptions {
+fn build_fetch_options(args: &FetchArgs, url: &str) -> Result<FetchOptions> {
     let base = if args.screenshot.is_some() {
         FetchOptions::screenshot(url, args.full_page)
     } else if let Some(expr) = args.js.as_deref() {
@@ -139,8 +150,17 @@ fn build_fetch_options(args: &FetchArgs, url: &str) -> FetchOptions {
     let opts = base
         .timeout(Duration::from_secs(args.timeout))
         .settle(Duration::from_millis(args.settle));
-    match args.user_agent {
+    let opts = match args.user_agent {
         Some(ref ua) => opts.user_agent(ua),
         None => opts,
-    }
+    };
+    let opts = match args.schema {
+        Some(ref path) => opts.schema(load_schema(path)?),
+        None => opts,
+    };
+    Ok(opts)
+}
+
+fn load_schema(path: &std::path::Path) -> Result<servo_fetch::schema::ExtractSchema> {
+    servo_fetch::schema::ExtractSchema::from_path(path).map_err(|e| anyhow::anyhow!("schema '{}': {e}", path.display()))
 }

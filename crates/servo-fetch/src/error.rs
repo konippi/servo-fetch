@@ -47,6 +47,10 @@ pub enum Error {
     #[error(transparent)]
     Extract(#[from] crate::extract::ExtractError),
 
+    /// Schema-based structured extraction failed.
+    #[error(transparent)]
+    Schema(#[from] crate::schema::SchemaError),
+
     /// An I/O error occurred.
     #[error(transparent)]
     Io(#[from] std::io::Error),

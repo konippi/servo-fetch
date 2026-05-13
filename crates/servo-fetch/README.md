@@ -12,6 +12,7 @@ Looking for the CLI? See [`servo-fetch-cli`](https://crates.io/crates/servo-fetc
 
 - **Real JS execution** — SpiderMonkey runs JavaScript, parallel CSS engine computes layout
 - **Layout-aware extraction** — strips navbars, sidebars, footers by rendered position
+- **Schema-driven JSON** — declarative CSS-selector schema pulls structured data, no LLM
 - **Sync API** — no async runtime required; wrap with `spawn_blocking` for async contexts
 - **PDF auto-detection** — URLs returning PDF are automatically extracted as text
 - **Typed errors** — `Error::Timeout`, `Error::InvalidUrl`, etc. for match-based retry logic
@@ -75,6 +76,35 @@ crawl_each(
 )?;
 ```
 
+### Schema-driven JSON extraction
+
+```rust
+use servo_fetch::{fetch, FetchOptions};
+use servo_fetch::schema::ExtractSchema;
+
+// Load a schema from a file...
+let product_schema = ExtractSchema::from_path("schema.json")?;
+
+// ...or from an inline string.
+let product_schema = ExtractSchema::from_json(r#"{
+    "base_selector": ".product",
+    "fields": [
+        { "name": "title", "selector": "h2", "type": "text" },
+        { "name": "price", "selector": ".price", "type": "text" }
+    ]
+}"#)?;
+
+let page = fetch(FetchOptions::new("https://shop.example.com").schema(product_schema))?;
+if let Some(value) = &page.extracted {
+    println!("{}", serde_json::to_string_pretty(value)?);
+}
+```
+
+Field `type` values: `text`, `attribute`, `html`, `inner_html`, `nested_list`.
+An empty `selector` (`""`) reads from the matched element itself — useful
+inside `nested_list` to grab each item's own text or attribute. For
+programmatic construction, see [`ExtractSchema::builder()`].
+
 ### Error handling
 
 ```rust
@@ -113,6 +143,7 @@ let page = tokio::task::spawn_blocking(|| {
 | `crawl(opts)` | Crawl site → `Vec<CrawlResult>` |
 | `crawl_each(opts, cb)` | Crawl site, streaming results |
 | `map(opts)` | Discover URLs via sitemaps → `Vec<MappedUrl>` |
+| `schema.extract_from(html)` | Apply a CSS-selector schema to HTML → `serde_json::Value` |
 
 See [docs.rs](https://docs.rs/servo-fetch) for the full API reference and [`examples/`](examples/) for complete runnable programs.
 

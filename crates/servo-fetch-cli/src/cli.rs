@@ -69,6 +69,10 @@ pub(crate) struct FetchArgs {
     /// Override the User-Agent string
     #[arg(long, value_name = "UA")]
     pub user_agent: Option<String>,
+
+    /// Path to a CSS-selector schema file for structured JSON extraction
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["screenshot", "js", "raw", "selector"])]
+    pub schema: Option<std::path::PathBuf>,
 }
 
 /// Raw output mode.
@@ -251,5 +255,14 @@ mod cli_tests {
             .assert()
             .failure()
             .stderr(predicate::str::contains("--screenshot"));
+    }
+
+    #[test]
+    fn schema_conflicts_with_selector() {
+        servo_fetch()
+            .args(["--schema", "s.json", "--selector", "div", "https://example.com"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("cannot be used with"));
     }
 }

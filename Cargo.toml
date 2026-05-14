@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*"]
+members = ["crates/*", "bindings/*"]
 default-members = ["crates/servo-fetch-cli"]
 resolver = "3"
 

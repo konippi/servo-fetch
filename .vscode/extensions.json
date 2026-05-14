@@ -1,6 +1,10 @@
 {
     "recommendations": [
         "rust-lang.rust-analyzer",
-        "tamasfe.even-better-toml"
+        "tamasfe.even-better-toml",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "astral-sh.ty"
     ]
 }

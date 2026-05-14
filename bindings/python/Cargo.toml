@@ -1,0 +1,23 @@
+[package]
+name = "servo-fetch-python"
+description = "Python bindings for servo-fetch"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["abi3-py310"] }
+pythonize = "0.28"
+servo-fetch = { workspace = true }
+serde_json = { workspace = true }
+url = "2"

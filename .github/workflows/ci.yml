@@ -254,13 +254,13 @@ jobs:
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
       - name: ruff check
         working-directory: bindings/python
-        run: uv run ruff check python tests
+        run: uv run --no-project --with ruff ruff check python tests
       - name: ruff format
         working-directory: bindings/python
-        run: uv run ruff format --check python tests
+        run: uv run --no-project --with ruff ruff format --check python tests
       - name: ty check
         working-directory: bindings/python
-        run: uv run ty check python
+        run: uv run --no-project --with ty ty check python
 
   python-test:
     name: Python Test

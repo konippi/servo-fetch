@@ -293,6 +293,9 @@ jobs:
             libssl-dev libglib2.0-dev libegl1-mesa-dev
       - name: Build + Test
         working-directory: bindings/python
+        env:
+          # Servo's .so uses large static TLS; expand glibc's default allocation.
+          GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
         run: |
           uv sync --group test
           uv run maturin develop

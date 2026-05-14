@@ -72,3 +72,13 @@ uv run pytest                    # run tests
 uv run ruff check python tests   # lint
 uv run ty check python           # type check
 ```
+
+## Troubleshooting
+
+### Linux: "cannot allocate memory in static TLS block"
+
+Servo's native extension uses large thread-local storage. On some Linux systems, set before importing:
+
+```bash
+export GLIBC_TUNABLES=glibc.rtld.optional_static_tls=16384
+```

@@ -51,9 +51,7 @@ def test_schema_extract_thread_safe() -> None:
 
 def test_schema_base_selector_thread_safe() -> None:
     """Verify base_selector path is also thread-safe."""
-    schema = Schema.from_dict(
-        {"base_selector": "li", "fields": [{"name": "t", "selector": "", "type": "text"}]}
-    )
+    schema = Schema.from_dict({"base_selector": "li", "fields": [{"name": "t", "selector": "", "type": "text"}]})
     html = "<ul><li>a</li><li>b</li></ul>"
     expected = [{"t": "a"}, {"t": "b"}]
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:

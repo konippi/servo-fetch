@@ -51,13 +51,14 @@ jobs:
           manylinux: ${{ matrix.manylinux || 'auto' }}
           args: --release --strip --locked --manifest-path bindings/python/Cargo.toml
           before-script-linux: |
-            apt-get update
-            apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
-              libssl-dev libglib2.0-dev libegl1-mesa-dev
+            yum install -y cmake clang pkg-config fontconfig-devel freetype-devel \
+              openssl-devel glib2-devel mesa-libEGL-devel
 
       - name: Smoke test
         if: matrix.target == 'x86_64-unknown-linux-gnu' || (matrix.target == 'aarch64-apple-darwin' && runner.os == 'macOS')
         shell: bash
+        env:
+          GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
         run: |
           pip install --find-links target/wheels servo_fetch
           python -c "import servo_fetch; print(servo_fetch.__version__)"

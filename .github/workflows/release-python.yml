@@ -29,7 +29,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, manylinux: "2_28" }
-          - { os: ubuntu-24.04, target: aarch64-unknown-linux-gnu, manylinux: "2_28" }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, manylinux: "2_28" }
           - { os: macos-14, target: aarch64-apple-darwin }
           - { os: macos-14, target: x86_64-apple-darwin }
           - { os: windows-latest, target: x86_64-pc-windows-msvc }
@@ -51,7 +51,7 @@ jobs:
           manylinux: ${{ matrix.manylinux || 'auto' }}
           args: --release --strip --locked --manifest-path bindings/python/Cargo.toml
           before-script-linux: |
-            yum install -y cmake clang pkg-config fontconfig-devel freetype-devel \
+            dnf install -y cmake clang pkg-config fontconfig-devel freetype-devel \
               openssl-devel glib2-devel mesa-libEGL-devel
 
       - name: Smoke test

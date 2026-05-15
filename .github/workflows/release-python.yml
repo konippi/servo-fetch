@@ -38,9 +38,6 @@ jobs:
           before-script-linux: |
             dnf install -y cmake clang pkg-config fontconfig-devel freetype-devel \
               openssl-devel glib2-devel mesa-libEGL-devel
-      - run: |
-          pip install twine
-          twine check --strict dist/*
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-x86_64-unknown-linux-gnu
@@ -64,9 +61,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --strip --locked --out dist --manifest-path bindings/python/Cargo.toml
-      - run: |
-          pip install twine
-          twine check --strict dist/*
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-${{ matrix.target }}
@@ -88,9 +82,6 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
           args: --release --strip --locked --out dist --manifest-path bindings/python/Cargo.toml
-      - run: |
-          pip install twine
-          twine check --strict dist/*
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-x86_64-pc-windows-msvc

@@ -42,7 +42,7 @@ jobs:
           manylinux: "2_28"
           args: --release --strip --locked --out dist --manifest-path bindings/python/Cargo.toml
           before-script-linux: |
-            dnf install -y cmake pkg-config fontconfig-devel freetype-devel \
+            dnf install -y clang llvm cmake pkg-config fontconfig-devel freetype-devel \
               openssl-devel glib2-devel mesa-libEGL-devel
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

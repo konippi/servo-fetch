@@ -1,8 +1,17 @@
 {
     "rust-analyzer.checkOnSave": true,
     "rust-analyzer.check.command": "clippy",
+    "ty.diagnosticMode": "openFilesOnly",
     "[rust]": {
         "editor.defaultFormatter": "rust-lang.rust-analyzer",
         "editor.formatOnSave": true
+    },
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports.ruff": "explicit",
+            "source.fixAll.ruff": "explicit"
+        }
     }
 }

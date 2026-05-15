@@ -30,6 +30,7 @@ jobs:
           filters: |
             code:
               - 'crates/**'
+              - 'bindings/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'deny.toml'
@@ -40,8 +41,8 @@ jobs:
               - '.config/nextest.toml'
               - '.github/workflows/ci.yml'
 
-  clippy:
-    name: Clippy
+  cargo-clippy:
+    name: cargo clippy
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
@@ -72,8 +73,8 @@ jobs:
         if: always()
         run: sccache --show-stats
 
-  test:
-    name: Test
+  cargo-test:
+    name: cargo test
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
@@ -115,7 +116,7 @@ jobs:
         if: always()
         run: sccache --show-stats
 
-  fmt:
+  cargo-fmt:
     name: Format
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
@@ -150,7 +151,7 @@ jobs:
           tool: taplo-cli
       - run: taplo fmt --check --diff
 
-  deny:
+  cargo-deny:
     name: Licenses & Advisories
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
@@ -164,7 +165,7 @@ jobs:
           persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@91bf2b620e09e18d6eb78b92e7861937469acedb # v2.0.17
 
-  shear:
+  cargo-shear:
     name: Unused Dependencies
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
@@ -197,7 +198,7 @@ jobs:
 
   e2e:
     name: E2E
-    needs: [changes, test]
+    needs: [changes, cargo-test]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -238,10 +239,74 @@ jobs:
         if: always()
         run: sccache --show-stats
 
+  python-lint:
+    name: Python Lint
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - name: ruff check
+        working-directory: bindings/python
+        run: uv run --no-project --with ruff ruff check python tests
+      - name: ruff format
+        working-directory: bindings/python
+        run: uv run --no-project --with ruff ruff format --check python tests
+      - name: ty check
+        working-directory: bindings/python
+        run: uv run --no-project --with ty ty check python
+
+  python-test:
+    name: Python Test
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
+      CCACHE: sccache
+      RUSTFLAGS: -C debuginfo=0
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: "1.95.0"
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - name: Install servo build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
+            libssl-dev libglib2.0-dev libegl1-mesa-dev
+      - name: Build + Test
+        working-directory: bindings/python
+        env:
+          GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
+        run: |
+          uv sync --group test
+          uv run maturin develop
+          uv run pytest
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
+
   ci-passed:
     name: CI Passed
     if: '!cancelled()'
-    needs: [changes, clippy, test, e2e, fmt, taplo, deny, shear, typos]
+    needs: [changes, cargo-clippy, cargo-test, e2e, cargo-fmt, taplo, cargo-deny, cargo-shear, typos, python-lint, python-test]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

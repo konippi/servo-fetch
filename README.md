@@ -102,7 +102,7 @@ servo-fetch serve                                        # HTTP API server
 
 Full CLI reference → [`servo-fetch-cli`](crates/servo-fetch-cli/README.md)
 
-### Library
+### Rust
 
 ```bash
 cargo add servo-fetch
@@ -141,6 +141,33 @@ for u in &urls {
 ```
 
 Full API reference → [`servo-fetch`](crates/servo-fetch/README.md)
+
+### Python
+
+```bash
+pip install servo-fetch
+```
+
+```python
+import servo_fetch
+
+page = servo_fetch.fetch("https://example.com")
+print(page.markdown)
+
+# Schema extraction
+from servo_fetch import Schema, Field
+schema = Schema(
+    base_selector=".product",
+    fields=[
+        Field(name="title", selector="h2", type="text"),
+        Field(name="price", selector=".price", type="text"),
+    ],
+)
+page = servo_fetch.fetch("https://shop.example.com", schema=schema)
+print(page.extracted)
+```
+
+Full API reference → [`bindings/python`](bindings/python/README.md)
 
 ## MCP Server
 

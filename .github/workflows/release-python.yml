@@ -20,7 +20,7 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
-  build:
+  build-linux:
     name: Build / ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -28,46 +28,88 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, manylinux: "2_28" }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, manylinux: "2_28" }
-          - { os: macos-14, target: aarch64-apple-darwin }
-          - { os: macos-14, target: x86_64-apple-darwin }
-          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-
-      - name: Set LIBCLANG_PATH (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: printf 'LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin\n' >> "$GITHUB_ENV"
-
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
+            libssl-dev libglib2.0-dev libegl1-mesa-dev
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           target: ${{ matrix.target }}
-          manylinux: ${{ matrix.manylinux || 'auto' }}
+          container: "off"
+          manylinux: "2_28"
           args: --release --strip --locked --manifest-path bindings/python/Cargo.toml
-          before-script-linux: |
-            dnf install -y cmake clang pkg-config fontconfig-devel freetype-devel \
-              openssl-devel glib2-devel mesa-libEGL-devel gcc-toolset-15-gcc gcc-toolset-15-gcc-c++
-            export CC=/opt/rh/gcc-toolset-15/root/usr/bin/gcc
-            export CXX=/opt/rh/gcc-toolset-15/root/usr/bin/g++
-
       - name: Smoke test
-        if: matrix.target == 'x86_64-unknown-linux-gnu' || (matrix.target == 'aarch64-apple-darwin' && runner.os == 'macOS')
-        shell: bash
         env:
           GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
         run: |
           pip install --find-links target/wheels servo_fetch
           python -c "import servo_fetch; print(servo_fetch.__version__)"
-
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-${{ matrix.target }}
+          path: target/wheels/*.whl
+
+  build-macos:
+    name: Build / ${{ matrix.target }}
+    runs-on: macos-14
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin }
+          - { target: x86_64-apple-darwin }
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --strip --locked --manifest-path bindings/python/Cargo.toml
+      - name: Smoke test
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: |
+          pip install --find-links target/wheels servo_fetch
+          python -c "import servo_fetch; print(servo_fetch.__version__)"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-${{ matrix.target }}
+          path: target/wheels/*.whl
+
+  build-windows:
+    name: Build / x86_64-pc-windows-msvc
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      LIBCLANG_PATH: "C:\\Program Files\\LLVM\\bin"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        with:
+          target: x86_64-pc-windows-msvc
+          args: --release --strip --locked --manifest-path bindings/python/Cargo.toml
+      - name: Smoke test
+        run: |
+          pip install --find-links target/wheels servo_fetch
+          python -c "import servo_fetch; print(servo_fetch.__version__)"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-x86_64-pc-windows-msvc
           path: target/wheels/*.whl
 
   sdist:
@@ -91,7 +133,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: [build, sdist]
+    needs: [build-linux, build-macos, build-windows, sdist]
     if: startsWith(github.ref, 'refs/tags/') && !inputs.dry-run
     runs-on: ubuntu-24.04
     timeout-minutes: 10

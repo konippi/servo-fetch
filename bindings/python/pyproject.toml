@@ -9,6 +9,7 @@ description = "Browser engine in a library — fetch, render, and extract web co
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [{ name = "konippi" }]
 keywords = ["servo", "browser", "scraping", "extraction", "fetch"]
 classifiers = [

@@ -15,16 +15,19 @@ captures screenshots with a software renderer, and extracts clean content — av
 and a Python SDK.
 
 ```bash
-servo-fetch "https://example.com"                        # CLI: clean Markdown
-servo-fetch "https://example.com" --screenshot page.png  # CLI: PNG screenshot
+# CLI
+servo-fetch "https://example.com"                        # clean Markdown
+servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot
 ```
 
 ```rust
-let md = servo_fetch::markdown("https://example.com")?;  // Rust: one-liner
+// Rust
+let md = servo_fetch::markdown("https://example.com")?;
 ```
 
 ```python
-page = servo_fetch.fetch("https://example.com")          # Python: full page
+# Python
+page = servo_fetch.fetch("https://example.com")
 print(page.markdown)
 ```
 

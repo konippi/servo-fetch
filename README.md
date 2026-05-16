@@ -11,8 +11,8 @@
 </div>
 
 servo-fetch embeds the [Servo](https://servo.org/) browser engine. It executes JavaScript, computes CSS layout,
-captures screenshots with a software renderer, and extracts clean content — available as both a CLI tool and a
-Rust library.
+captures screenshots with a software renderer, and extracts clean content — available as a CLI, a Rust library,
+and a Python SDK.
 
 ```bash
 servo-fetch "https://example.com"                        # CLI: clean Markdown
@@ -20,7 +20,12 @@ servo-fetch "https://example.com" --screenshot page.png  # CLI: PNG screenshot
 ```
 
 ```rust
-let md = servo_fetch::markdown("https://example.com")?;  // Library: one-liner
+let md = servo_fetch::markdown("https://example.com")?;  // Rust: one-liner
+```
+
+```python
+page = servo_fetch.fetch("https://example.com")          # Python: full page
+print(page.markdown)
 ```
 
 ## Why servo-fetch
@@ -56,19 +61,21 @@ Methodology, three-axis breakdown, per-fixture F1, and raw JSON:
 
 ## Install
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/konippi/servo-fetch/main/install.sh | sh
-```
+| Interface | Install | Docs |
+|-----------|---------|------|
+| **CLI** | `curl -fsSL https://raw.githubusercontent.com/konippi/servo-fetch/main/install.sh \| sh` | [CLI docs](crates/servo-fetch-cli/README.md) |
+| **Rust** | `cargo add servo-fetch` | [Library docs](crates/servo-fetch/README.md) |
+| **Python** | `pip install servo-fetch` | [Python docs](bindings/python/README.md) |
 
-Or via [GitHub Releases](https://github.com/konippi/servo-fetch/releases), or with Cargo (requires Rust 1.86.0+):
+<details>
+<summary><b>CLI install alternatives</b></summary>
 
 ```bash
 cargo binstall servo-fetch-cli   # prebuilt binary
 cargo install servo-fetch-cli    # build from source
 ```
 
-<details>
-<summary><b>Platform notes</b></summary>
+Or download from [GitHub Releases](https://github.com/konippi/servo-fetch/releases).
 
 **Linux** — install runtime deps and use `xvfb-run` on headless servers:
 

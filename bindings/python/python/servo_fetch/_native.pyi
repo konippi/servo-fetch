@@ -1,29 +1,31 @@
 import os
 import threading
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import Any, Literal, final
 
 __version__: str
 
-ConsoleLevel = Literal["log", "info", "warn", "error", "debug"]
+ConsoleLevel = Literal["log", "debug", "info", "warn", "error", "trace"]
 FieldType = Literal["text", "attribute", "html", "inner_html", "nested_list"]
 
+@final
 class ConsoleMessage:
     @property
     def level(self) -> ConsoleLevel: ...
     @property
     def message(self) -> str: ...
 
+@final
 class Field:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         *,
         name: str,
         selector: str,
         type: FieldType,
         attribute: str | None = None,
         fields: list[Field] | None = None,
-    ) -> None: ...
+    ) -> Field: ...
     @property
     def name(self) -> str: ...
     @property
@@ -31,13 +33,14 @@ class Field:
     @property
     def type(self) -> FieldType: ...
 
+@final
 class Schema:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         *,
         base_selector: str | None = None,
         fields: list[Field] = ...,
-    ) -> None: ...
+    ) -> Schema: ...
     @staticmethod
     def from_dict(data: dict[str, Any]) -> Schema: ...
     @staticmethod
@@ -46,6 +49,7 @@ class Schema:
     def from_file(path: str | os.PathLike[str]) -> Schema: ...
     def extract(self, html: str) -> dict[str, Any] | list[dict[str, Any]]: ...
 
+@final
 class Page:
     @property
     def url(self) -> str: ...
@@ -68,6 +72,7 @@ class Page:
     def save_screenshot(self, path: str | os.PathLike[str]) -> None: ...
     def to_json(self) -> str: ...
 
+@final
 class CrawlResult:
     @property
     def url(self) -> str: ...
@@ -84,20 +89,22 @@ class CrawlResult:
     @property
     def ok(self) -> bool: ...
 
+@final
 class MappedUrl:
     @property
     def url(self) -> str: ...
     @property
     def lastmod(self) -> str | None: ...
 
+@final
 class Client:
-    def __init__(
-        self,
+    def __new__(
+        cls,
         *,
         timeout: float = 30.0,
         settle: float = 0.0,
         user_agent: str | None = None,
-    ) -> None: ...
+    ) -> Client: ...
     def fetch(
         self,
         url: str,

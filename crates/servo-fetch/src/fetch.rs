@@ -480,4 +480,158 @@ mod tests {
         let result = fetch(FetchOptions::new("file:///etc/passwd"));
         assert!(result.is_err());
     }
+
+    mod page_from_servo {
+        use super::super::*;
+        use crate::bridge;
+
+        fn synthetic_image(w: u32, h: u32) -> image::RgbaImage {
+            image::RgbaImage::from_pixel(w, h, image::Rgba([255, 0, 0, 255]))
+        }
+
+        fn empty_servo_page() -> bridge::ServoPage {
+            bridge::ServoPage::default()
+        }
+
+        #[test]
+        fn extracts_title_from_html() {
+            let mut sp = empty_servo_page();
+            sp.html = "<html><head><title>Hello World</title></head></html>".into();
+            let page = Page::from_servo(sp);
+            assert_eq!(page.title.as_deref(), Some("Hello World"));
+        }
+
+        #[test]
+        fn title_is_none_when_tag_missing() {
+            let mut sp = empty_servo_page();
+            sp.html = "<html><body>no title here</body></html>".into();
+            let page = Page::from_servo(sp);
+            assert!(page.title.is_none());
+        }
+
+        #[test]
+        fn title_is_none_when_tag_empty() {
+            let mut sp = empty_servo_page();
+            sp.html = "<html><head><title></title></head></html>".into();
+            let page = Page::from_servo(sp);
+            assert!(page.title.is_none());
+        }
+
+        #[test]
+        fn title_is_none_for_empty_html() {
+            let page = Page::from_servo(empty_servo_page());
+            assert!(page.title.is_none());
+        }
+
+        #[test]
+        fn inner_text_none_becomes_empty_string() {
+            let sp = empty_servo_page();
+            assert!(sp.inner_text.is_none());
+            let page = Page::from_servo(sp);
+            assert_eq!(page.inner_text, "");
+        }
+
+        #[test]
+        fn screenshot_is_encoded_as_png() {
+            let mut sp = empty_servo_page();
+            sp.screenshot = Some(synthetic_image(8, 8));
+            let page = Page::from_servo(sp);
+            let bytes = page.screenshot_png().expect("screenshot encoded");
+            assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "PNG magic bytes");
+        }
+
+        #[test]
+        fn console_messages_empty_by_default() {
+            let page = Page::from_servo(empty_servo_page());
+            assert!(page.console_messages.is_empty());
+        }
+
+        #[test]
+        fn console_messages_preserve_all_six_levels() {
+            let cases = [
+                (bridge::ConsoleLevel::Log, ConsoleLevel::Log),
+                (bridge::ConsoleLevel::Debug, ConsoleLevel::Debug),
+                (bridge::ConsoleLevel::Info, ConsoleLevel::Info),
+                (bridge::ConsoleLevel::Warn, ConsoleLevel::Warn),
+                (bridge::ConsoleLevel::Error, ConsoleLevel::Error),
+                (bridge::ConsoleLevel::Trace, ConsoleLevel::Trace),
+            ];
+            for (src, expected) in cases {
+                let mut sp = empty_servo_page();
+                sp.console_messages = vec![bridge::ConsoleMessage {
+                    level: src,
+                    message: "msg".into(),
+                }];
+                let page = Page::from_servo(sp);
+                assert_eq!(
+                    page.console_messages.len(),
+                    1,
+                    "console message lost for source level {src:?}",
+                );
+                assert_eq!(
+                    page.console_messages[0].level, expected,
+                    "level mapping wrong for source {src:?}",
+                );
+            }
+        }
+
+        #[test]
+        fn console_messages_preserve_ordering_across_levels() {
+            let mut sp = empty_servo_page();
+            sp.console_messages = vec![
+                bridge::ConsoleMessage {
+                    level: bridge::ConsoleLevel::Info,
+                    message: "first".into(),
+                },
+                bridge::ConsoleMessage {
+                    level: bridge::ConsoleLevel::Error,
+                    message: "second".into(),
+                },
+                bridge::ConsoleMessage {
+                    level: bridge::ConsoleLevel::Warn,
+                    message: "third".into(),
+                },
+            ];
+            let page = Page::from_servo(sp);
+            assert_eq!(page.console_messages.len(), 3);
+            assert_eq!(page.console_messages[0].message, "first");
+            assert_eq!(page.console_messages[1].message, "second");
+            assert_eq!(page.console_messages[2].message, "third");
+            assert_eq!(page.console_messages[0].level, ConsoleLevel::Info);
+            assert_eq!(page.console_messages[1].level, ConsoleLevel::Error);
+            assert_eq!(page.console_messages[2].level, ConsoleLevel::Warn);
+        }
+
+        #[test]
+        fn extracted_starts_as_none_until_schema_applied() {
+            let page = Page::from_servo(empty_servo_page());
+            assert!(page.extracted.is_none());
+        }
+
+        #[test]
+        fn full_round_trip_preserves_every_field() {
+            let sp = bridge::ServoPage {
+                html: "<html><head><title>T</title></head><body>B</body></html>".into(),
+                inner_text: Some("B".into()),
+                layout_json: Some("[]".into()),
+                screenshot: Some(synthetic_image(2, 2)),
+                js_result: Some("42".into()),
+                accessibility_tree: Some("{}".into()),
+                console_messages: vec![bridge::ConsoleMessage {
+                    level: bridge::ConsoleLevel::Log,
+                    message: "x".into(),
+                }],
+            };
+            let page = Page::from_servo(sp);
+            assert_eq!(page.html, "<html><head><title>T</title></head><body>B</body></html>");
+            assert_eq!(page.inner_text, "B");
+            assert_eq!(page.title.as_deref(), Some("T"));
+            assert_eq!(page.layout_json.as_deref(), Some("[]"));
+            assert_eq!(page.js_result.as_deref(), Some("42"));
+            assert_eq!(page.accessibility_tree.as_deref(), Some("{}"));
+            assert_eq!(page.console_messages.len(), 1);
+            assert!(page.screenshot_png().is_some());
+            assert!(page.extracted.is_none());
+        }
+    }
 }

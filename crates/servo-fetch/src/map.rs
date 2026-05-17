@@ -760,7 +760,11 @@ mod tests {
     }
 
     mod integration {
-        use super::super::*;
+        use crate::map::{
+            MapConfig, MapEntry, build_agent, extract_links, fetch_html, fetch_sitemap, parse_sitemap, run,
+        };
+        use std::time::Duration;
+        use url::Url;
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 

@@ -89,7 +89,7 @@ mod tests {
     }
 
     mod integration {
-        use super::super::*;
+        use crate::pdf::probe;
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 

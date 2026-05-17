@@ -482,8 +482,8 @@ mod tests {
     }
 
     mod page_from_servo {
-        use super::super::*;
         use crate::bridge;
+        use crate::fetch::{ConsoleLevel, Page};
 
         fn synthetic_image(w: u32, h: u32) -> image::RgbaImage {
             image::RgbaImage::from_pixel(w, h, image::Rgba([255, 0, 0, 255]))

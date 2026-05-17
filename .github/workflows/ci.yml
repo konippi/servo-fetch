@@ -198,7 +198,7 @@ jobs:
 
   e2e:
     name: E2E
-    needs: [changes, cargo-test]
+    needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -264,7 +264,7 @@ jobs:
 
   python-test:
     name: Python Test
-    needs: [changes]
+    needs: [changes, cargo-test]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -296,7 +296,7 @@ jobs:
         working-directory: bindings/python
         run: |
           uv sync --group test --group lint
-          uv run maturin develop
+          uv run maturin develop --profile ci
           uv run pytest
       - name: Stubtest
         working-directory: bindings/python

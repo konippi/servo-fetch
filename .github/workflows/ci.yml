@@ -277,6 +277,7 @@ jobs:
       CCACHE: sccache
       RUSTFLAGS: -C debuginfo=0
       RUST_BACKTRACE: 1
+      GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -293,12 +294,15 @@ jobs:
             libssl-dev libglib2.0-dev libegl1-mesa-dev
       - name: Build + Test
         working-directory: bindings/python
-        env:
-          GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
         run: |
-          uv sync --group test
+          uv sync --group test --group lint
           uv run maturin develop
           uv run pytest
+      - name: Stubtest
+        working-directory: bindings/python
+        run: |
+          uv run python -m mypy.stubtest servo_fetch._native \
+            --allowlist .mypy-stubtest-allowlist
       - name: sccache stats
         if: always()
         run: sccache --show-stats

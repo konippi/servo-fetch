@@ -41,7 +41,7 @@ Issues = "https://github.com/konippi/servo-fetch/issues"
 [dependency-groups]
 dev = ["maturin>=1.7,<2"]
 test = [{ include-group = "dev" }, "pytest>=8.3", "pytest-asyncio>=0.24"]
-lint = [{ include-group = "dev" }, "ruff>=0.7", "ty>=0.0.35"]
+lint = [{ include-group = "dev" }, "ruff>=0.7", "ty>=0.0.35", "mypy>=1.13"]
 all = [{ include-group = "test" }, { include-group = "lint" }]
 
 [tool.maturin]

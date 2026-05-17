@@ -80,6 +80,31 @@ fn empty_body_without_inner_text_returns_empty() {
 }
 
 #[test]
+fn empty_title_still_extracts_body_content() {
+    let html = fixture("empty_title.html");
+    let text = extract::extract_text(&input(&html)).unwrap();
+    assert!(text.contains("Visible Heading"));
+    assert!(text.contains("readability algorithm"));
+}
+
+#[test]
+fn missing_body_tag_still_extracts_content() {
+    let html = fixture("missing_body.html");
+    let text = extract::extract_text(&input(&html)).unwrap();
+    assert!(text.contains("Heading Outside Body"));
+    assert!(text.contains("hoist content into an implicit body"));
+}
+
+#[test]
+fn script_only_page_does_not_leak_script_source() {
+    let html = fixture("script_only.html");
+    let text = extract::extract_text(&input(&html)).unwrap();
+    assert!(!text.contains("__DATA__"));
+    assert!(!text.contains("should not be extracted"));
+    assert!(!text.contains("console.log"));
+}
+
+#[test]
 fn byline_and_excerpt_rendered_in_markdown() {
     let html = fixture("article_with_meta.html");
     let text = extract::extract_text(&input(&html)).unwrap();

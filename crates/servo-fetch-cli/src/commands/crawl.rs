@@ -1,21 +1,38 @@
 //! Crawl subcommand — BFS website crawler.
 
 use std::io::{self, Write as _};
+use std::time::Instant;
+
+use serde::Serialize;
 
 use crate::cli::CrawlArgs;
 use crate::progress::Progress;
+
+#[derive(Serialize)]
+struct StatsRecord {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    crawled: u64,
+    errors: u64,
+    elapsed_ms: u64,
+}
 
 /// Crawl a site starting from `args.url` and stream results to stdout.
 pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     let opts = build_crawl_options(args);
 
     let progress = Progress::new();
-    let mut completed = 0usize;
+    let mut completed = 0u64;
+    let mut errors = 0u64;
     let json = args.json;
     let mut write_err: Option<io::Error> = None;
+    let started = Instant::now();
 
     servo_fetch::crawl_each(opts, |result| {
         completed += 1;
+        if result.outcome.is_err() {
+            errors += 1;
+        }
         if write_err.is_some() {
             return;
         }
@@ -24,12 +41,19 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
             write_err = Some(e);
             return;
         }
-        let ok = result.outcome.is_ok();
-        progress.item_done(completed, None, &result.url, ok);
+        progress.item_done(
+            usize::try_from(completed).unwrap_or(usize::MAX),
+            None,
+            &result.url,
+            result.outcome.is_ok(),
+        );
     })?;
 
     if let Some(e) = write_err {
         return Err(e.into());
+    }
+    if json {
+        emit_stats(completed, errors, started.elapsed())?;
     }
     Ok(())
 }
@@ -65,6 +89,17 @@ fn build_crawl_options(args: &CrawlArgs) -> servo_fetch::CrawlOptions {
 fn emit_json(result: &servo_fetch::CrawlResult) -> io::Result<()> {
     let line = serde_json::to_string(result).expect("CrawlResult is always serializable");
     writeln!(io::stdout(), "{}", servo_fetch::sanitize::sanitize(&line))
+}
+
+fn emit_stats(crawled: u64, errors: u64, elapsed: std::time::Duration) -> io::Result<()> {
+    let stats = StatsRecord {
+        kind: "stats",
+        crawled,
+        errors,
+        elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+    };
+    let line = serde_json::to_string(&stats).expect("StatsRecord is always serializable");
+    writeln!(io::stdout(), "{line}")
 }
 
 fn emit_markdown(result: &servo_fetch::CrawlResult) -> io::Result<()> {

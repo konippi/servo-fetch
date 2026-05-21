@@ -52,6 +52,13 @@ impl CrawlResult {
         self.inner.outcome.is_ok()
     }
 
+    /// Wall-clock time when the fetch completed, formatted as RFC 3339 with
+    /// millisecond precision (e.g. `2026-05-21T11:30:00.123Z`).
+    #[getter]
+    fn fetched_at(&self) -> String {
+        humantime::format_rfc3339_millis(self.inner.fetched_at).to_string()
+    }
+
     fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
         let name = slf.get_type().qualname()?;
         let this = slf.borrow();

@@ -202,13 +202,14 @@ fn crawl_produces_ndjson() {
             .get_output()
             .stdout
             .clone();
-        let first_line = std::str::from_utf8(&output)
-            .unwrap()
-            .lines()
-            .next()
-            .expect("expected NDJSON output");
-        let parsed: serde_json::Value = serde_json::from_str(first_line).expect("valid NDJSON");
-        assert_eq!(parsed["status"], "ok");
+        let lines: Vec<&str> = std::str::from_utf8(&output).unwrap().lines().collect();
+        assert!(lines.len() >= 2, "expected page + stats record, got: {lines:?}");
+        let page: serde_json::Value = serde_json::from_str(lines[0]).expect("valid NDJSON");
+        assert_eq!(page["type"], "page");
+        assert!(page["fetched_at"].is_string(), "fetched_at must be present");
+        let stats: serde_json::Value = serde_json::from_str(lines.last().unwrap()).expect("valid stats NDJSON");
+        assert_eq!(stats["type"], "stats");
+        assert!(stats["crawled"].as_u64().is_some_and(|n| n >= 1));
     });
 }
 

@@ -2,7 +2,7 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tokio::task::JoinSet;
 use tokio::time::{MissedTickBehavior, interval};
@@ -128,6 +128,8 @@ pub struct CrawlResult {
     pub url: String,
     /// Link depth from the seed URL.
     pub depth: usize,
+    /// Wall-clock time when the fetch completed.
+    pub fetched_at: SystemTime,
     /// Page content if successful, or error if failed.
     pub outcome: Result<CrawlPage, CrawlError>,
 }
@@ -161,12 +163,14 @@ impl std::error::Error for CrawlError {}
 impl serde::Serialize for CrawlResult {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
+        let fetched_at = humantime::format_rfc3339_millis(self.fetched_at).to_string();
         match &self.outcome {
             Ok(page) => {
                 let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("type", "page")?;
                 map.serialize_entry("url", &self.url)?;
                 map.serialize_entry("depth", &self.depth)?;
-                map.serialize_entry("status", "ok")?;
+                map.serialize_entry("fetched_at", &fetched_at)?;
                 if let Some(t) = &page.title {
                     map.serialize_entry("title", t)?;
                 }
@@ -176,9 +180,10 @@ impl serde::Serialize for CrawlResult {
             }
             Err(e) => {
                 let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("type", "error")?;
                 map.serialize_entry("url", &self.url)?;
                 map.serialize_entry("depth", &self.depth)?;
-                map.serialize_entry("status", "error")?;
+                map.serialize_entry("fetched_at", &fetched_at)?;
                 map.serialize_entry("error", &e.message)?;
                 map.end()
             }
@@ -201,6 +206,7 @@ impl CrawlResult {
         Self {
             url: r.url.clone(),
             depth: r.depth,
+            fetched_at: r.fetched_at,
             outcome,
         }
     }
@@ -284,23 +290,18 @@ pub(crate) struct CrawlPlan {
 }
 
 /// Result for a single crawled page.
-#[derive(serde::Serialize)]
 pub(crate) struct CrawlPageResult {
     pub url: String,
     pub depth: usize,
     pub status: CrawlStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub links_found: usize,
+    pub fetched_at: SystemTime,
 }
 
 /// Status of a crawled page.
-#[derive(serde::Serialize)]
-#[serde(rename_all = "lowercase")]
 pub(crate) enum CrawlStatus {
     Ok,
     Error,
@@ -404,20 +405,29 @@ pub(crate) async fn run(
             }
         };
 
-        let FetchOutcome { url, depth, result } = outcome;
+        let FetchOutcome {
+            url,
+            depth,
+            result,
+            fetched_at,
+        } = outcome;
         let page = match result {
             Ok(p) => p,
             Err(msg) => {
-                let r = error_result(&url, depth, msg);
+                let r = error_result(&url, depth, msg, fetched_at);
                 on_page(&r);
                 results.push(r);
                 continue;
             }
         };
 
-        // +1 counts the current page, which is about to be pushed.
         let budget_used = results.len() + in_flight.len() + 1;
-        if let Some(r) = process_ok_fetch(&url, depth, &page, &mut frontier, &robots, &opts, budget_used) {
+        let mut ctx = CrawlContext {
+            frontier: &mut frontier,
+            robots: &robots,
+            opts: &opts,
+        };
+        if let Some(r) = process_ok_fetch(&mut ctx, &url, depth, &page, budget_used, fetched_at) {
             on_page(&r);
             results.push(r);
         }
@@ -438,10 +448,8 @@ fn spawn_fetch(
     let settle = opts.settle_ms;
     let user_agent = opts.user_agent.clone();
     let f = fetcher.clone();
-    in_flight.spawn_blocking(move || FetchOutcome {
-        url,
-        depth,
-        result: f
+    in_flight.spawn_blocking(move || {
+        let result = f
             .fetch_page(bridge::FetchOptions {
                 url: &url_str,
                 timeout_secs: timeout,
@@ -449,19 +457,31 @@ fn spawn_fetch(
                 mode: bridge::FetchMode::Content { include_a11y: false },
                 user_agent: user_agent.as_deref(),
             })
-            .map_err(|e| format!("{e:#}")),
+            .map_err(|e| format!("{e:#}"));
+        FetchOutcome {
+            url,
+            depth,
+            result,
+            fetched_at: SystemTime::now(),
+        }
     });
+}
+
+/// Stable crawl state passed to `process_ok_fetch`.
+struct CrawlContext<'a> {
+    frontier: &'a mut Frontier,
+    robots: &'a RobotsPolicy,
+    opts: &'a CrawlPlan,
 }
 
 /// Build a `CrawlPageResult` and enqueue discovered links.
 fn process_ok_fetch(
+    ctx: &mut CrawlContext<'_>,
     url: &Url,
     depth: usize,
     page: &bridge::ServoPage,
-    frontier: &mut Frontier,
-    robots: &RobotsPolicy,
-    opts: &CrawlPlan,
     budget_used: usize,
+    fetched_at: SystemTime,
 ) -> Option<CrawlPageResult> {
     let html = if page.html.len() > MAX_HTML_BYTES {
         &page.html[..crate::sanitize::floor_char_boundary(&page.html, MAX_HTML_BYTES)]
@@ -472,34 +492,34 @@ fn process_ok_fetch(
     let input = crate::extract::ExtractInput::new(html, url.as_str())
         .with_layout_json(page.layout_json.as_deref())
         .with_inner_text(page.inner_text.as_deref())
-        .with_selector(opts.selector.as_deref());
+        .with_selector(ctx.opts.selector.as_deref());
 
-    let content = if opts.json {
+    let content = if ctx.opts.json {
         crate::extract::extract_json(&input).ok()
     } else {
         crate::extract::extract_text(&input).ok()
     };
 
-    if content.as_ref().is_some_and(|c| frontier.is_duplicate_content(c)) {
+    if content.as_ref().is_some_and(|c| ctx.frontier.is_duplicate_content(c)) {
         return None;
     }
 
     let links = extract_links_from_html(html, url);
     let links_found = links.len();
 
-    if depth < opts.max_depth {
+    if depth < ctx.opts.max_depth {
         for link in &links {
-            if budget_used + frontier.pending() >= opts.limit {
+            if budget_used + ctx.frontier.pending() >= ctx.opts.limit {
                 break;
             }
-            if !is_same_site(&opts.seed, link)
+            if !is_same_site(&ctx.opts.seed, link)
                 || net::validate_url_with_policy(link.as_str(), bridge::engine_policy()).is_err()
-                || !robots.is_allowed(link)
-                || !matches_scope(link, opts.include.as_ref(), opts.exclude.as_ref())
+                || !ctx.robots.is_allowed(link)
+                || !matches_scope(link, ctx.opts.include.as_ref(), ctx.opts.exclude.as_ref())
             {
                 continue;
             }
-            frontier.try_enqueue(link.clone(), depth + 1);
+            ctx.frontier.try_enqueue(link.clone(), depth + 1);
         }
     }
 
@@ -517,6 +537,7 @@ fn process_ok_fetch(
         content: content.map(|c| crate::sanitize::sanitize(&c).into_owned()),
         error: None,
         links_found,
+        fetched_at,
     })
 }
 
@@ -525,9 +546,10 @@ struct FetchOutcome {
     url: Url,
     depth: usize,
     result: Result<bridge::ServoPage, String>,
+    fetched_at: SystemTime,
 }
 
-fn error_result(url: &Url, depth: usize, error: String) -> CrawlPageResult {
+fn error_result(url: &Url, depth: usize, error: String, fetched_at: SystemTime) -> CrawlPageResult {
     CrawlPageResult {
         url: url.to_string(),
         depth,
@@ -536,6 +558,7 @@ fn error_result(url: &Url, depth: usize, error: String) -> CrawlPageResult {
         content: None,
         error: Some(error),
         links_found: 0,
+        fetched_at,
     }
 }
 
@@ -941,7 +964,7 @@ mod tests {
     #[test]
     fn error_result_fields() {
         let url = Url::parse("https://example.com/fail").unwrap();
-        let r = error_result(&url, 2, "timeout".into());
+        let r = error_result(&url, 2, "timeout".into(), SystemTime::now());
         assert!(matches!(r.status, CrawlStatus::Error));
         assert_eq!(r.error.as_deref(), Some("timeout"));
         assert!(r.content.is_none());

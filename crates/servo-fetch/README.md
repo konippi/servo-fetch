@@ -11,7 +11,7 @@ Looking for the CLI? See [`servo-fetch-cli`](https://crates.io/crates/servo-fetc
 ## Features
 
 - **Real JS execution** — SpiderMonkey runs JavaScript, parallel CSS engine computes layout
-- **Layout-aware extraction** — strips navbars, sidebars, footers by rendered position
+- **Layout- and visibility-aware extraction** — strips navbars/footers by rendered position, plus cookie banners, modals, and CSS-hidden content
 - **Schema-driven JSON** — declarative CSS-selector schema pulls structured data, no LLM
 - **Sync API** — no async runtime required; wrap with `spawn_blocking` for async contexts
 - **PDF auto-detection** — URLs returning PDF are automatically extracted as text

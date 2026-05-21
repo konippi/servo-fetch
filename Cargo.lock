@@ -6551,6 +6551,8 @@ name = "servo-fetch"
 version = "0.10.1"
 dependencies = [
  "anyhow",
+ "bitflags 2.11.1",
+ "cssparser",
  "dom_query",
  "dom_smoothie",
  "dpi",

@@ -26,6 +26,7 @@ EXTRACTION_FIXTURES: tuple[str, ...] = (
     "product-jsonld",
     "collection-grid",
     "listing-cards",
+    "visibility-spam",
 )
 
 
@@ -117,8 +118,12 @@ def speed_runners(cfg: Config) -> list[Runner]:
 def extract_runners(cfg: Config) -> list[Runner]:
     """Extraction-quality runners (servo-fetch vs DOM-only baseline)."""
     return [
-        Runner("servo-fetch (layout-aware)",
-               [str(cfg.servo_fetch_bin), "-q"], kind="extract"),
+        Runner("servo-fetch (visibility=off)",
+               [str(cfg.servo_fetch_bin), "-q", "--visibility=off"], kind="extract"),
+        Runner("servo-fetch (visibility=moderate)",
+               [str(cfg.servo_fetch_bin), "-q", "--visibility=moderate"], kind="extract"),
+        Runner("servo-fetch (visibility=strict)",
+               [str(cfg.servo_fetch_bin), "-q", "--visibility=strict"], kind="extract"),
         Runner("Readability (DOM-only)",
                [cfg.node_bin, str(cfg.tools_dir / "readability-runner.js")],
                env=_node_env(cfg), kind="extract"),

@@ -1,6 +1,7 @@
 //! CLI argument parsing.
 
-use clap::Parser;
+use clap::builder::NonEmptyStringValueParser;
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum, value_parser};
 
 #[derive(Parser)]
 #[command(
@@ -16,7 +17,7 @@ pub(crate) struct Cli {
     pub fetch: FetchArgs,
 
     /// Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace)
-    #[arg(short = 'v', long, action = clap::ArgAction::Count, global = true, conflicts_with = "quiet")]
+    #[arg(short = 'v', long, action = ArgAction::Count, global = true, conflicts_with = "quiet")]
     pub verbose: u8,
 
     /// Suppress all logs except errors
@@ -28,7 +29,7 @@ pub(crate) struct Cli {
     pub allow_private_addresses: bool,
 }
 
-#[derive(clap::Args, Debug)]
+#[derive(Args, Debug)]
 pub(crate) struct FetchArgs {
     /// URLs to fetch (one or more)
     #[arg(num_args = 1..)]
@@ -51,15 +52,15 @@ pub(crate) struct FetchArgs {
     pub js: Option<String>,
 
     /// Timeout in seconds for page load
-    #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..), value_name = "SECS")]
+    #[arg(short = 't', long, default_value_t = 30, value_parser = value_parser!(u64).range(1..), value_name = "SECS")]
     pub timeout: u64,
 
     /// Extra wait in ms after the `load` event, for SPAs that keep hydrating.
-    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=10_000), value_name = "MS")]
+    #[arg(long, default_value_t = 0, value_parser = value_parser!(u64).range(0..=10_000), value_name = "MS")]
     pub settle: u64,
 
     /// CSS selector to extract a specific section
-    #[arg(long, value_name = "CSS", value_parser = clap::builder::NonEmptyStringValueParser::new())]
+    #[arg(long, value_name = "CSS", value_parser = NonEmptyStringValueParser::new())]
     pub selector: Option<String>,
 
     /// Output raw HTML or plain text instead of Readability extraction
@@ -73,10 +74,35 @@ pub(crate) struct FetchArgs {
     /// Path to a CSS-selector schema file for structured JSON extraction
     #[arg(long, value_name = "FILE", conflicts_with_all = ["screenshot", "js", "raw", "selector"])]
     pub schema: Option<std::path::PathBuf>,
+
+    /// Visibility-aware filtering policy.
+    #[arg(long, value_name = "POLICY", value_enum, default_value_t = VisibilityArg::Moderate)]
+    pub visibility: VisibilityArg,
+}
+
+/// Visibility filtering policy.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub(crate) enum VisibilityArg {
+    /// Strip CSS-, ARIA-, and geometry-hidden content (default).
+    Moderate,
+    /// Moderate plus screen-reader-only content.
+    Strict,
+    /// No flag-based stripping. ARIA/HTML semantic hides still apply.
+    Off,
+}
+
+impl VisibilityArg {
+    pub(crate) fn to_policy(self) -> servo_fetch::VisibilityPolicy {
+        match self {
+            Self::Moderate => servo_fetch::VisibilityPolicy::moderate(),
+            Self::Strict => servo_fetch::VisibilityPolicy::strict(),
+            Self::Off => servo_fetch::VisibilityPolicy::off(),
+        }
+    }
 }
 
 /// Raw output mode.
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum)]
 pub(crate) enum RawMode {
     /// Raw HTML
     Html,
@@ -85,7 +111,7 @@ pub(crate) enum RawMode {
 }
 
 /// Available subcommands.
-#[derive(clap::Subcommand)]
+#[derive(Subcommand)]
 pub(crate) enum Command {
     /// Start MCP server (stdio transport by default, or HTTP with --port)
     Mcp(McpArgs),
@@ -97,14 +123,14 @@ pub(crate) enum Command {
     Map(MapArgs),
 }
 
-#[derive(clap::Args, Debug)]
+#[derive(Args, Debug)]
 pub(crate) struct McpArgs {
     /// Port for Streamable HTTP transport. Omit for stdio.
     #[arg(long, value_name = "PORT")]
     pub port: Option<u16>,
 }
 
-#[derive(clap::Args, Debug)]
+#[derive(Args, Debug)]
 pub(crate) struct ServeArgs {
     /// Host to bind on.
     #[arg(long, value_name = "HOST", default_value = "127.0.0.1")]
@@ -115,7 +141,7 @@ pub(crate) struct ServeArgs {
     pub port: u16,
 }
 
-#[derive(clap::Args, Debug)]
+#[derive(Args, Debug)]
 pub(crate) struct CrawlArgs {
     /// Starting URL to crawl
     pub url: String,
@@ -141,23 +167,23 @@ pub(crate) struct CrawlArgs {
     pub json: bool,
 
     /// CSS selector to extract a specific section per page
-    #[arg(long, value_name = "CSS", value_parser = clap::builder::NonEmptyStringValueParser::new())]
+    #[arg(long, value_name = "CSS", value_parser = NonEmptyStringValueParser::new())]
     pub selector: Option<String>,
 
     /// Timeout in seconds per page
-    #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..), value_name = "SECS")]
+    #[arg(short = 't', long, default_value_t = 30, value_parser = value_parser!(u64).range(1..), value_name = "SECS")]
     pub timeout: u64,
 
     /// Extra wait in ms after load event per page
-    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=10_000), value_name = "MS")]
+    #[arg(long, default_value_t = 0, value_parser = value_parser!(u64).range(0..=10_000), value_name = "MS")]
     pub settle: u64,
 
     /// Maximum parallel page fetches. Yields in completion order when greater than 1.
-    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u64).range(1..=64), value_name = "N")]
+    #[arg(long, default_value_t = 1, value_parser = value_parser!(u64).range(1..=64), value_name = "N")]
     pub concurrency: u64,
 
     /// Minimum dispatch interval in ms (0 to disable).
-    #[arg(long, default_value_t = 500, value_parser = clap::value_parser!(u64).range(0..=60_000), value_name = "MS")]
+    #[arg(long, default_value_t = 500, value_parser = value_parser!(u64).range(0..=60_000), value_name = "MS")]
     pub delay_ms: u64,
 
     /// Override the User-Agent string
@@ -165,7 +191,7 @@ pub(crate) struct CrawlArgs {
     pub user_agent: Option<String>,
 }
 
-#[derive(clap::Args, Debug)]
+#[derive(Args, Debug)]
 pub(crate) struct MapArgs {
     /// Starting URL to discover links from
     pub url: String,
@@ -195,7 +221,7 @@ pub(crate) struct MapArgs {
     pub user_agent: Option<String>,
 
     /// Timeout in seconds per HTTP request
-    #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..), value_name = "SECS")]
+    #[arg(short = 't', long, default_value_t = 30, value_parser = value_parser!(u64).range(1..), value_name = "SECS")]
     pub timeout: u64,
 }
 
@@ -205,7 +231,7 @@ mod tests {
 
     #[test]
     fn raw_mode_from_str() {
-        use clap::ValueEnum;
+        use ValueEnum;
         assert!(RawMode::from_str("html", true).is_ok());
         assert!(RawMode::from_str("text", true).is_ok());
         assert!(RawMode::from_str("xml", true).is_err());

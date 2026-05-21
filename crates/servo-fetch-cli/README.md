@@ -60,6 +60,19 @@ servo-fetch "https://example.com" --selector "article"
 servo-fetch "https://example.com" --selector ".main-content" --json
 ```
 
+### Visibility filtering
+
+Hidden patterns (cookie banners, modals, `aria-hidden`, `opacity:0`, sr-only)
+are stripped under the default `moderate` policy. Use `strict` to also drop
+screen-reader-only content, or `off` to disable flag-based stripping (semantic
+hides like `[hidden]` / modal dialogs always apply).
+
+```bash
+servo-fetch "https://example.com" --visibility moderate   # default
+servo-fetch "https://example.com" --visibility strict
+servo-fetch "https://example.com" --visibility off
+```
+
 ### Structured extraction (schema)
 
 Pull a declarative set of fields into JSON using CSS selectors — no LLM required. Define a schema once, reuse it across URLs:

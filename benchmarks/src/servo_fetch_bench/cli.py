@@ -381,7 +381,10 @@ def extract_layout(ctx: typer.Context) -> None:
     _write_report(
         cfg.results_dir / "extraction-layout.md", cfg,
         "Extraction quality — page-type fixtures",
-        "\n".join(sections)
+        "_`visibility=off` disables flag-based filtering (baseline); "
+        "`moderate` (default) strips CSS- and ARIA-hidden content; "
+        "`strict` additionally drops screen-reader-only nodes._\n\n"
+        + "\n".join(sections)
         + f"\n## Summary — mean across {len(EXTRACTION_FIXTURES)} fixtures\n\n"
         + reporting.md_table(
             ["Extractor", "Mean F1", "Mean with[]", "Mean without[]"],

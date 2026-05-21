@@ -15,6 +15,7 @@ use servo::{
 };
 
 use crate::layout;
+use crate::visibility;
 
 const JS_EVAL_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -31,16 +32,12 @@ pub(crate) fn default_user_agent() -> &'static str {
 /// Max wait before we re-check time-based conditions.
 pub(crate) const FALLBACK_WAIT: Duration = Duration::from_millis(5);
 const LAYOUT_JS: &str = include_str!("js/layout.js");
+const VISIBILITY_JS: &str = include_str!("js/visibility.js");
 const MAX_CONSOLE_MESSAGES: usize = 100;
 const MAX_CONSOLE_MESSAGE_LEN: usize = 4096;
 const MAX_A11Y_NODES: usize = 100_000;
 
-const NOISE_REMOVAL_CSS: &str = "\
-[aria-label*=\"cookie\" i], [aria-label*=\"consent\" i], \
-[class*=\"cookie-banner\" i], [class*=\"cookie-consent\" i], \
-[id*=\"cookie\" i][class*=\"banner\" i], \
-[class*=\"newsletter-popup\" i], [class*=\"subscribe-modal\" i] \
-{ display: none !important; }";
+const NOISE_REMOVAL_CSS: &str = visibility::USER_STYLESHEET;
 
 /// Shared wake signal — `notify_all` signals, `wait_and_take` consumes.
 #[derive(Default)]
@@ -240,9 +237,11 @@ pub(crate) struct ServoPage {
     pub html: String,
     pub inner_text: Option<String>,
     pub layout_json: Option<String>,
+    pub visibility_json: Option<String>,
     pub screenshot: Option<RgbaImage>,
     pub js_result: Option<String>,
     pub accessibility_tree: Option<String>,
+    pub a11y: Option<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>,
     pub console_messages: Vec<ConsoleMessage>,
 }
 
@@ -546,6 +545,10 @@ fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
         wait_for_ready_state(servo, &p.webview, p.deadline);
     }
 
+    let inner_text = eval_js(servo, &p.webview, "document.body.innerText").ok();
+    let layout_json = eval_js(servo, &p.webview, LAYOUT_JS).ok();
+    let visibility_json = eval_js(servo, &p.webview, VISIBILITY_JS).ok();
+
     let html = match eval_js(servo, &p.webview, "document.documentElement.outerHTML") {
         Ok(h) if !h.is_empty() => h,
         _ if timed_out => {
@@ -560,8 +563,6 @@ fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
     if timed_out {
         tracing::warn!("page load did not complete; returning best-effort content");
     }
-    let inner_text = eval_js(servo, &p.webview, "document.body.innerText").ok();
-    let layout_json = eval_js(servo, &p.webview, LAYOUT_JS).ok();
 
     let (screenshot, js_result) = match &p.request.mode {
         FetchMode::Screenshot { full_page } => (
@@ -572,17 +573,19 @@ fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
         FetchMode::Content { .. } => (None, None),
     };
 
-    let accessibility_tree = {
+    let (a11y, accessibility_tree) = {
         let mut nodes = p.state.a11y_nodes.borrow_mut();
         if nodes.is_empty() {
-            None
+            (None, None)
         } else {
             for node in nodes.values_mut() {
                 if node.role() == servo::accesskit::Role::PasswordInput {
                     node.clear_value();
                 }
             }
-            serde_json::to_string(&*nodes).ok()
+            let json = serde_json::to_string(&*nodes).ok();
+            let typed = std::mem::take(&mut *nodes);
+            (Some(typed), json)
         }
     };
 
@@ -590,9 +593,11 @@ fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
         html,
         inner_text,
         layout_json,
+        visibility_json,
         screenshot,
         js_result,
         accessibility_tree,
+        a11y,
         console_messages: p.state.console_messages.borrow_mut().drain(..).collect(),
     })
 }
@@ -746,9 +751,11 @@ mod tests {
         assert!(page.html.is_empty());
         assert!(page.inner_text.is_none());
         assert!(page.layout_json.is_none());
+        assert!(page.visibility_json.is_none());
         assert!(page.screenshot.is_none());
         assert!(page.js_result.is_none());
         assert!(page.accessibility_tree.is_none());
+        assert!(page.a11y.is_none());
         assert!(page.console_messages.is_empty());
     }
 

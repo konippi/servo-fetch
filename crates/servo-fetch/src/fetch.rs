@@ -1,6 +1,10 @@
 //! Single-page fetching and rendered content extraction.
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
+
+use servo::accesskit::{Node, NodeId};
 
 use crate::error::Error;
 use crate::net::sanitize_user_agent;
@@ -18,19 +22,29 @@ pub struct Page {
     /// Parsed layout data from the injected CSS heuristics script.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layout_json: Option<String>,
+    /// Per-node visibility flags from the visibility-aware extraction pass.
+    #[serde(skip)]
+    visibility_json: Option<String>,
     /// Result of JavaScript evaluation, if [`FetchOptions::javascript`] was used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub js_result: Option<String>,
     /// Browser console messages captured during page load.
     pub console_messages: Vec<ConsoleMessage>,
-    /// Accessibility tree (AccessKit), if requested.
+    /// Accessibility tree (AccessKit), serialized as JSON, if requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accessibility_tree: Option<String>,
     /// Structured data extracted via [`FetchOptions::schema`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extracted: Option<serde_json::Value>,
+    /// PNG-encoded screenshot bytes — read via [`Page::screenshot_png`].
     #[serde(skip)]
     screenshot_png: Option<Vec<u8>>,
+    /// Typed AccessKit tree, shared cheaply across [`Page`] clones.
+    #[serde(skip)]
+    a11y: Option<Arc<HashMap<NodeId, Node>>>,
+    /// Visibility policy that was active when this page was fetched.
+    #[serde(skip)]
+    visibility_policy: crate::visibility::VisibilityPolicy,
 }
 
 impl Page {
@@ -41,10 +55,7 @@ impl Page {
 
     /// Extract readable Markdown, using the original URL for link resolution.
     pub fn markdown_with_url(&self, url: &str) -> crate::error::Result<String> {
-        let input = crate::extract::ExtractInput::new(&self.html, url)
-            .with_layout_json(self.layout_json.as_deref())
-            .with_inner_text(Some(&self.inner_text));
-        Ok(crate::extract::extract_text(&input)?)
+        Ok(crate::extract::extract_text(&self.extract_input(url, None))?)
     }
 
     /// Extract structured JSON from this page.
@@ -54,34 +65,33 @@ impl Page {
 
     /// Extract structured JSON, using the original URL for link resolution.
     pub fn extract_json_with_url(&self, url: &str) -> crate::error::Result<String> {
-        let input = crate::extract::ExtractInput::new(&self.html, url)
-            .with_layout_json(self.layout_json.as_deref())
-            .with_inner_text(Some(&self.inner_text));
-        Ok(crate::extract::extract_json(&input)?)
+        Ok(crate::extract::extract_json(&self.extract_input(url, None))?)
     }
 
     /// Extract readable Markdown from the subtree matched by a CSS selector.
     pub fn markdown_with_selector(&self, url: &str, selector: &str) -> crate::error::Result<String> {
-        let input = crate::extract::ExtractInput::new(&self.html, url)
-            .with_layout_json(self.layout_json.as_deref())
-            .with_inner_text(Some(&self.inner_text))
-            .with_selector(Some(selector));
-        Ok(crate::extract::extract_text(&input)?)
+        Ok(crate::extract::extract_text(&self.extract_input(url, Some(selector)))?)
     }
 
     /// Extract structured JSON from the subtree matched by a CSS selector.
     pub fn extract_json_with_selector(&self, url: &str, selector: &str) -> crate::error::Result<String> {
-        let input = crate::extract::ExtractInput::new(&self.html, url)
-            .with_layout_json(self.layout_json.as_deref())
-            .with_inner_text(Some(&self.inner_text))
-            .with_selector(Some(selector));
-        Ok(crate::extract::extract_json(&input)?)
+        Ok(crate::extract::extract_json(&self.extract_input(url, Some(selector)))?)
     }
 
     /// PNG screenshot bytes, if captured via [`FetchOptions::screenshot`].
     #[must_use]
     pub fn screenshot_png(&self) -> Option<&[u8]> {
         self.screenshot_png.as_deref()
+    }
+
+    fn extract_input<'a>(&'a self, url: &'a str, selector: Option<&'a str>) -> crate::extract::ExtractInput<'a> {
+        crate::extract::ExtractInput::new(&self.html, url)
+            .with_layout_json(self.layout_json.as_deref())
+            .with_visibility_json(self.visibility_json.as_deref())
+            .with_a11y(self.a11y.as_deref())
+            .with_inner_text(Some(&self.inner_text))
+            .with_selector(selector)
+            .with_visibility(self.visibility_policy)
     }
 
     pub(crate) fn from_servo(page: crate::bridge::ServoPage) -> Self {
@@ -100,6 +110,7 @@ impl Page {
             inner_text: page.inner_text.unwrap_or_default(),
             title,
             layout_json: page.layout_json,
+            visibility_json: page.visibility_json,
             js_result: page.js_result,
             console_messages: page
                 .console_messages
@@ -118,7 +129,9 @@ impl Page {
                 .collect(),
             screenshot_png,
             accessibility_tree: page.accessibility_tree,
+            a11y: page.a11y.map(Arc::new),
             extracted: None,
+            visibility_policy: crate::visibility::VisibilityPolicy::default(),
         }
     }
 }
@@ -193,6 +206,7 @@ pub struct FetchOptions {
     pub(crate) mode: FetchMode,
     pub(crate) user_agent: Option<String>,
     pub(crate) extract_schema: Option<crate::schema::ExtractSchema>,
+    pub(crate) visibility: crate::visibility::VisibilityPolicy,
 }
 
 impl FetchOptions {
@@ -205,6 +219,7 @@ impl FetchOptions {
             mode: FetchMode::Content,
             user_agent: None,
             extract_schema: None,
+            visibility: crate::visibility::VisibilityPolicy::default(),
         }
     }
 
@@ -245,6 +260,12 @@ impl FetchOptions {
     /// Extract structured data from the rendered page using the given schema.
     pub fn schema(mut self, schema: crate::schema::ExtractSchema) -> Self {
         self.extract_schema = Some(schema);
+        self
+    }
+
+    /// Visibility-filtering policy applied during extraction.
+    pub fn visibility(mut self, policy: crate::visibility::VisibilityPolicy) -> Self {
+        self.visibility = policy;
         self
     }
 }
@@ -294,6 +315,7 @@ pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
     })?;
 
     let mut page = Page::from_servo(servo_page);
+    page.visibility_policy = opts.visibility;
     if let Some(schema) = opts.extract_schema.as_ref() {
         page.extracted = Some(schema.extract_from(&page.html));
     }
@@ -614,9 +636,11 @@ mod tests {
                 html: "<html><head><title>T</title></head><body>B</body></html>".into(),
                 inner_text: Some("B".into()),
                 layout_json: Some("[]".into()),
+                visibility_json: Some("[]".into()),
                 screenshot: Some(synthetic_image(2, 2)),
                 js_result: Some("42".into()),
                 accessibility_tree: Some("{}".into()),
+                a11y: None,
                 console_messages: vec![bridge::ConsoleMessage {
                     level: bridge::ConsoleLevel::Log,
                     message: "x".into(),

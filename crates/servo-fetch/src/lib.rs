@@ -11,6 +11,7 @@
 pub mod extract;
 pub mod sanitize;
 pub mod schema;
+pub mod visibility;
 
 pub(crate) mod bridge;
 pub(crate) mod crawl;
@@ -31,6 +32,7 @@ pub use error::{Error, Result};
 pub use fetch::{ConsoleLevel, ConsoleMessage, FetchOptions, Page, extract_json, fetch, markdown, text};
 pub use map::{MapOptions, MappedUrl, map};
 pub use net::{NetworkPolicy, validate_url};
+pub use visibility::{VisibilityFlags, VisibilityPolicy};
 
 /// Set the network policy. Must be called at most once, before any engine use.
 pub fn init(policy: NetworkPolicy) {

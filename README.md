@@ -35,7 +35,7 @@ print(page.markdown)
 
 - **Zero dependencies** — single binary, no Chromium, no API key
 - **Real JS execution** — SpiderMonkey runs JavaScript, parallel CSS engine computes layout
-- **Layout-aware extraction** — strips navbars, sidebars, footers by actual rendered position
+- **Layout- and visibility-aware extraction** — strips navbars, sidebars, footers by rendered position, plus cookie banners, modals, and CSS-hidden content (`opacity:0`, `aria-hidden`, sr-only)
 - **Schema-driven JSON** — declarative CSS-selector schema pulls structured data
 - **Parallel batch fetch** — multiple URLs fetched concurrently
 - **Site crawling** — BFS link traversal with robots.txt, same-site scope, and rate limiting
@@ -53,9 +53,9 @@ Apple M3 Pro, versus Playwright (the typical AI-agent stack):
 | Time — spa-heavy    |     ~331 ms |              ~798 ms |
 | Memory (peak RSS)   |    51–64 MB |           300–328 MB |
 
-Extraction quality: mean word-F1 0.823 vs Readability's 0.723 across
-seven page-type fixtures, with `without[]` boilerplate removal at 96.4%
-vs 82.1%. Direct-binary engine peers (chrome-headless-shell, Lightpanda,
+Extraction quality: mean word-F1 0.819 vs Readability's 0.728 across
+eight page-type fixtures, with `without[]` boilerplate removal at 95.0%
+vs 78.6%. Direct-binary engine peers (chrome-headless-shell, Lightpanda,
 curl) are opt-in.
 
 Methodology, three-axis breakdown, per-fixture F1, and raw JSON:

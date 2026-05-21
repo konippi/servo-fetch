@@ -1,14 +1,17 @@
 //! Content extraction — converts raw HTML into readable Markdown or structured JSON.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use dom_query::Document;
 use dom_smoothie::Readability;
 use htmd::HtmlToMarkdown;
 use serde::Serialize;
+use servo::accesskit::{Node, NodeId};
 
 use crate::layout::{self, LayoutElement};
+use crate::visibility::{self, A11yIndex, VisibilityPolicy};
 
 /// Errors that can occur during content extraction.
 #[derive(Debug, thiserror::Error)]
@@ -70,10 +73,16 @@ pub struct ExtractInput<'a> {
     pub url: &'a str,
     /// JSON-serialized layout data from the injected JS, if available.
     pub layout_json: Option<&'a str>,
+    /// JSON-serialized visibility data from the injected JS, if available.
+    pub visibility_json: Option<&'a str>,
+    /// AccessKit accessibility tree, if available.
+    pub a11y: Option<&'a HashMap<NodeId, Node>>,
     /// `document.body.innerText` fallback, if available.
     pub inner_text: Option<&'a str>,
     /// CSS selector to extract a specific section instead of using Readability.
     pub selector: Option<&'a str>,
+    /// Visibility policy controlling which hidden content is stripped.
+    pub visibility: VisibilityPolicy,
 }
 
 impl<'a> ExtractInput<'a> {
@@ -84,8 +93,11 @@ impl<'a> ExtractInput<'a> {
             html,
             url,
             layout_json: None,
+            visibility_json: None,
+            a11y: None,
             inner_text: None,
             selector: None,
+            visibility: VisibilityPolicy::default(),
         }
     }
 
@@ -93,6 +105,20 @@ impl<'a> ExtractInput<'a> {
     #[must_use]
     pub fn with_layout_json(mut self, layout_json: Option<&'a str>) -> Self {
         self.layout_json = layout_json;
+        self
+    }
+
+    /// Set the visibility JSON data.
+    #[must_use]
+    pub fn with_visibility_json(mut self, visibility_json: Option<&'a str>) -> Self {
+        self.visibility_json = visibility_json;
+        self
+    }
+
+    /// Set the typed accessibility tree.
+    #[must_use]
+    pub fn with_a11y(mut self, a11y: Option<&'a HashMap<NodeId, Node>>) -> Self {
+        self.a11y = a11y;
         self
     }
 
@@ -109,17 +135,21 @@ impl<'a> ExtractInput<'a> {
         self.selector = selector;
         self
     }
+
+    /// Set the visibility policy.
+    #[must_use]
+    pub fn with_visibility(mut self, policy: VisibilityPolicy) -> Self {
+        self.visibility = policy;
+        self
+    }
 }
 
 /// Extract readable content as Markdown text.
-///
-/// # Errors
-/// Returns [`ExtractError::Fmt`] if Markdown assembly fails.
 pub fn extract_text(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
     if let Some(selector) = input.selector {
-        return extract_by_selector(input.html, input.layout_json, selector);
+        return extract_by_selector(input, selector);
     }
-    let article = parse_article(input.html, input.url, input.layout_json, input.inner_text);
+    let article = parse_article(input);
 
     let mut out = String::new();
     if !article.title.is_empty() {
@@ -136,12 +166,9 @@ pub fn extract_text(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
 }
 
 /// Extract readable content as JSON.
-///
-/// # Errors
-/// Returns [`ExtractError::Json`] if JSON serialization fails.
 pub fn extract_json(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
     if let Some(selector) = input.selector {
-        let text = extract_by_selector(input.html, input.layout_json, selector)?;
+        let text = extract_by_selector(input, selector)?;
         let data = ArticleData {
             title: String::new(),
             content: String::new(),
@@ -153,7 +180,7 @@ pub fn extract_json(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
         };
         return Ok(serde_json::to_string_pretty(&data)?);
     }
-    let article = parse_article(input.html, input.url, input.layout_json, input.inner_text);
+    let article = parse_article(input);
     let data = ArticleData {
         title: article.title,
         content: article.content,
@@ -180,11 +207,11 @@ fn is_nextjs_error_page(text: &str) -> bool {
     t.contains("client-side exception has occurred") || t.contains("Application error: a")
 }
 
-fn parse_article(html: &str, url: &str, layout_json: Option<&str>, inner_text: Option<&str>) -> ParsedArticle {
-    let filtered = filter(html, layout_json);
+fn parse_article(input: &ExtractInput<'_>) -> ParsedArticle {
+    let filtered = filter(input);
 
     let doc = Document::from(filtered.as_ref());
-    if let Ok(mut readability) = Readability::with_document(doc, Some(url), None) {
+    if let Ok(mut readability) = Readability::with_document(doc, Some(input.url), None) {
         if let Ok(article) = readability.parse() {
             if !is_nextjs_error_page(&article.text_content) {
                 let converter = HtmlToMarkdown::builder().build();
@@ -203,16 +230,23 @@ fn parse_article(html: &str, url: &str, layout_json: Option<&str>, inner_text: O
         }
     }
 
-    // Readability failed or returned an error page — fall back to innerText.
+    // Readability failed or returned an error page — fall back to the filtered
+    // document's text content.
     let doc = Document::from(filtered.as_ref());
+    doc.select("script, style, noscript").remove();
     let title = doc.select("title").text().to_string();
-    let body_text = inner_text.filter(|s| !s.trim().is_empty()).map_or_else(
-        || {
-            tracing::warn!(r#"could not extract content; try --js "document.body.innerText" for JS-heavy sites"#);
-            String::new()
-        },
-        String::from,
-    );
+    let filtered_text = doc.select("body").text().to_string();
+    let body_text = if filtered_text.trim().is_empty() {
+        input.inner_text.filter(|s| !s.trim().is_empty()).map_or_else(
+            || {
+                tracing::warn!(r#"could not extract content; try --js "document.body.innerText" for JS-heavy sites"#);
+                String::new()
+            },
+            String::from,
+        )
+    } else {
+        filtered_text
+    };
     ParsedArticle {
         title,
         content: String::new(),
@@ -223,9 +257,9 @@ fn parse_article(html: &str, url: &str, layout_json: Option<&str>, inner_text: O
     }
 }
 
-fn extract_by_selector(html: &str, layout_json: Option<&str>, selector: &str) -> Result<String, ExtractError> {
+fn extract_by_selector(input: &ExtractInput<'_>, selector: &str) -> Result<String, ExtractError> {
     let matcher = dom_query::Matcher::new(selector).map_err(|_| ExtractError::InvalidSelector)?;
-    let filtered = filter(html, layout_json);
+    let filtered = filter(input);
     let doc = Document::from(filtered.as_ref());
     let selected = doc.select_matcher(&matcher);
     let fragment = selected.html();
@@ -239,20 +273,36 @@ fn extract_by_selector(html: &str, layout_json: Option<&str>, selector: &str) ->
     Ok(clean_markdown(&markdown))
 }
 
-fn filter<'a>(html: &'a str, layout_json: Option<&str>) -> Cow<'a, str> {
-    layout_json
-        .and_then(|lj| serde_json::from_str::<Vec<LayoutElement>>(lj).ok())
-        .map_or(Cow::Borrowed(html), |els| {
-            let sels = layout::selectors_to_strip(&els);
-            if sels.is_empty() {
-                return Cow::Borrowed(html);
-            }
-            let doc = Document::from(html);
-            for sel in &sels {
-                doc.select(sel).remove();
-            }
-            Cow::Owned(doc.html().to_string())
-        })
+fn filter<'a>(input: &'a ExtractInput<'a>) -> Cow<'a, str> {
+    let mut selectors: Vec<String> = Vec::new();
+
+    if let Some(lj) = input.layout_json
+        && let Ok(els) = serde_json::from_str::<Vec<LayoutElement>>(lj)
+    {
+        selectors.extend(layout::selectors_to_strip(&els));
+    }
+
+    let a11y_index = input.a11y.map(A11yIndex::new);
+
+    selectors.extend(visibility::selectors_to_strip(
+        input.visibility,
+        a11y_index.as_ref(),
+        input.visibility_json,
+    ));
+
+    let needs_attr_cleanup = input.visibility_json.is_some() || input.html.contains("data-vf-id=");
+    if selectors.is_empty() && !needs_attr_cleanup {
+        return Cow::Borrowed(input.html);
+    }
+
+    let doc = Document::from(input.html);
+    for sel in &selectors {
+        doc.select(sel).remove();
+    }
+    if needs_attr_cleanup {
+        doc.select("[data-vf-id]").remove_attr("data-vf-id");
+    }
+    Cow::Owned(doc.html().to_string())
 }
 
 // Collapse runs of 3+ blank lines down to 2.
@@ -307,28 +357,56 @@ mod tests {
     }
 
     #[test]
-    fn filter_without_layout_returns_original() {
-        let html = "<html><body>hello</body></html>";
-        let result = filter(html, None);
-        assert_eq!(result.as_ref(), html);
+    fn filter_off_policy_keeps_visible_content() {
+        let input = ExtractInput::new("<html><body>hello</body></html>", "").with_visibility(VisibilityPolicy::off());
+        let result = filter(&input);
+        assert!(result.contains("hello"));
     }
 
     #[test]
     fn filter_strips_footer() {
         let html = r#"<html><body><footer style="position:static">nav</footer><p>content</p></body></html>"#;
         let layout = r#"[{"tag":"FOOTER","role":null,"w":1280,"h":100,"position":"static"}]"#;
-        let result = filter(html, Some(layout));
+        let input = ExtractInput::new(html, "")
+            .with_layout_json(Some(layout))
+            .with_visibility(VisibilityPolicy::off());
+        let result = filter(&input);
         assert!(!result.contains("<footer"));
         assert!(result.contains("content"));
+    }
+
+    #[test]
+    fn filter_strips_visibility_flagged_element() {
+        let html = r#"<html><body><p data-vf-id="1">drop</p><p data-vf-id="2">keep</p></body></html>"#;
+        let visibility = r#"[{"id":"1","flags":16}]"#;
+        let input = ExtractInput::new(html, "")
+            .with_visibility_json(Some(visibility))
+            .with_visibility(VisibilityPolicy::moderate());
+        let result = filter(&input);
+        assert!(!result.contains("drop"));
+        assert!(result.contains("keep"));
+    }
+
+    #[test]
+    fn filter_removes_data_vf_id_from_output() {
+        let html = r#"<html><body><p data-vf-id="1">keep</p></body></html>"#;
+        let input = ExtractInput::new(html, "")
+            .with_layout_json(Some("[]"))
+            .with_visibility(VisibilityPolicy::off());
+        let result = filter(&input);
+        assert!(!result.contains("data-vf-id"));
     }
 
     #[test]
     fn extract_input_builder() {
         let input = ExtractInput::new("<html></html>", "https://example.com")
             .with_layout_json(Some("[]"))
+            .with_visibility_json(Some(r"[]"))
             .with_inner_text(Some("hello"))
-            .with_selector(Some("article"));
+            .with_selector(Some("article"))
+            .with_visibility(VisibilityPolicy::strict());
         assert_eq!(input.layout_json, Some("[]"));
+        assert_eq!(input.visibility_json, Some("[]"));
         assert_eq!(input.inner_text, Some("hello"));
         assert_eq!(input.selector, Some("article"));
     }

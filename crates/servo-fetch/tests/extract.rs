@@ -1,5 +1,4 @@
-//! Content extraction integration tests — validates the full extraction pipeline
-//! using HTML fixtures. These tests do NOT require Servo.
+//! Content extraction integration tests.
 
 use servo_fetch::extract::{self, ExtractInput};
 

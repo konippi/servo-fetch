@@ -55,10 +55,12 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
         let settle = args.settle;
         let user_agent = args.user_agent.clone();
         let schema = schema.clone();
+        let visibility = args.visibility.to_policy();
         tokio::task::spawn_blocking(move || {
             let mut opts = FetchOptions::new(&url_str)
                 .timeout(Duration::from_secs(timeout))
-                .settle(Duration::from_millis(settle));
+                .settle(Duration::from_millis(settle))
+                .visibility(visibility);
             if let Some(ua) = user_agent {
                 opts = opts.user_agent(ua);
             }
@@ -149,7 +151,8 @@ fn build_fetch_options(args: &FetchArgs, url: &str) -> Result<FetchOptions> {
     };
     let opts = base
         .timeout(Duration::from_secs(args.timeout))
-        .settle(Duration::from_millis(args.settle));
+        .settle(Duration::from_millis(args.settle))
+        .visibility(args.visibility.to_policy());
     let opts = match args.user_agent {
         Some(ref ua) => opts.user_agent(ua),
         None => opts,

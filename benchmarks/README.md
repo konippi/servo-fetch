@@ -80,16 +80,19 @@ Full matrix with stddev and `curl` floor: [`results/published-time.md`](results/
 | Memory — static-small (peak)  |       64 MB |              328 MB  |
 | Memory — spa-heavy (peak)     |      ~96 MB |              350 MB  |
 
-### Axis 3 — Extraction quality (mean across 7 page-type fixtures)
+### Axis 3 — Extraction quality (mean across 8 page-type fixtures)
 
-| Metric      | servo-fetch (layout-aware) | Readability (DOM-only) |
-| ----------- | -------------------------: | ---------------------: |
-| Word-F1     |                      0.823 |                  0.723 |
-| `with[]`    |                      88.6% |                  62.9% |
-| `without[]` |                      96.4% |                  82.1% |
+| Metric      | servo-fetch (moderate) | servo-fetch (strict) | Readability (DOM-only) |
+| ----------- | ---------------------: | -------------------: | ---------------------: |
+| Word-F1     |                  0.819 |                0.823 |                  0.728 |
+| `with[]`    |                  90.0% |                90.0% |                  67.5% |
+| `without[]` |                  95.0% |                96.9% |                  78.6% |
 
-servo-fetch's advantage concentrates on boilerplate-heavy pages —
-navbar/sidebar/footer removal (the `without[]` metric). Per-fixture
+`moderate` (default) strips CSS- and ARIA-hidden content (`opacity:0`,
+`aria-hidden`, cookie banners, modal dialogs); `strict` additionally drops
+screen-reader-only content. The published per-fixture report also includes
+an `off` baseline that disables flag-based filtering — useful for
+isolating the visibility module's incremental contribution. Per-fixture
 breakdown: [`results/published-extraction-layout.md`](results/published-extraction-layout.md).
 
 ## Quick start

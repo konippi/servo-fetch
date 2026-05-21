@@ -271,6 +271,11 @@ def test_peer_runners_use_html_output_format_and_single_url_mode(
     assert by_label[engine].single_url is True
 
 
-def test_extract_runners_contain_only_servo_fetch_and_readability(cfg: Config) -> None:
+def test_extract_runners_cover_visibility_policies_and_readability(cfg: Config) -> None:
     labels = [r.label for r in runners_mod.extract_runners(cfg)]
-    assert labels == ["servo-fetch (layout-aware)", "Readability (DOM-only)"]
+    assert labels == [
+        "servo-fetch (visibility=off)",
+        "servo-fetch (visibility=moderate)",
+        "servo-fetch (visibility=strict)",
+        "Readability (DOM-only)",
+    ]

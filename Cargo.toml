@@ -16,6 +16,8 @@ servo-fetch = { path = "crates/servo-fetch", version = "0.10.1" }
 servo = { version = "0.1.0", default-features = false, features = ["baked-in-resources", "js_jit"] }
 anyhow = "1"
 base64 = "0.22"
+bitflags = "2"
+cssparser = "0.36"
 dom_query = "0.26"
 dom_smoothie = "0.16"
 dpi = "0.1"

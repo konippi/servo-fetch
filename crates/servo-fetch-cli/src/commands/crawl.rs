@@ -6,6 +6,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::cli::{CrawlArgs, CrawlFormat};
+use crate::output::{Ext, Sink};
 use crate::progress::Progress;
 
 #[derive(Serialize)]
@@ -17,15 +18,19 @@ struct StatsRecord {
     elapsed_ms: u64,
 }
 
-/// Crawl a site starting from `args.url` and stream results to stdout.
+/// Crawl a site starting from `args.url` and stream results to stdout or a directory.
 pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
+    if let Some(dir) = args.output_dir.as_deref() {
+        std::fs::create_dir_all(dir)?;
+    }
     let json = matches!(args.format, CrawlFormat::Json);
+    let sink = Sink::from_dir(args.output_dir.as_deref());
     let opts = build_crawl_options(args, json);
 
     let progress = Progress::new();
     let mut completed = 0u64;
     let mut errors = 0u64;
-    let mut write_err: Option<io::Error> = None;
+    let mut write_err: Option<anyhow::Error> = None;
     let started = Instant::now();
 
     servo_fetch::crawl_each(opts, |result| {
@@ -36,7 +41,11 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
         if write_err.is_some() {
             return;
         }
-        let res = if json { emit_json(result) } else { emit_markdown(result) };
+        let res = if json {
+            emit_json(result, sink)
+        } else {
+            emit_markdown(result, sink)
+        };
         if let Err(e) = res {
             write_err = Some(e);
             return;
@@ -50,10 +59,15 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     })?;
 
     if let Some(e) = write_err {
-        return Err(e.into());
+        return Err(e);
     }
     if json {
-        emit_stats(completed, errors, started.elapsed())?;
+        let elapsed = started.elapsed();
+        if sink.is_stdout() {
+            emit_stats(&mut io::stdout(), completed, errors, elapsed)?;
+        } else {
+            emit_stats(&mut io::stderr(), completed, errors, elapsed)?;
+        }
     }
     Ok(())
 }
@@ -86,12 +100,12 @@ fn build_crawl_options(args: &CrawlArgs, json: bool) -> servo_fetch::CrawlOption
     opts
 }
 
-fn emit_json(result: &servo_fetch::CrawlResult) -> io::Result<()> {
+fn emit_json(result: &servo_fetch::CrawlResult, sink: Sink<'_>) -> anyhow::Result<()> {
     let line = serde_json::to_string(result).expect("CrawlResult is always serializable");
-    writeln!(io::stdout(), "{}", servo_fetch::sanitize::sanitize(&line))
+    sink.writeln(&result.url, Ext::Json, &line)
 }
 
-fn emit_stats(crawled: u64, errors: u64, elapsed: std::time::Duration) -> io::Result<()> {
+fn emit_stats(out: &mut impl io::Write, crawled: u64, errors: u64, elapsed: std::time::Duration) -> io::Result<()> {
     let stats = StatsRecord {
         kind: "stats",
         crawled,
@@ -99,19 +113,24 @@ fn emit_stats(crawled: u64, errors: u64, elapsed: std::time::Duration) -> io::Re
         elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
     };
     let line = serde_json::to_string(&stats).expect("StatsRecord is always serializable");
-    writeln!(io::stdout(), "{line}")
+    writeln!(out, "{line}")
 }
 
-fn emit_markdown(result: &servo_fetch::CrawlResult) -> io::Result<()> {
-    let mut out = io::stdout();
-    writeln!(out, "--- {} ---", result.url)?;
-    match &result.outcome {
-        Ok(page) => {
-            writeln!(out, "{}", servo_fetch::sanitize::sanitize(&page.content))?;
-        }
+fn emit_markdown(result: &servo_fetch::CrawlResult, sink: Sink<'_>) -> anyhow::Result<()> {
+    let page = match &result.outcome {
+        Ok(p) => p,
         Err(e) => {
             tracing::warn!(url = %result.url, "{e}");
+            return Ok(());
         }
+    };
+    if sink.is_stdout() {
+        let mut out = io::stdout().lock();
+        writeln!(out, "--- {} ---", result.url)?;
+        out.write_all(servo_fetch::sanitize::sanitize(&page.content).as_bytes())?;
+        writeln!(out)?;
+        Ok(())
+    } else {
+        sink.write(&result.url, Ext::Markdown, &page.content)
     }
-    writeln!(out)
 }

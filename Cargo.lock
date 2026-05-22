@@ -6603,12 +6603,14 @@ dependencies = [
  "serde",
  "serde_json",
  "servo-fetch",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "url",
  "wiremock",
 ]
 

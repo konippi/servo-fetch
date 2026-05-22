@@ -32,11 +32,18 @@ servo-fetch "https://example.com" --format html   # Raw rendered HTML
 servo-fetch "https://example.com" --format text   # Plain text (innerText)
 ```
 
+### Single file output
+
+```bash
+servo-fetch "https://example.com" --output page.md   # Save to a single file (single URL only)
+```
+
 ### Batch fetch
 
 ```bash
 servo-fetch URL1 URL2 URL3                     # Parallel fetch, Markdown output
 servo-fetch URL1 URL2 --format json            # Parallel fetch, NDJSON output
+servo-fetch URL1 URL2 --output-dir ./out/      # One file per URL (auto-created)
 ```
 
 ### Screenshots

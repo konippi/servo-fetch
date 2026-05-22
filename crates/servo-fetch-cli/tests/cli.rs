@@ -339,6 +339,121 @@ fn crawl_rejects_invalid_url() {
 }
 
 #[test]
+#[ignore = "e2e: requires Servo engine"]
+fn output_writes_single_file() {
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<html><head><title>OutputFile</title></head><body><h1>Direct</h1></body></html>",
+            ))
+            .mount(&s)
+            .await;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("page.md");
+        servo_fetch()
+            .args([
+                "-o",
+                file.to_str().unwrap(),
+                "--allow-private-addresses",
+                TIMEOUT,
+                &s.uri(),
+            ])
+            .assert()
+            .success();
+        let body = std::fs::read_to_string(&file).expect("file written");
+        assert!(body.contains("Direct"), "got: {body}");
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn output_dir_writes_single_file() {
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<html><head><title>OutputDir</title></head><body><h1>Saved</h1></body></html>",
+            ))
+            .mount(&s)
+            .await;
+        let dir = tempfile::tempdir().expect("tempdir");
+        servo_fetch()
+            .args([
+                "--output-dir",
+                dir.path().to_str().unwrap(),
+                "--allow-private-addresses",
+                TIMEOUT,
+                &s.uri(),
+            ])
+            .assert()
+            .success();
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .expect("dir exists")
+            .filter_map(Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+            .collect();
+        assert_eq!(entries.len(), 1, "expected exactly 1 .md file");
+        let body = std::fs::read_to_string(entries[0].path()).unwrap();
+        assert!(body.contains("Saved"), "got: {body}");
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn crawl_output_dir_writes_per_page_files() {
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<html><head><title>CrawlDir</title></head><body><p>One page</p></body></html>",
+            ))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/robots.txt"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&s)
+            .await;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = servo_fetch()
+            .args([
+                "crawl",
+                &s.uri(),
+                "--format",
+                "json",
+                "--output-dir",
+                dir.path().to_str().unwrap(),
+                "--limit",
+                "1",
+                "--max-depth",
+                "0",
+                "--timeout",
+                "30",
+                "--allow-private-addresses",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        assert!(output.is_empty(), "stdout should be silent in --output-dir mode");
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .expect("dir exists")
+            .filter_map(Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+            .collect();
+        assert_eq!(entries.len(), 1, "expected exactly 1 .json file");
+        let line = std::fs::read_to_string(entries[0].path()).unwrap();
+        let record: serde_json::Value = serde_json::from_str(line.trim()).expect("valid JSON");
+        assert_eq!(record["type"], "page");
+    });
+}
+
+#[test]
 fn crawl_help_shows_options() {
     servo_fetch()
         .args(["crawl", "--help"])
@@ -347,7 +462,17 @@ fn crawl_help_shows_options() {
         .stdout(predicate::str::contains("--limit"))
         .stdout(predicate::str::contains("--max-depth"))
         .stdout(predicate::str::contains("--include"))
-        .stdout(predicate::str::contains("--exclude"));
+        .stdout(predicate::str::contains("--exclude"))
+        .stdout(predicate::str::contains("--output-dir"));
+}
+
+#[test]
+fn fetch_help_shows_output_dir() {
+    servo_fetch()
+        .args(["--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--output-dir"));
 }
 
 #[test]

@@ -32,12 +32,14 @@ RUN groupadd --gid 1001 servo \
 COPY --chown=servo:servo --chmod=0755 \
      dist/${TARGETARCH}/servo-fetch /usr/local/bin/servo-fetch
 
+RUN mkdir -p -m 0700 /tmp/runtime-servo && chown servo:servo /tmp/runtime-servo
+
 USER servo
 WORKDIR /home/servo
 
 EXPOSE 3000
-# fontconfig cache on /tmp for --read-only compatibility
 ENV XDG_CACHE_HOME=/tmp
+ENV XDG_RUNTIME_DIR=/tmp/runtime-servo
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD curl -fsS --max-time 2 http://127.0.0.1:3000/health || exit 1

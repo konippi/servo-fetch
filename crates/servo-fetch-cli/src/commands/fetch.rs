@@ -1,6 +1,6 @@
 //! Default fetch command — single URL, batch, and PDF probe.
 
-use std::io::Write as _;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -8,12 +8,20 @@ use anyhow::{Result, bail};
 use servo_fetch::{FetchOptions, Page};
 
 use crate::cli::{FetchArgs, Format};
-use crate::output;
+use crate::output::{self, Sink};
 use crate::progress::Progress;
 
-/// Fetch one or more URLs and write the rendered output to stdout.
+/// Fetch one or more URLs and write the rendered output to stdout, a file, or a directory.
 pub(crate) fn run(args: &FetchArgs) -> Result<()> {
     validate_args(args)?;
+    if let Some(dir) = args.output_dir.as_deref() {
+        std::fs::create_dir_all(dir)?;
+    }
+    if let Some(file) = args.output.as_deref() {
+        if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
     match args.urls.as_slice() {
         [] => bail!("URL is required. Run with --help for usage."),
         [one] => run_single(args, one),
@@ -29,10 +37,19 @@ fn validate_args(args: &FetchArgs) -> Result<()> {
     if raw_format && args.selector.is_some() {
         bail!("--selector cannot be used with --format html or text");
     }
-    if args.urls.len() > 1 && (args.screenshot.is_some() || args.js.is_some() || raw_format) {
-        bail!("--screenshot, --js, and --format html or text cannot be used with multiple URLs");
+    if args.urls.len() > 1 {
+        if args.output.is_some() {
+            bail!("-o/--output is only valid with a single URL; use --output-dir for multiple URLs");
+        }
+        if args.screenshot.is_some() || args.js.is_some() || raw_format {
+            bail!("--screenshot, --js, and --format html or text cannot be used with multiple URLs");
+        }
     }
     Ok(())
+}
+
+fn sink(args: &FetchArgs) -> Sink<'_> {
+    Sink::from_args(args.output.as_deref(), args.output_dir.as_deref())
 }
 
 fn run_single(args: &FetchArgs, url_str: &str) -> Result<()> {
@@ -43,7 +60,7 @@ fn run_single(args: &FetchArgs, url_str: &str) -> Result<()> {
     let page = servo_fetch::fetch(opts).map_err(anyhow::Error::from);
     progress.clear();
     let page = page?;
-    dispatch_output(args, &page, url_str)
+    dispatch_output(args, &page, url_str, sink(args))
 }
 
 async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
@@ -83,13 +100,14 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
     }
     drop(tx);
 
+    let sink = sink(args);
     let mut completed = 0usize;
     let mut failures = 0usize;
     while let Some((url, result)) = rx.recv().await {
         completed += 1;
         match result {
             Ok(page) => {
-                batch_emit(args, &page, &url)?;
+                batch_emit(args, &page, &url, sink)?;
                 progress.item_done(completed, Some(total), &url, true);
             }
             Err(err) => {
@@ -105,39 +123,48 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn batch_emit(args: &FetchArgs, page: &Page, url: &str) -> Result<()> {
+fn batch_emit(args: &FetchArgs, page: &Page, url: &str, sink: Sink<'_>) -> Result<()> {
     if args.schema.is_some() {
-        return output::Extracted { page, url }.execute_compact();
+        return output::Extracted { page, url }.execute_compact(sink);
     }
     let selector = args.selector.as_deref();
     match args.format {
-        Format::Json => output::Json { page, url, selector }.execute_compact(),
+        Format::Json => output::Json { page, url, selector }.execute_compact(sink),
         Format::Markdown => {
-            writeln!(std::io::stdout(), "--- {url} ---")?;
-            output::Markdown { page, url, selector }.execute()?;
-            writeln!(std::io::stdout())?;
-            Ok(())
+            if sink.is_stdout() {
+                use std::io::Write as _;
+                writeln!(std::io::stdout(), "--- {url} ---")?;
+                output::Markdown { page, url, selector }.execute(sink)?;
+                writeln!(std::io::stdout())?;
+                Ok(())
+            } else {
+                output::Markdown { page, url, selector }.execute(sink)
+            }
         }
-        Format::Html | Format::Text => unreachable!("guarded by run() before batch dispatch"),
+        Format::Html | Format::Text => unreachable!("guarded by validate_args before batch dispatch"),
     }
 }
 
-fn dispatch_output(args: &FetchArgs, page: &Page, url: &str) -> Result<()> {
+fn dispatch_output(args: &FetchArgs, page: &Page, url: &str, sink: Sink<'_>) -> Result<()> {
     if let Some(result) = page.js_result.as_deref() {
-        return output::js_eval(result);
+        return output::js_eval(url, result, sink);
     }
     if let Some(path) = args.screenshot.as_deref() {
-        return output::Screenshot { page, path }.execute();
+        return output::Screenshot {
+            page,
+            path: Path::new(path),
+        }
+        .execute();
     }
     if args.schema.is_some() {
-        return output::Extracted { page, url }.execute();
+        return output::Extracted { page, url }.execute(sink);
     }
     let selector = args.selector.as_deref();
     match args.format {
-        Format::Markdown => output::Markdown { page, url, selector }.execute(),
-        Format::Json => output::Json { page, url, selector }.execute(),
-        Format::Html => output::raw(&page.html),
-        Format::Text => output::raw(&page.inner_text),
+        Format::Markdown => output::Markdown { page, url, selector }.execute(sink),
+        Format::Json => output::Json { page, url, selector }.execute(sink),
+        Format::Html => output::raw(url, output::Ext::Html, &page.html, sink),
+        Format::Text => output::raw(url, output::Ext::Text, &page.inner_text, sink),
     }
 }
 
@@ -164,6 +191,6 @@ fn build_fetch_options(args: &FetchArgs, url: &str) -> Result<FetchOptions> {
     Ok(opts)
 }
 
-fn load_schema(path: &std::path::Path) -> Result<servo_fetch::schema::ExtractSchema> {
+fn load_schema(path: &Path) -> Result<servo_fetch::schema::ExtractSchema> {
     servo_fetch::schema::ExtractSchema::from_path(path).map_err(|e| anyhow::anyhow!("schema '{}': {e}", path.display()))
 }

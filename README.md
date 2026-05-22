@@ -99,7 +99,7 @@ xvfb-run --auto-servernum servo-fetch "https://example.com"
 
 ```bash
 servo-fetch "https://example.com"                        # Markdown (default)
-servo-fetch "https://example.com" --json                 # Structured JSON
+servo-fetch "https://example.com" --format json          # Structured JSON
 servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot
 servo-fetch "https://example.com" --js "document.title"  # Run JavaScript
 servo-fetch "https://example.com" --schema schema.json   # Schema-driven JSON

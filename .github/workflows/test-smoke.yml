@@ -142,7 +142,7 @@ jobs:
           [[ "$RUNNER_OS_NAME" == "Windows" ]] && BIN="$BIN.exe"
           SHOT="$RUNNER_TEMP/shot.png"
 
-          "$BIN" --json 'https://example.com' \
+          "$BIN" --format json 'https://example.com' \
             | python3 -c 'import json,sys; json.load(sys.stdin)'
           sleep 2
 

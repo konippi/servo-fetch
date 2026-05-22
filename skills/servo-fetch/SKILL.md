@@ -122,15 +122,15 @@ execute_js(url: "https://example.com", expression: "[...document.querySelectorAl
 
 ```bash
 servo-fetch https://example.com                    # Markdown (default)
-servo-fetch https://example.com --json             # Structured JSON
+servo-fetch https://example.com --format json             # Structured JSON
 servo-fetch URL1 URL2 URL3                         # Parallel batch (Markdown with separators)
-servo-fetch URL1 URL2 --json                       # Parallel batch (NDJSON)
+servo-fetch URL1 URL2 --format json                       # Parallel batch (NDJSON)
 servo-fetch https://example.com --screenshot out.png
 servo-fetch https://example.com --js "document.title"
 servo-fetch https://example.com --selector article
 servo-fetch https://example.com --schema schema.json  # Schema-driven JSON
-servo-fetch https://example.com --raw html         # Raw HTML
-servo-fetch https://example.com --raw text         # Plain text
+servo-fetch https://example.com --format html         # Raw HTML
+servo-fetch https://example.com --format text         # Plain text
 servo-fetch https://example.com -t 60              # Custom timeout
 servo-fetch https://example.com --settle 500       # Extra wait for SPAs
 servo-fetch crawl https://docs.example.com --limit 20  # Crawl a site (BFS)

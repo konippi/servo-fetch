@@ -89,7 +89,7 @@ def _node_env(cfg: Config) -> dict[str, str]:
 def speed_runners(cfg: Config) -> list[Runner]:
     """Text-output runners for equivalence / time / memory / parallel."""
     runners: list[Runner] = [
-        Runner("servo-fetch", [str(cfg.servo_fetch_bin), "--raw", "text", "-q"]),
+        Runner("servo-fetch", [str(cfg.servo_fetch_bin), "--format", "text", "-q"]),
     ]
     if _has_chrome_headless_shell(cfg):
         runners.append(Runner(

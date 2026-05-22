@@ -7,23 +7,32 @@ use anyhow::{Result, bail};
 
 use servo_fetch::{FetchOptions, Page};
 
-use crate::cli::FetchArgs;
+use crate::cli::{FetchArgs, Format};
 use crate::output;
 use crate::progress::Progress;
 
 /// Fetch one or more URLs and write the rendered output to stdout.
 pub(crate) fn run(args: &FetchArgs) -> Result<()> {
+    validate_args(args)?;
     match args.urls.as_slice() {
         [] => bail!("URL is required. Run with --help for usage."),
         [one] => run_single(args, one),
         many => {
-            if args.screenshot.is_some() || args.js.is_some() || args.raw.is_some() {
-                bail!("--screenshot, --js, and --raw are not supported with multiple URLs");
-            }
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(run_batch(args, many))
         }
     }
+}
+
+fn validate_args(args: &FetchArgs) -> Result<()> {
+    let raw_format = matches!(args.format, Format::Html | Format::Text);
+    if raw_format && args.selector.is_some() {
+        bail!("--selector cannot be used with --format html or text");
+    }
+    if args.urls.len() > 1 && (args.screenshot.is_some() || args.js.is_some() || raw_format) {
+        bail!("--screenshot, --js, and --format html or text cannot be used with multiple URLs");
+    }
+    Ok(())
 }
 
 fn run_single(args: &FetchArgs, url_str: &str) -> Result<()> {
@@ -100,44 +109,35 @@ fn batch_emit(args: &FetchArgs, page: &Page, url: &str) -> Result<()> {
     if args.schema.is_some() {
         return output::Extracted { page, url }.execute_compact();
     }
-    if args.json {
-        output::Json {
-            page,
-            url,
-            selector: args.selector.as_deref(),
+    let selector = args.selector.as_deref();
+    match args.format {
+        Format::Json => output::Json { page, url, selector }.execute_compact(),
+        Format::Markdown => {
+            writeln!(std::io::stdout(), "--- {url} ---")?;
+            output::Markdown { page, url, selector }.execute()?;
+            writeln!(std::io::stdout())?;
+            Ok(())
         }
-        .execute_compact()
-    } else {
-        writeln!(std::io::stdout(), "--- {url} ---")?;
-        output::Markdown {
-            page,
-            url,
-            selector: args.selector.as_deref(),
-        }
-        .execute()?;
-        writeln!(std::io::stdout())?;
-        Ok(())
+        Format::Html | Format::Text => unreachable!("guarded by run() before batch dispatch"),
     }
 }
 
 fn dispatch_output(args: &FetchArgs, page: &Page, url: &str) -> Result<()> {
     if let Some(result) = page.js_result.as_deref() {
-        return output::JsEval { result }.execute();
+        return output::js_eval(result);
     }
     if let Some(path) = args.screenshot.as_deref() {
         return output::Screenshot { page, path }.execute();
-    }
-    if let Some(mode) = args.raw.as_ref() {
-        return output::Raw { page, mode }.execute();
     }
     if args.schema.is_some() {
         return output::Extracted { page, url }.execute();
     }
     let selector = args.selector.as_deref();
-    if args.json {
-        output::Json { page, url, selector }.execute()
-    } else {
-        output::Markdown { page, url, selector }.execute()
+    match args.format {
+        Format::Markdown => output::Markdown { page, url, selector }.execute(),
+        Format::Json => output::Json { page, url, selector }.execute(),
+        Format::Html => output::raw(&page.html),
+        Format::Text => output::raw(&page.inner_text),
     }
 }
 

@@ -110,7 +110,7 @@ fn json_produces_valid_json() {
             .mount(&s)
             .await;
         let output = servo_fetch()
-            .args(["--json", "--allow-private-addresses", TIMEOUT, &s.uri()])
+            .args(["--format", "json", "--allow-private-addresses", TIMEOUT, &s.uri()])
             .assert()
             .success()
             .get_output()
@@ -190,7 +190,8 @@ fn crawl_produces_ndjson() {
             .args([
                 "crawl",
                 &s.uri(),
-                "--json",
+                "--format",
+                "json",
                 "--limit",
                 "1",
                 "--timeout",
@@ -279,7 +280,8 @@ fn crawl_json_embeds_structured_content() {
             .args([
                 "crawl",
                 &s.uri(),
-                "--json",
+                "--format",
+                "json",
                 "--limit",
                 "1",
                 "--max-depth",

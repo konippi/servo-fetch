@@ -28,7 +28,7 @@ CLI equivalent:
 
 ```bash
 servo-fetch https://a.com https://b.com https://c.com          # Markdown
-servo-fetch https://a.com https://b.com https://c.com --json   # NDJSON
+servo-fetch https://a.com https://b.com https://c.com --format json   # NDJSON
 ```
 
 ## Crawling

@@ -87,15 +87,9 @@ impl Screenshot<'_> {
     }
 }
 
-pub(crate) struct JsEval<'a> {
-    pub result: &'a str,
-}
-
-impl JsEval<'_> {
-    pub(crate) fn execute(&self) -> Result<()> {
-        writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(self.result))?;
-        Ok(())
-    }
+pub(crate) fn js_eval(result: &str) -> Result<()> {
+    writeln!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(result))?;
+    Ok(())
 }
 
 pub(crate) struct Extracted<'a> {
@@ -125,18 +119,7 @@ impl Extracted<'_> {
     }
 }
 
-pub(crate) struct Raw<'a> {
-    pub page: &'a Page,
-    pub mode: &'a crate::cli::RawMode,
-}
-
-impl Raw<'_> {
-    pub(crate) fn execute(&self) -> Result<()> {
-        let content = match self.mode {
-            crate::cli::RawMode::Html => self.page.html.as_str(),
-            crate::cli::RawMode::Text => &self.page.inner_text,
-        };
-        write!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(content))?;
-        Ok(())
-    }
+pub(crate) fn raw(content: &str) -> Result<()> {
+    write!(std::io::stdout(), "{}", servo_fetch::sanitize::sanitize(content))?;
+    Ok(())
 }

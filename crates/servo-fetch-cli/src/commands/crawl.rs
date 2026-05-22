@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use crate::cli::CrawlArgs;
+use crate::cli::{CrawlArgs, CrawlFormat};
 use crate::progress::Progress;
 
 #[derive(Serialize)]
@@ -19,12 +19,12 @@ struct StatsRecord {
 
 /// Crawl a site starting from `args.url` and stream results to stdout.
 pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
-    let opts = build_crawl_options(args);
+    let json = matches!(args.format, CrawlFormat::Json);
+    let opts = build_crawl_options(args, json);
 
     let progress = Progress::new();
     let mut completed = 0u64;
     let mut errors = 0u64;
-    let json = args.json;
     let mut write_err: Option<io::Error> = None;
     let started = Instant::now();
 
@@ -58,7 +58,7 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_crawl_options(args: &CrawlArgs) -> servo_fetch::CrawlOptions {
+fn build_crawl_options(args: &CrawlArgs, json: bool) -> servo_fetch::CrawlOptions {
     let mut opts = servo_fetch::CrawlOptions::new(&args.url)
         .limit(args.limit)
         .max_depth(args.max_depth)
@@ -70,7 +70,7 @@ fn build_crawl_options(args: &CrawlArgs) -> servo_fetch::CrawlOptions {
         } else {
             Some(std::time::Duration::from_millis(args.delay_ms))
         })
-        .json(args.json);
+        .json(json);
     if !args.include.is_empty() {
         opts = opts.include(&args.include.iter().map(String::as_str).collect::<Vec<_>>());
     }

@@ -27,16 +27,16 @@ cargo install servo-fetch-cli    # build from source (requires Rust 1.86.0+)
 
 ```bash
 servo-fetch "https://example.com"              # Readable Markdown (default)
-servo-fetch "https://example.com" --json       # Structured JSON
-servo-fetch "https://example.com" --raw html   # Raw rendered HTML
-servo-fetch "https://example.com" --raw text   # Plain text (innerText)
+servo-fetch "https://example.com" --format json   # Structured JSON
+servo-fetch "https://example.com" --format html   # Raw rendered HTML
+servo-fetch "https://example.com" --format text   # Plain text (innerText)
 ```
 
 ### Batch fetch
 
 ```bash
 servo-fetch URL1 URL2 URL3                     # Parallel fetch, Markdown output
-servo-fetch URL1 URL2 --json                   # Parallel fetch, NDJSON output
+servo-fetch URL1 URL2 --format json            # Parallel fetch, NDJSON output
 ```
 
 ### Screenshots
@@ -57,7 +57,7 @@ servo-fetch "https://example.com" --js "document.querySelectorAll('h2').length"
 
 ```bash
 servo-fetch "https://example.com" --selector "article"
-servo-fetch "https://example.com" --selector ".main-content" --json
+servo-fetch "https://example.com" --selector ".main-content" --format json
 ```
 
 ### Visibility filtering
@@ -100,7 +100,7 @@ Field `type` values: `text`, `attribute`, `html`, `inner_html`, `nested_list`. S
 ```bash
 servo-fetch crawl "https://docs.example.com" --limit 20
 servo-fetch crawl "https://docs.example.com" --include "/docs/**" --exclude "/docs/archive/**"
-servo-fetch crawl "https://docs.example.com" --json --max-depth 5
+servo-fetch crawl "https://docs.example.com" --format json --max-depth 5
 ```
 
 ### Discover URLs (sitemap)
@@ -137,12 +137,12 @@ See [HTTP API server](#http-api-server) below for the endpoint reference.
 
 | Flag | Description |
 | ---- | ----------- |
-| `--json` | Structured JSON output (NDJSON for multiple URLs) |
+| `--format json` | Structured JSON output (NDJSON for multiple URLs) |
 | `--screenshot <FILE>` | Save PNG screenshot |
 | `--full-page` | Capture full scrollable page (requires `--screenshot`) |
 | `--js <EXPR>` | Execute JavaScript and print result |
 | `--selector <CSS>` | Extract specific section by CSS selector |
-| `--raw html\|text` | Raw HTML or plain text output |
+| `--format html\|text` | Raw HTML or plain text output |
 | `--schema <FILE>` | Extract structured JSON using a CSS-selector schema file |
 | `-t, --timeout <SECS>` | Page load timeout in seconds (default: 30) |
 | `--settle <MS>` | Extra wait after load event in ms (default: 0, max: 10000) |
@@ -152,7 +152,7 @@ See [HTTP API server](#http-api-server) below for the endpoint reference.
 
 ### JSON output
 
-`--json` returns an object with these fields:
+`--format json` returns an object with these fields:
 
 | Field | Type | Description |
 | ----- | ---- | ----------- |
@@ -174,7 +174,7 @@ See [HTTP API server](#http-api-server) below for the endpoint reference.
 | `--max-depth <N>` | Maximum link depth (default: 3) |
 | `--include <GLOB>` | URL path patterns to include |
 | `--exclude <GLOB>` | URL path patterns to exclude |
-| `--json` | Output content as JSON per page |
+| `--format json` | Output content as JSON per page |
 | `--selector <CSS>` | Extract specific section per page |
 | `--concurrency <N>` | Maximum parallel page fetches (default: 1; completion order when >1) |
 | `--delay-ms <MS>` | Minimum dispatch interval in ms (default: 500; 0 disables rate limiting) |
@@ -191,7 +191,7 @@ See [HTTP API server](#http-api-server) below for the endpoint reference.
 | `--limit <N>` | Maximum URLs to return (default: 5000) |
 | `--include <GLOB>` | URL path patterns to include |
 | `--exclude <GLOB>` | URL path patterns to exclude |
-| `--json` | Output as JSON array with lastmod metadata |
+| `--format json` | Output as JSON array with lastmod metadata |
 | `--user-agent <UA>` | Override the User-Agent string |
 | `-t, --timeout <SECS>` | HTTP request timeout in seconds (default: 30) |
 | `--no-fallback` | Skip HTML link extraction fallback |

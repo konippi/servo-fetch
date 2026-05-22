@@ -206,7 +206,7 @@ def parallel(
         reporting.env_header(cfg) + f"# Parallel scalability\n\nFixture: `{fixture}`.\n\n",
         encoding="utf-8",
     )
-    # Parallel uses Markdown pipeline (servo-fetch --raw text forbids multi-URL).
+    # Parallel uses Markdown pipeline (servo-fetch --format text forbids multi-URL).
     # Only multi-URL-capable runners participate.
     runners_ = [
         Runner("servo-fetch", [str(cfg.servo_fetch_bin), "-q"]),

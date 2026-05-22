@@ -20,7 +20,7 @@ cargo build
 
 ```sh
 cargo run -- "https://example.com"                          # Markdown output
-cargo run -- "https://example.com" --json                   # JSON output
+cargo run -- "https://example.com" --format json            # JSON output
 cargo run -- "https://example.com" --screenshot page.png    # Screenshot
 cargo run -- "https://example.com" --js "document.title"    # JS execution
 cargo test                                                  # Run tests

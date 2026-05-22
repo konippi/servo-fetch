@@ -35,12 +35,13 @@ pub(crate) struct FetchArgs {
     #[arg(num_args = 1..)]
     pub urls: Vec<String>,
 
-    /// Output as structured JSON (NDJSON when multiple URLs)
-    #[arg(long, conflicts_with_all = ["screenshot", "js"])]
-    pub json: bool,
+    /// Output format
+    #[arg(long, value_enum, value_name = "FORMAT", default_value_t = Format::Markdown,
+          conflicts_with_all = ["screenshot", "js"])]
+    pub format: Format,
 
     /// Save screenshot as PNG (single URL only)
-    #[arg(long, value_name = "FILE", conflicts_with_all = ["json", "js"])]
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["js"])]
     pub screenshot: Option<String>,
 
     /// Capture the full scrollable page instead of just the viewport.
@@ -48,7 +49,7 @@ pub(crate) struct FetchArgs {
     pub full_page: bool,
 
     /// Execute JavaScript and print the result (single URL only)
-    #[arg(long, value_name = "EXPR", conflicts_with_all = ["json", "screenshot"])]
+    #[arg(long, value_name = "EXPR", conflicts_with_all = ["screenshot"])]
     pub js: Option<String>,
 
     /// Timeout in seconds for page load
@@ -63,16 +64,12 @@ pub(crate) struct FetchArgs {
     #[arg(long, value_name = "CSS", value_parser = NonEmptyStringValueParser::new())]
     pub selector: Option<String>,
 
-    /// Output raw HTML or plain text instead of Readability extraction
-    #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["json", "screenshot", "js", "selector"])]
-    pub raw: Option<RawMode>,
-
     /// Override the User-Agent string
     #[arg(long, value_name = "UA")]
     pub user_agent: Option<String>,
 
     /// Path to a CSS-selector schema file for structured JSON extraction
-    #[arg(long, value_name = "FILE", conflicts_with_all = ["screenshot", "js", "raw", "selector"])]
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["screenshot", "js", "selector", "format"])]
     pub schema: Option<std::path::PathBuf>,
 
     /// Visibility-aware filtering policy.
@@ -101,13 +98,26 @@ impl VisibilityArg {
     }
 }
 
-/// Raw output mode.
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub(crate) enum RawMode {
-    /// Raw HTML
+/// Output format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum Format {
+    /// Readability-extracted Markdown
+    Markdown,
+    /// Readability-extracted JSON
+    Json,
+    /// Raw rendered HTML (post-JS execution)
     Html,
-    /// Plain text (document.body.innerText)
+    /// Plain text (`document.body.innerText`)
     Text,
+}
+
+/// Crawl output format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum CrawlFormat {
+    /// Readability-extracted Markdown
+    Markdown,
+    /// NDJSON
+    Json,
 }
 
 /// Available subcommands.
@@ -162,9 +172,9 @@ pub(crate) struct CrawlArgs {
     #[arg(long, value_name = "GLOB")]
     pub exclude: Vec<String>,
 
-    /// Output as NDJSON
-    #[arg(long)]
-    pub json: bool,
+    /// Output format
+    #[arg(long, value_enum, value_name = "FORMAT", default_value_t = CrawlFormat::Markdown)]
+    pub format: CrawlFormat,
 
     /// CSS selector to extract a specific section per page
     #[arg(long, value_name = "CSS", value_parser = NonEmptyStringValueParser::new())]
@@ -230,11 +240,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn raw_mode_from_str() {
+    fn format_from_str() {
         use ValueEnum;
-        assert!(RawMode::from_str("html", true).is_ok());
-        assert!(RawMode::from_str("text", true).is_ok());
-        assert!(RawMode::from_str("xml", true).is_err());
+        assert!(Format::from_str("markdown", true).is_ok());
+        assert!(Format::from_str("json", true).is_ok());
+        assert!(Format::from_str("html", true).is_ok());
+        assert!(Format::from_str("text", true).is_ok());
+        assert!(Format::from_str("xml", true).is_err());
+    }
+
+    #[test]
+    fn crawl_format_from_str() {
+        use ValueEnum;
+        assert!(CrawlFormat::from_str("markdown", true).is_ok());
+        assert!(CrawlFormat::from_str("json", true).is_ok());
+        assert!(CrawlFormat::from_str("html", true).is_err());
     }
 }
 
@@ -248,9 +268,9 @@ mod cli_tests {
     }
 
     #[test]
-    fn conflicting_json_and_screenshot() {
+    fn conflicting_format_and_screenshot() {
         servo_fetch()
-            .args(["--json", "--screenshot", "out.png", "https://example.com"])
+            .args(["--format", "json", "--screenshot", "out.png", "https://example.com"])
             .assert()
             .failure()
             .stderr(predicate::str::contains("cannot be used with"));
@@ -266,12 +286,12 @@ mod cli_tests {
     }
 
     #[test]
-    fn raw_conflicts_with_json() {
+    fn invalid_format_rejected() {
         servo_fetch()
-            .args(["--raw", "html", "--json", "https://example.com"])
+            .args(["--format", "xml", "https://example.com"])
             .assert()
             .failure()
-            .stderr(predicate::str::contains("cannot be used with"));
+            .stderr(predicate::str::contains("invalid value"));
     }
 
     #[test]
@@ -290,5 +310,34 @@ mod cli_tests {
             .assert()
             .failure()
             .stderr(predicate::str::contains("cannot be used with"));
+    }
+
+    #[test]
+    fn schema_conflicts_with_format() {
+        servo_fetch()
+            .args(["--schema", "s.json", "--format", "json", "https://example.com"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("cannot be used with"));
+    }
+
+    #[test]
+    fn format_html_with_selector_errors() {
+        servo_fetch()
+            .args(["--format", "html", "--selector", "article", "https://example.com"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "--selector cannot be used with --format html or text",
+            ));
+    }
+
+    #[test]
+    fn format_html_with_multi_urls_errors() {
+        servo_fetch()
+            .args(["--format", "html", "https://example.com", "https://example.org"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("cannot be used with multiple URLs"));
     }
 }

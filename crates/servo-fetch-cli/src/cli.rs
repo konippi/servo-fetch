@@ -72,6 +72,14 @@ pub(crate) struct FetchArgs {
     #[arg(long, value_name = "FILE", conflicts_with_all = ["screenshot", "js", "selector", "format"])]
     pub schema: Option<std::path::PathBuf>,
 
+    /// Save the rendered output to a single file (single URL only).
+    #[arg(short = 'o', long, value_name = "FILE", conflicts_with_all = ["screenshot", "output_dir"])]
+    pub output: Option<std::path::PathBuf>,
+
+    /// Write each URL's output to a file in this directory (auto-created).
+    #[arg(long, value_name = "DIR", conflicts_with = "screenshot")]
+    pub output_dir: Option<std::path::PathBuf>,
+
     /// Visibility-aware filtering policy.
     #[arg(long, value_name = "POLICY", value_enum, default_value_t = VisibilityArg::Moderate)]
     pub visibility: VisibilityArg,
@@ -199,6 +207,10 @@ pub(crate) struct CrawlArgs {
     /// Override the User-Agent string
     #[arg(long, value_name = "UA")]
     pub user_agent: Option<String>,
+
+    /// Write each crawled page's output to a file in this directory.
+    #[arg(long, value_name = "DIR")]
+    pub output_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -339,5 +351,50 @@ mod cli_tests {
             .assert()
             .failure()
             .stderr(predicate::str::contains("cannot be used with multiple URLs"));
+    }
+
+    #[test]
+    fn output_dir_conflicts_with_screenshot() {
+        servo_fetch()
+            .args(["--output-dir", "out", "--screenshot", "out.png", "https://example.com"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("cannot be used with"));
+    }
+
+    #[test]
+    fn output_conflicts_with_screenshot() {
+        servo_fetch()
+            .args(["-o", "out.md", "--screenshot", "out.png", "https://example.com"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("cannot be used with"));
+    }
+
+    #[test]
+    fn output_conflicts_with_output_dir() {
+        servo_fetch()
+            .args(["-o", "out.md", "--output-dir", "out", "https://example.com"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("cannot be used with"));
+    }
+
+    #[test]
+    fn output_with_multi_urls_errors() {
+        servo_fetch()
+            .args(["-o", "out.md", "https://example.com", "https://example.org"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("only valid with a single URL"));
+    }
+
+    #[test]
+    fn output_with_js_is_allowed() {
+        servo_fetch()
+            .args(["--output", "out.txt", "--js", "document.title", "https://example.com"])
+            .assert()
+            .stderr(predicate::str::contains("cannot be used with").not())
+            .stderr(predicate::str::contains("only valid with").not());
     }
 }

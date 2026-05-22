@@ -104,7 +104,10 @@ servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot
 servo-fetch "https://example.com" --js "document.title"  # Run JavaScript
 servo-fetch "https://example.com" --schema schema.json   # Schema-driven JSON
 servo-fetch URL1 URL2 URL3                               # Parallel batch
+servo-fetch "https://example.com" --output page.md       # Save to a single file
+servo-fetch URL1 URL2 --output-dir ./out/                # Save each URL to its own file
 servo-fetch crawl "https://docs.example.com" --limit 20  # Crawl a site
+servo-fetch crawl URL --output-dir ./pages/              # Save each crawled page to its own file
 servo-fetch map "https://example.com"                    # Discover URLs via sitemap
 servo-fetch mcp                                          # MCP server (stdio)
 servo-fetch serve                                        # HTTP API server

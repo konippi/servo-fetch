@@ -537,13 +537,18 @@ fn start_fetch(
 fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
     let timed_out = p.state.loaded_at.get().is_none() && Instant::now() > p.deadline;
 
+    if timed_out {
+        return Err(anyhow!(
+            "page load timed out after {timeout}s (try increasing --timeout)",
+            timeout = p.request.timeout_secs,
+        ));
+    }
+
     if let Some(ref ctx) = p.dedicated_ctx {
         let _ = ctx.make_current();
     }
 
-    if !timed_out {
-        wait_for_ready_state(servo, &p.webview, p.deadline);
-    }
+    wait_for_ready_state(servo, &p.webview, p.deadline);
 
     let inner_text = eval_js(servo, &p.webview, "document.body.innerText").ok();
     let layout_json = eval_js(servo, &p.webview, LAYOUT_JS).ok();
@@ -551,18 +556,8 @@ fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
 
     let html = match eval_js(servo, &p.webview, "document.documentElement.outerHTML") {
         Ok(h) if !h.is_empty() => h,
-        _ if timed_out => {
-            return Err(anyhow!(
-                "page load timed out after {timeout}s (try increasing --timeout)",
-                timeout = p.request.timeout_secs,
-            ));
-        }
         other => other?,
     };
-
-    if timed_out {
-        tracing::warn!("page load did not complete; returning best-effort content");
-    }
 
     let (screenshot, js_result) = match &p.request.mode {
         FetchMode::Screenshot { full_page } => (

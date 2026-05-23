@@ -33,7 +33,7 @@ pub(crate) fn run(args: &FetchArgs) -> Result<()> {
     }
 }
 
-fn validate_args(args: &FetchArgs) -> Result<()> {
+pub(crate) fn validate_args(args: &FetchArgs) -> Result<()> {
     let raw_format = matches!(args.format, Format::Html | Format::Text);
     if raw_format && args.selector.is_some() {
         bail!("--selector cannot be used with --format html or text");

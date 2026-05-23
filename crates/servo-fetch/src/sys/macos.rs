@@ -3,7 +3,8 @@
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::panic::AssertUnwindSafe;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::str::from_utf8;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 
@@ -103,12 +104,12 @@ where
             Ok(_) => {}
             Err(_) => continue,
         }
-        let Ok(line) = std::str::from_utf8(&buf) else {
+        let Ok(line) = from_utf8(&buf) else {
             let _ = out.write_all(&buf);
             continue;
         };
         let trimmed = line.strip_suffix('\n').unwrap_or(line);
-        let suppress = std::panic::catch_unwind(AssertUnwindSafe(|| predicate(trimmed))).unwrap_or(false);
+        let suppress = catch_unwind(AssertUnwindSafe(|| predicate(trimmed))).unwrap_or(false);
         if !suppress {
             let _ = out.write_all(line.as_bytes());
         }
@@ -175,13 +176,13 @@ mod tests {
     #[test]
     fn drops_matching_lines() {
         let out = run(b"keep one\nDROP me\nkeep two\n", |line| line.contains("DROP"));
-        assert_eq!(std::str::from_utf8(&out).unwrap(), "keep one\nkeep two\n");
+        assert_eq!(from_utf8(&out).unwrap(), "keep one\nkeep two\n");
     }
 
     #[test]
     fn tolerates_predicate_panic() {
         let out = run(b"a\nb\nc\n", |_| panic!("boom"));
-        assert_eq!(std::str::from_utf8(&out).unwrap(), "a\nb\nc\n");
+        assert_eq!(from_utf8(&out).unwrap(), "a\nb\nc\n");
     }
 
     #[test]

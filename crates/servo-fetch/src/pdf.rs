@@ -89,9 +89,10 @@ mod tests {
     }
 
     mod integration {
-        use crate::pdf::probe;
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        use crate::pdf::probe;
 
         async fn run_probe(url: String, timeout: u64) -> Option<Vec<u8>> {
             tokio::task::spawn_blocking(move || probe(&url, timeout)).await.unwrap()

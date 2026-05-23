@@ -3,19 +3,21 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError, mpsc};
 use std::time::{Duration, Instant};
+use std::{fmt, thread};
 
 use anyhow::{Result, anyhow};
 use dpi::PhysicalSize;
 use image::RgbaImage;
+use serde_json::Value;
 use servo::{
     ConsoleLogLevel, EventLoopWaker, JSValue, LoadStatus, NavigationRequest, Preferences, RenderingContext,
     ServoBuilder, SoftwareRenderingContext, UserContentManager, WebView, WebViewBuilder, WebViewDelegate, WebViewId,
 };
+use url::Url;
 
-use crate::layout;
-use crate::visibility;
+use crate::{layout, visibility};
 
 const JS_EVAL_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -49,19 +51,19 @@ pub(crate) struct WakeFlag {
 impl WakeFlag {
     /// Block up to `timeout` for a signal, then clear the flag atomically.
     fn wait_and_take(&self, timeout: Duration) -> bool {
-        let mut guard = self.flag.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self.flag.lock().unwrap_or_else(PoisonError::into_inner);
         if !*guard {
             let (next, _) = self
                 .cv
                 .wait_timeout(guard, timeout)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .unwrap_or_else(PoisonError::into_inner);
             guard = next;
         }
         std::mem::replace(&mut *guard, false)
     }
 
     fn signal(&self) {
-        *self.flag.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        *self.flag.lock().unwrap_or_else(PoisonError::into_inner) = true;
         self.cv.notify_all();
     }
 }
@@ -90,7 +92,7 @@ pub(crate) fn wait_for_wake(timeout: Duration) {
         if let Some(flag) = slot.borrow().as_ref() {
             flag.wait_and_take(timeout);
         } else {
-            std::thread::sleep(timeout);
+            thread::sleep(timeout);
         }
     });
 }
@@ -144,8 +146,8 @@ pub(crate) enum ConsoleLevel {
     Trace,
 }
 
-impl std::fmt::Display for ConsoleLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ConsoleLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Log => f.write_str("log"),
             Self::Debug => f.write_str("debug"),
@@ -332,7 +334,7 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
         let wake = Arc::new(WakeFlag::default());
         let wake_for_thread = wake.clone();
         let policy = pending_policy();
-        std::thread::Builder::new()
+        thread::Builder::new()
             .name("servo-engine".into())
             .spawn(move || servo_thread(rx, wake_for_thread, policy))
             .expect("failed to spawn servo thread");
@@ -484,7 +486,7 @@ fn start_fetch(
     ucm: &Rc<UserContentManager>,
     req: FetchRequest,
 ) -> std::result::Result<PendingFetch, (FetchRequest, anyhow::Error)> {
-    let parsed_url = match url::Url::parse(&req.url) {
+    let parsed_url = match Url::parse(&req.url) {
         Ok(u) => u,
         Err(e) => return Err((req, anyhow!("bad url: {e}"))),
     };
@@ -629,7 +631,7 @@ fn build_servo(waker: FlagWaker) -> Result<(Rc<SoftwareRenderingContext>, servo:
 }
 
 fn create_noise_removal_stylesheet() -> servo::user_contents::UserStyleSheet {
-    let url = url::Url::parse("servo-fetch://user-stylesheet/noise-removal").expect("static URL is well-formed");
+    let url = Url::parse("servo-fetch://user-stylesheet/noise-removal").expect("static URL is well-formed");
     servo::user_contents::UserStyleSheet::new(NOISE_REMOVAL_CSS.to_string(), url)
 }
 
@@ -678,31 +680,31 @@ pub(crate) fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str) -> 
     }
 }
 
-fn jsvalue_to_json(val: &JSValue) -> Result<serde_json::Value> {
+fn jsvalue_to_json(val: &JSValue) -> Result<Value> {
     const MAX_DEPTH: u8 = 64;
-    fn convert(val: &JSValue, depth: u8) -> Result<serde_json::Value> {
+    fn convert(val: &JSValue, depth: u8) -> Result<Value> {
         if depth >= MAX_DEPTH {
             return Err(anyhow!("JS value nested too deeply (>{MAX_DEPTH} levels)"));
         }
         Ok(match val {
-            JSValue::Undefined | JSValue::Null => serde_json::Value::Null,
-            JSValue::Boolean(b) => serde_json::Value::Bool(*b),
+            JSValue::Undefined | JSValue::Null => Value::Null,
+            JSValue::Boolean(b) => Value::Bool(*b),
             JSValue::Number(n) => serde_json::json!(n),
             JSValue::String(s)
             | JSValue::Element(s)
             | JSValue::ShadowRoot(s)
             | JSValue::Frame(s)
-            | JSValue::Window(s) => serde_json::Value::String(s.clone()),
+            | JSValue::Window(s) => Value::String(s.clone()),
             JSValue::Array(arr) => {
                 let items: Result<Vec<_>> = arr.iter().map(|v| convert(v, depth + 1)).collect();
-                serde_json::Value::Array(items?)
+                Value::Array(items?)
             }
             JSValue::Object(map) => {
                 let entries: Result<serde_json::Map<_, _>> = map
                     .iter()
                     .map(|(k, v)| Ok((k.clone(), convert(v, depth + 1)?)))
                     .collect();
-                serde_json::Value::Object(entries?)
+                Value::Object(entries?)
             }
         })
     }
@@ -756,8 +758,8 @@ mod tests {
 
     #[test]
     fn jsvalue_to_json_primitives() {
-        assert_eq!(jsvalue_to_json(&JSValue::Null).unwrap(), serde_json::Value::Null);
-        assert_eq!(jsvalue_to_json(&JSValue::Undefined).unwrap(), serde_json::Value::Null);
+        assert_eq!(jsvalue_to_json(&JSValue::Null).unwrap(), Value::Null);
+        assert_eq!(jsvalue_to_json(&JSValue::Undefined).unwrap(), Value::Null);
         assert_eq!(
             jsvalue_to_json(&JSValue::Boolean(true)).unwrap(),
             serde_json::json!(true)
@@ -792,8 +794,8 @@ mod tests {
     fn wake_flag_signal_releases_waiter() {
         let wake = Arc::new(WakeFlag::default());
         let w = wake.clone();
-        let handle = std::thread::spawn(move || w.wait_and_take(Duration::from_secs(5)));
-        std::thread::sleep(Duration::from_millis(10));
+        let handle = thread::spawn(move || w.wait_and_take(Duration::from_secs(5)));
+        thread::sleep(Duration::from_millis(10));
         wake.signal();
         assert!(handle.join().unwrap(), "waiter should observe the signal");
     }

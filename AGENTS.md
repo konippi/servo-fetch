@@ -20,8 +20,8 @@ Run these from the workspace root unless noted. Copy-paste ready:
 ```sh
 cargo build                                             # Debug build
 cargo build --release                                   # Release build (slow)
-cargo fmt --all                                         # Format
-cargo fmt --all -- --check                              # CI fmt check
+cargo +nightly fmt --all                                # Format
+cargo +nightly fmt --all -- --check                     # CI fmt check
 cargo clippy --workspace --all-targets -- -D warnings   # Lint (pedantic, warnings are errors)
 cargo test --workspace                                  # Unit + integration tests (fast)
 cargo test -- --ignored                                 # Include Servo-backed e2e tests (slow)

@@ -165,9 +165,10 @@ fn pattern_match_len(pattern: &str, path: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::*;
 
     #[test]
     fn robots_parse_allow_disallow() {

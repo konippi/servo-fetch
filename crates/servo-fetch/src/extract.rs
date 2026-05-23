@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::Write;
+use std::fmt::{self, Write as _};
 
 use dom_query::Document;
 use dom_smoothie::Readability;
@@ -19,7 +19,7 @@ use crate::visibility::{self, A11yIndex, VisibilityPolicy};
 pub enum ExtractError {
     /// Failed to format Markdown output.
     #[error("markdown formatting failed")]
-    Fmt(#[from] std::fmt::Error),
+    Fmt(#[from] fmt::Error),
     /// Failed to serialize JSON output.
     #[error("JSON serialization failed")]
     Json(#[from] serde_json::Error),

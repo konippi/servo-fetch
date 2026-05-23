@@ -1,6 +1,7 @@
 //! Strips terminal escape sequences and control characters from output.
 
 use std::borrow::Cow;
+use std::str::Chars;
 
 const CSI_MAX_LEN: u16 = 256;
 const STRING_SEQ_MAX_LEN: u16 = 4096;
@@ -46,7 +47,7 @@ fn is_bidi_control(c: char) -> bool {
     matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200F}' | '\u{200E}')
 }
 
-fn consume_csi(chars: &mut std::str::Chars<'_>) {
+fn consume_csi(chars: &mut Chars<'_>) {
     let mut n = 0u16;
     for c in chars.by_ref() {
         n += 1;
@@ -56,7 +57,7 @@ fn consume_csi(chars: &mut std::str::Chars<'_>) {
     }
 }
 
-fn consume_escape_sequence(chars: &mut std::str::Chars<'_>, c1_csi: bool) {
+fn consume_escape_sequence(chars: &mut Chars<'_>, c1_csi: bool) {
     if c1_csi {
         consume_csi(chars);
         return;

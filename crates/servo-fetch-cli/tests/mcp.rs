@@ -2,6 +2,7 @@
 
 use rmcp::ServiceExt;
 use rmcp::transport::TokioChildProcess;
+use tokio::process::Command;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -9,7 +10,7 @@ mod common;
 use common::mock_page;
 
 async fn connect() -> rmcp::service::RunningService<rmcp::RoleClient, impl rmcp::service::Service<rmcp::RoleClient>> {
-    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
     cmd.arg("mcp");
     let transport = TokioChildProcess::new(cmd).unwrap();
     ().serve(transport).await.expect("MCP handshake failed")
@@ -17,7 +18,7 @@ async fn connect() -> rmcp::service::RunningService<rmcp::RoleClient, impl rmcp:
 
 async fn connect_loopback()
 -> rmcp::service::RunningService<rmcp::RoleClient, impl rmcp::service::Service<rmcp::RoleClient>> {
-    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
     cmd.args(["mcp", "--allow-private-addresses"]);
     let transport = TokioChildProcess::new(cmd).unwrap();
     ().serve(transport).await.expect("MCP handshake failed")

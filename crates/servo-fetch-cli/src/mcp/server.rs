@@ -1,5 +1,7 @@
 //! MCP server handler — tool routing and server info.
 
+use std::fmt::Write as _;
+
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, ProtocolVersion, ServerCapabilities, ServerInfo};
@@ -130,7 +132,6 @@ impl ServoFetchMcp {
         if !page.console_messages.is_empty() {
             result.push_str("\n\n--- console output ---\n");
             for msg in &page.console_messages {
-                use std::fmt::Write as _;
                 let _ = writeln!(result, "[{:?}] {}", msg.level, msg.message);
             }
         }
@@ -273,8 +274,9 @@ impl ServerHandler for ServoFetchMcp {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rmcp::ServerHandler;
+
+    use super::*;
 
     #[test]
     fn server_info_has_name_and_version() {

@@ -71,11 +71,11 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt as _;
+
+    use super::*;
 
     async fn send(req: Request<Body>) -> (StatusCode, String, String) {
         let res = router().oneshot(req).await.unwrap();

@@ -4,10 +4,10 @@ mod a11y;
 mod js;
 mod selectors;
 
+use bitflags::bitflags;
+
 pub(crate) use self::a11y::A11yIndex;
 pub(crate) use self::selectors::selectors_to_strip;
-
-use bitflags::bitflags;
 
 /// User stylesheet applied before render to enforce ARIA, HTML, and modal
 /// semantics so matched nodes never produce boxes.

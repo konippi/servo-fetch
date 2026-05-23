@@ -1,5 +1,7 @@
 //! CLI argument parsing.
 
+use std::path::PathBuf;
+
 use clap::builder::NonEmptyStringValueParser;
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum, value_parser};
 
@@ -70,15 +72,15 @@ pub(crate) struct FetchArgs {
 
     /// Path to a CSS-selector schema file for structured JSON extraction
     #[arg(long, value_name = "FILE", conflicts_with_all = ["screenshot", "js", "selector", "format"])]
-    pub schema: Option<std::path::PathBuf>,
+    pub schema: Option<PathBuf>,
 
     /// Save the rendered output to a single file (single URL only).
     #[arg(short = 'o', long, value_name = "FILE", conflicts_with_all = ["screenshot", "output_dir"])]
-    pub output: Option<std::path::PathBuf>,
+    pub output: Option<PathBuf>,
 
     /// Write each URL's output to a file in this directory (auto-created).
     #[arg(long, value_name = "DIR", conflicts_with = "screenshot")]
-    pub output_dir: Option<std::path::PathBuf>,
+    pub output_dir: Option<PathBuf>,
 
     /// Visibility-aware filtering policy.
     #[arg(long, value_name = "POLICY", value_enum, default_value_t = VisibilityArg::Moderate)]
@@ -210,7 +212,7 @@ pub(crate) struct CrawlArgs {
 
     /// Write each crawled page's output to a file in this directory.
     #[arg(long, value_name = "DIR")]
-    pub output_dir: Option<std::path::PathBuf>,
+    pub output_dir: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]

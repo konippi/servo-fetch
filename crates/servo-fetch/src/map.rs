@@ -4,12 +4,12 @@ use std::collections::{HashSet, VecDeque};
 use std::io::Read as _;
 use std::time::{Duration, Instant};
 
+use tokio::task::spawn_blocking;
 use url::Url;
 
-use crate::bridge;
-use crate::net;
 use crate::robots::{RobotsPolicy, RobotsRules};
 use crate::scope::{is_same_site, matches_scope, normalize_url};
+use crate::{bridge, net};
 
 const MAP_SITEMAP_MAX_BYTES: u64 = 50 * 1024 * 1024;
 const MAP_SITEMAP_MAX_DECOMPRESSED: u64 = 10 * 1024 * 1024;
@@ -165,7 +165,7 @@ pub(crate) async fn run(opts: &MapConfig, mut on_url: impl FnMut(&MapEntry)) {
         let seed = opts.seed.clone();
         let user_agent = opts.user_agent.clone();
         let timeout = opts.timeout;
-        tokio::task::spawn_blocking(move || RobotsRules::fetch(&seed, user_agent.as_deref(), timeout))
+        spawn_blocking(move || RobotsRules::fetch(&seed, user_agent.as_deref(), timeout))
             .await
             .unwrap_or(RobotsPolicy::Unreachable)
     };
@@ -194,7 +194,7 @@ pub(crate) async fn run(opts: &MapConfig, mut on_url: impl FnMut(&MapEntry)) {
 
         let body = {
             let agent = agent.clone();
-            tokio::task::spawn_blocking({
+            spawn_blocking({
                 let seed = opts.seed.clone();
                 move || fetch_sitemap(&agent, &sitemap_url, &seed)
             })
@@ -229,10 +229,7 @@ pub(crate) async fn run(opts: &MapConfig, mut on_url: impl FnMut(&MapEntry)) {
         let html = {
             let agent = agent.clone();
             let seed = opts.seed.clone();
-            tokio::task::spawn_blocking(move || fetch_html(&agent, &seed))
-                .await
-                .ok()
-                .flatten()
+            spawn_blocking(move || fetch_html(&agent, &seed)).await.ok().flatten()
         };
         if let Some(html) = html {
             for link in extract_links(&html, &opts.seed) {
@@ -760,13 +757,16 @@ mod tests {
     }
 
     mod integration {
-        use crate::map::{
-            MapConfig, MapEntry, build_agent, extract_links, fetch_html, fetch_sitemap, parse_sitemap, run,
-        };
         use std::time::Duration;
+
+        use tokio::task::spawn_blocking;
         use url::Url;
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        use crate::map::{
+            MapConfig, MapEntry, build_agent, extract_links, fetch_html, fetch_sitemap, parse_sitemap, run,
+        };
 
         #[tokio::test]
         async fn fetch_sitemap_parses_urlset() {
@@ -780,9 +780,7 @@ mod tests {
 
             let agent = build_agent("test/1.0", Duration::from_secs(5));
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
-            let body = tokio::task::spawn_blocking(move || fetch_sitemap(&agent, &url, &url))
-                .await
-                .unwrap();
+            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url)).await.unwrap();
 
             let entries = parse_sitemap(&body.unwrap());
             assert_eq!(entries.len(), 1);
@@ -802,9 +800,7 @@ mod tests {
 
             let agent = build_agent("test/1.0", Duration::from_secs(5));
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
-            let body = tokio::task::spawn_blocking(move || fetch_sitemap(&agent, &url, &url))
-                .await
-                .unwrap();
+            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url)).await.unwrap();
 
             assert!(body.is_none());
         }
@@ -820,18 +816,17 @@ mod tests {
 
             let agent = build_agent("test/1.0", Duration::from_secs(5));
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
-            let body = tokio::task::spawn_blocking(move || fetch_sitemap(&agent, &url, &url))
-                .await
-                .unwrap();
+            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url)).await.unwrap();
 
             assert!(body.is_none());
         }
 
         #[tokio::test]
         async fn fetch_sitemap_handles_gzip() {
+            use std::io::Write as _;
+
             use flate2::Compression;
             use flate2::write::GzEncoder;
-            use std::io::Write;
 
             let server = MockServer::start().await;
             let xml = r#"<?xml version="1.0"?><urlset><url><loc>https://example.com/gz</loc></url></urlset>"#;
@@ -847,9 +842,7 @@ mod tests {
 
             let agent = build_agent("test/1.0", Duration::from_secs(5));
             let url = Url::parse(&format!("{}/sitemap.xml.gz", server.uri())).unwrap();
-            let body = tokio::task::spawn_blocking(move || fetch_sitemap(&agent, &url, &url))
-                .await
-                .unwrap();
+            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url)).await.unwrap();
 
             let entries = parse_sitemap(&body.unwrap());
             assert_eq!(entries.len(), 1);
@@ -869,7 +862,7 @@ mod tests {
 
             let agent = build_agent("test/1.0", Duration::from_secs(5));
             let seed = Url::parse(&server.uri()).unwrap();
-            let html = tokio::task::spawn_blocking({
+            let html = spawn_blocking({
                 let seed = seed.clone();
                 move || fetch_html(&agent, &seed)
             })

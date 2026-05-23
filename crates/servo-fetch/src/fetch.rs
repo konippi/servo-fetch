@@ -1,9 +1,11 @@
 //! Single-page fetching and rendered content extraction.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde_json::Value;
 use servo::accesskit::{Node, NodeId};
 
 use crate::error::Error;
@@ -35,7 +37,7 @@ pub struct Page {
     pub accessibility_tree: Option<String>,
     /// Structured data extracted via [`FetchOptions::schema`].
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub extracted: Option<serde_json::Value>,
+    pub extracted: Option<Value>,
     /// PNG-encoded screenshot bytes — read via [`Page::screenshot_png`].
     #[serde(skip)]
     screenshot_png: Option<Vec<u8>>,
@@ -180,8 +182,8 @@ impl ConsoleLevel {
     }
 }
 
-impl std::fmt::Display for ConsoleLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ConsoleLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad(self.as_str())
     }
 }
@@ -420,7 +422,7 @@ mod tests {
             ..Page::default()
         };
         let json = page.extract_json().unwrap();
-        let _: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        let _: Value = serde_json::from_str(&json).expect("valid JSON");
     }
 
     #[test]
@@ -449,7 +451,7 @@ mod tests {
         let json = page
             .extract_json_with_selector("https://example.com/page", "article")
             .unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        let parsed: Value = serde_json::from_str(&json).expect("valid JSON");
         assert_eq!(parsed["url"].as_str(), Some("https://example.com/page"));
         assert!(parsed["text_content"].as_str().unwrap().contains("scoped"));
     }

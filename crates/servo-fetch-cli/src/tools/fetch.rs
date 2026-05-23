@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use servo_fetch::extract::{self, ExtractInput};
 use servo_fetch::{FetchOptions, Page};
+use tokio::task::spawn_blocking;
 
 use super::common::{fetch_semaphore, paginate};
 use super::error::{ToolError, ToolResult};
@@ -14,7 +15,7 @@ pub(crate) async fn fetch_page(url: &str, timeout: u64, settle_ms: u64) -> ToolR
         .await
         .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
     let url = url.to_string();
-    tokio::task::spawn_blocking(move || {
+    spawn_blocking(move || {
         servo_fetch::fetch(
             FetchOptions::new(&url)
                 .timeout(Duration::from_secs(timeout))
@@ -33,7 +34,7 @@ pub(crate) async fn fetch_js(url: &str, expression: &str, timeout: u64, settle_m
         .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
     let url = url.to_string();
     let expression = expression.to_string();
-    tokio::task::spawn_blocking(move || {
+    spawn_blocking(move || {
         servo_fetch::fetch(
             FetchOptions::javascript(&url, &expression)
                 .timeout(Duration::from_secs(timeout))
@@ -51,7 +52,7 @@ pub(crate) async fn fetch_screenshot(url: &str, full_page: bool, timeout: u64, s
         .await
         .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
     let url = url.to_string();
-    tokio::task::spawn_blocking(move || {
+    spawn_blocking(move || {
         servo_fetch::fetch(
             FetchOptions::screenshot(&url, full_page)
                 .timeout(Duration::from_secs(timeout))
@@ -78,7 +79,7 @@ pub(crate) async fn batch_fetch_pages(
         let tx = tx.clone();
         let url = url.clone();
         let selector = selector.map(String::from);
-        tokio::task::spawn_blocking(move || {
+        spawn_blocking(move || {
             let text = fetch_and_render(&url, timeout, settle_ms, json, selector.as_deref(), max_len);
             let _ = tx.blocking_send((url, text));
             drop(permit);

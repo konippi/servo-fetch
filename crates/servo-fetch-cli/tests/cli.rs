@@ -1,9 +1,12 @@
 //! CLI integration tests.
 
+use std::fs;
 use std::future::Future;
+use std::str::from_utf8;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use serde_json::Value;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -116,7 +119,7 @@ fn json_produces_valid_json() {
             .get_output()
             .stdout
             .clone();
-        let parsed: serde_json::Value = serde_json::from_slice(&output).expect("valid JSON");
+        let parsed: Value = serde_json::from_slice(&output).expect("valid JSON");
         assert!(parsed.get("title").is_some());
     });
 }
@@ -151,7 +154,7 @@ fn screenshot_creates_file() {
             .mount(&s)
             .await;
         let dir = std::env::temp_dir().join("servo-fetch-e2e");
-        std::fs::create_dir_all(&dir).ok();
+        fs::create_dir_all(&dir).ok();
         let file = dir.join("test.png");
         servo_fetch()
             .args([
@@ -165,7 +168,7 @@ fn screenshot_creates_file() {
             .success();
         assert!(file.exists());
         assert!(file.metadata().unwrap().len() > 0);
-        std::fs::remove_file(&file).ok();
+        fs::remove_file(&file).ok();
     });
 }
 
@@ -203,12 +206,12 @@ fn crawl_produces_ndjson() {
             .get_output()
             .stdout
             .clone();
-        let lines: Vec<&str> = std::str::from_utf8(&output).unwrap().lines().collect();
+        let lines: Vec<&str> = from_utf8(&output).unwrap().lines().collect();
         assert!(lines.len() >= 2, "expected page + stats record, got: {lines:?}");
-        let page: serde_json::Value = serde_json::from_str(lines[0]).expect("valid NDJSON");
+        let page: Value = serde_json::from_str(lines[0]).expect("valid NDJSON");
         assert_eq!(page["type"], "page");
         assert!(page["fetched_at"].is_string(), "fetched_at must be present");
-        let stats: serde_json::Value = serde_json::from_str(lines.last().unwrap()).expect("valid stats NDJSON");
+        let stats: Value = serde_json::from_str(lines.last().unwrap()).expect("valid stats NDJSON");
         assert_eq!(stats["type"], "stats");
         assert!(stats["crawled"].as_u64().is_some_and(|n| n >= 1));
     });
@@ -250,7 +253,7 @@ fn crawl_selector_scopes_content() {
             .get_output()
             .stdout
             .clone();
-        let text = std::str::from_utf8(&output).unwrap();
+        let text = from_utf8(&output).unwrap();
         assert!(text.contains("Kept"), "selector should keep h1 text, got: {text}");
         assert!(
             !text.contains("Dropped paragraph"),
@@ -295,15 +298,14 @@ fn crawl_json_embeds_structured_content() {
             .get_output()
             .stdout
             .clone();
-        let line = std::str::from_utf8(&output)
+        let line = from_utf8(&output)
             .unwrap()
             .lines()
             .next()
             .expect("expected NDJSON line");
-        let outer: serde_json::Value = serde_json::from_str(line).expect("outer NDJSON must parse");
+        let outer: Value = serde_json::from_str(line).expect("outer NDJSON must parse");
         let content_str = outer["content"].as_str().expect("content must be a string");
-        let inner: serde_json::Value =
-            serde_json::from_str(content_str).expect("content must be structured JSON, not markdown");
+        let inner: Value = serde_json::from_str(content_str).expect("content must be structured JSON, not markdown");
         assert!(
             inner.get("title").is_some(),
             "inner JSON should have a 'title' field, got: {content_str}"
@@ -362,7 +364,7 @@ fn output_writes_single_file() {
             ])
             .assert()
             .success();
-        let body = std::fs::read_to_string(&file).expect("file written");
+        let body = fs::read_to_string(&file).expect("file written");
         assert!(body.contains("Direct"), "got: {body}");
     });
 }
@@ -390,13 +392,13 @@ fn output_dir_writes_single_file() {
             ])
             .assert()
             .success();
-        let entries: Vec<_> = std::fs::read_dir(dir.path())
+        let entries: Vec<_> = fs::read_dir(dir.path())
             .expect("dir exists")
             .filter_map(Result::ok)
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
             .collect();
         assert_eq!(entries.len(), 1, "expected exactly 1 .md file");
-        let body = std::fs::read_to_string(entries[0].path()).unwrap();
+        let body = fs::read_to_string(entries[0].path()).unwrap();
         assert!(body.contains("Saved"), "got: {body}");
     });
 }
@@ -441,14 +443,14 @@ fn crawl_output_dir_writes_per_page_files() {
             .stdout
             .clone();
         assert!(output.is_empty(), "stdout should be silent in --output-dir mode");
-        let entries: Vec<_> = std::fs::read_dir(dir.path())
+        let entries: Vec<_> = fs::read_dir(dir.path())
             .expect("dir exists")
             .filter_map(Result::ok)
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
             .collect();
         assert_eq!(entries.len(), 1, "expected exactly 1 .json file");
-        let line = std::fs::read_to_string(entries[0].path()).unwrap();
-        let record: serde_json::Value = serde_json::from_str(line.trim()).expect("valid JSON");
+        let line = fs::read_to_string(entries[0].path()).unwrap();
+        let record: Value = serde_json::from_str(line.trim()).expect("valid JSON");
         assert_eq!(record["type"], "page");
     });
 }

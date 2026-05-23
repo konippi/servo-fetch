@@ -1,7 +1,8 @@
 //! Crawl subcommand — BFS website crawler.
 
+use std::fs;
 use std::io::{self, Write as _};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -21,7 +22,7 @@ struct StatsRecord {
 /// Crawl a site starting from `args.url` and stream results to stdout or a directory.
 pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     if let Some(dir) = args.output_dir.as_deref() {
-        std::fs::create_dir_all(dir)?;
+        fs::create_dir_all(dir)?;
     }
     let json = matches!(args.format, CrawlFormat::Json);
     let sink = Sink::from_dir(args.output_dir.as_deref());
@@ -76,13 +77,13 @@ fn build_crawl_options(args: &CrawlArgs, json: bool) -> servo_fetch::CrawlOption
     let mut opts = servo_fetch::CrawlOptions::new(&args.url)
         .limit(args.limit)
         .max_depth(args.max_depth)
-        .timeout(std::time::Duration::from_secs(args.timeout))
-        .settle(std::time::Duration::from_millis(args.settle))
+        .timeout(Duration::from_secs(args.timeout))
+        .settle(Duration::from_millis(args.settle))
         .concurrency(usize::try_from(args.concurrency).unwrap_or(usize::MAX))
         .delay(if args.delay_ms == 0 {
             None
         } else {
-            Some(std::time::Duration::from_millis(args.delay_ms))
+            Some(Duration::from_millis(args.delay_ms))
         })
         .json(json);
     if !args.include.is_empty() {
@@ -105,7 +106,7 @@ fn emit_json(result: &servo_fetch::CrawlResult, sink: Sink<'_>) -> anyhow::Resul
     sink.writeln(&result.url, Ext::Json, &line)
 }
 
-fn emit_stats(out: &mut impl io::Write, crawled: u64, errors: u64, elapsed: std::time::Duration) -> io::Result<()> {
+fn emit_stats(out: &mut impl io::Write, crawled: u64, errors: u64, elapsed: Duration) -> io::Result<()> {
     let stats = StatsRecord {
         kind: "stats",
         crawled,

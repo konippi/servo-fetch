@@ -1,6 +1,9 @@
 //! Network address validation — blocks private, reserved, and special-purpose IPs.
 
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Once;
+
+use url::Url;
 
 use crate::error::{UrlError, map_url_error};
 
@@ -25,13 +28,13 @@ impl NetworkPolicy {
 
 /// Validate a URL for fetching. Rejects disallowed schemes and private addresses
 /// based on the policy set via [`crate::init`].
-pub fn validate_url(url: &str) -> crate::error::Result<url::Url> {
+pub fn validate_url(url: &str) -> crate::error::Result<Url> {
     validate_url_with_policy(url, crate::bridge::engine_policy()).map_err(|e| map_url_error(url, e))
 }
 
 /// Validate a URL against the given [`NetworkPolicy`].
-pub(crate) fn validate_url_with_policy(input: &str, policy: NetworkPolicy) -> Result<url::Url, UrlError> {
-    let mut parsed = url::Url::parse(input).map_err(|e| UrlError::Invalid(format!("invalid URL: {input}: {e}")))?;
+pub(crate) fn validate_url_with_policy(input: &str, policy: NetworkPolicy) -> Result<Url, UrlError> {
+    let mut parsed = Url::parse(input).map_err(|e| UrlError::Invalid(format!("invalid URL: {input}: {e}")))?;
     match parsed.scheme() {
         "http" | "https" => {}
         s => {
@@ -84,20 +87,17 @@ fn is_private_host(host: &str) -> bool {
     if BLOCKED_HOSTS.iter().any(|&b| host.eq_ignore_ascii_case(b)) {
         return true;
     }
-    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
         return is_private_ipv4(ip);
     }
-    if let Ok(ip) = host
-        .trim_matches(|c| c == '[' || c == ']')
-        .parse::<std::net::Ipv6Addr>()
-    {
+    if let Ok(ip) = host.trim_matches(|c| c == '[' || c == ']').parse::<Ipv6Addr>() {
         return is_private_ipv6(&ip);
     }
     false
 }
 
 /// IANA IPv4 Special-Purpose Address Registry (RFC 6890) + cloud metadata.
-fn is_private_ipv4(ip: std::net::Ipv4Addr) -> bool {
+fn is_private_ipv4(ip: Ipv4Addr) -> bool {
     const BLOCKED: &[(u32, u32)] = &[
         (0x0000_0000, 0xff00_0000), // 0.0.0.0/8        — RFC 1122 current network
         (0x0a00_0000, 0xff00_0000), // 10.0.0.0/8       — RFC 1918 private
@@ -121,7 +121,7 @@ fn is_private_ipv4(ip: std::net::Ipv4Addr) -> bool {
 }
 
 /// IANA IPv6 Special-Purpose Address Registry + IPv4-mapped/compatible.
-fn is_private_ipv6(ip: &std::net::Ipv6Addr) -> bool {
+fn is_private_ipv6(ip: &Ipv6Addr) -> bool {
     if let Some(v4) = ip.to_ipv4_mapped().or_else(|| ip.to_ipv4()) {
         return is_private_ipv4(v4);
     }

@@ -4,11 +4,10 @@ use base64::Engine as _;
 use rmcp::ErrorData;
 use rmcp::model::{CallToolResult, Content};
 
-use crate::tools::{ToolError, ToolResult};
-
 pub(super) use crate::tools::{
     CrawlOptions as CrawlToolOptions, batch_fetch_pages, extract, fetch_js, fetch_page, paginate,
 };
+use crate::tools::{ToolError, ToolResult};
 
 pub(super) fn validated_url(url: &str) -> Result<String, ErrorData> {
     crate::tools::validated_url(url).map_err(ErrorData::from)

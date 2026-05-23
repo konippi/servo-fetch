@@ -4,10 +4,11 @@ mod params;
 mod server;
 mod tools;
 
+use std::net::SocketAddr;
+
 use rmcp::ServiceExt as _;
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-};
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 
 /// Start the MCP server on stdio or Streamable HTTP transport.
 pub(crate) async fn run(port: Option<u16>) -> anyhow::Result<()> {
@@ -38,7 +39,7 @@ async fn run_http(port: u16) -> anyhow::Result<()> {
     );
 
     let router = axum::Router::new().nest_service("/mcp", service);
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "MCP server listening");
 

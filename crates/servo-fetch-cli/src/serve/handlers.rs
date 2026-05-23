@@ -5,8 +5,6 @@ use axum::Json as AxumJson;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::IntoResponse;
 
-use crate::tools;
-
 use super::error::ApiError;
 use super::extract::Json;
 use super::params::{
@@ -14,6 +12,7 @@ use super::params::{
     ExecuteJsResponse, FetchRequest, FetchResponse, Format, HealthResponse, MapRequest, MapResponse, ScreenshotRequest,
     VersionResponse,
 };
+use crate::tools;
 
 const MAX_TIMEOUT_SECS: u64 = 300;
 const MAX_SETTLE_MS: u64 = 10_000;

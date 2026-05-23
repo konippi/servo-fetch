@@ -1,6 +1,6 @@
 //! Logging initialization.
 
-use std::io::IsTerminal as _;
+use std::io::{self, IsTerminal as _};
 
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::Uptime;
@@ -53,10 +53,10 @@ pub(crate) fn init(verbosity: Verbosity) {
         )
         .from_env_lossy();
 
-    let ansi = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
+    let ansi = io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
     let builder = tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .with_writer(std::io::stderr)
+        .with_writer(io::stderr)
         .with_ansi(ansi)
         .with_target(verbosity.detailed());
 

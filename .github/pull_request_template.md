@@ -22,7 +22,7 @@ Thanks for contributing to servo-fetch!
 
 ## Checklist
 
-- [ ] Ran `cargo fmt`, `cargo clippy`, and `cargo test` locally (CI will fail otherwise)
+- [ ] Ran `cargo +nightly fmt`, `cargo clippy`, and `cargo test` locally (CI will fail otherwise)
 - [ ] Documentation updated (README, SECURITY.md, CLI/skill guide) where user-facing behavior changed
 - [ ] Tests added or updated, or explained why not in the Test Plan
 - [ ] Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)

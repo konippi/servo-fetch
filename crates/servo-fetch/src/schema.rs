@@ -287,8 +287,9 @@ fn extract_field(container: &Selection<'_>, field: &ExtractField) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     const PRODUCTS: &str = r#"
         <html><body>

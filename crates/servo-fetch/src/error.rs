@@ -1,5 +1,6 @@
 //! Error types.
 
+use std::fmt;
 use std::time::Duration;
 
 /// A specialized `Result` type for servo-fetch.
@@ -100,8 +101,8 @@ pub(crate) enum UrlError {
     PrivateAddress(String),
 }
 
-impl std::fmt::Display for UrlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for UrlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Invalid(reason) => f.write_str(reason),
             Self::PrivateAddress(host) => {

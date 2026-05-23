@@ -1,10 +1,11 @@
 //! Default fetch command — single URL, batch, and PDF probe.
 
+use std::fs;
+use std::io::{self, Write as _};
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Result, bail};
-
+use anyhow::{Error, Result, bail};
 use servo_fetch::{FetchOptions, Page};
 
 use crate::cli::{FetchArgs, Format};
@@ -15,11 +16,11 @@ use crate::progress::Progress;
 pub(crate) fn run(args: &FetchArgs) -> Result<()> {
     validate_args(args)?;
     if let Some(dir) = args.output_dir.as_deref() {
-        std::fs::create_dir_all(dir)?;
+        fs::create_dir_all(dir)?;
     }
     if let Some(file) = args.output.as_deref() {
         if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)?;
         }
     }
     match args.urls.as_slice() {
@@ -57,7 +58,7 @@ fn run_single(args: &FetchArgs, url_str: &str) -> Result<()> {
     progress.ticker(&format!("Fetching {url_str}..."));
 
     let opts = build_fetch_options(args, url_str)?;
-    let page = servo_fetch::fetch(opts).map_err(anyhow::Error::from);
+    let page = servo_fetch::fetch(opts).map_err(Error::from);
     progress.clear();
     let page = page?;
     dispatch_output(args, &page, url_str, sink(args))
@@ -132,10 +133,9 @@ fn batch_emit(args: &FetchArgs, page: &Page, url: &str, sink: Sink<'_>) -> Resul
         Format::Json => output::Json { page, url, selector }.execute_compact(sink),
         Format::Markdown => {
             if sink.is_stdout() {
-                use std::io::Write as _;
-                writeln!(std::io::stdout(), "--- {url} ---")?;
+                writeln!(io::stdout(), "--- {url} ---")?;
                 output::Markdown { page, url, selector }.execute(sink)?;
-                writeln!(std::io::stdout())?;
+                writeln!(io::stdout())?;
                 Ok(())
             } else {
                 output::Markdown { page, url, selector }.execute(sink)

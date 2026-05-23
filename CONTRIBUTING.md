@@ -26,11 +26,13 @@ cargo run -- "https://example.com" --js "document.title"    # JS execution
 cargo test                                                  # Run tests
 cargo test -- --ignored                                     # Run Servo+network tests (slow)
 cargo clippy                                                # Lint (pedantic)
-cargo fmt                                                   # Format
+cargo +nightly fmt                                          # Format
 cargo deny check                                            # License & advisory check
 taplo fmt                                                   # Format TOML files (install: cargo install taplo-cli --locked)
 typos                                                       # Spell check
 ```
+
+> Build/test run on stable. Format requires nightly rustfmt for unstable `imports_granularity` / `group_imports`; one-time: `rustup toolchain install nightly --component rustfmt --profile minimal`.
 
 ### Profiling
 
@@ -70,7 +72,7 @@ refactor: simplify bridge error handling
 ## Pull request guidelines
 
 - Keep PRs focused on a single change
-- Ensure `cargo clippy`, `cargo fmt --check`, and `cargo test` pass with zero warnings
+- Ensure `cargo clippy`, `cargo +nightly fmt --check`, and `cargo test` pass with zero warnings
 - Run `cargo test -- --ignored` if your change affects Servo integration or network behavior
 - Update documentation if behavior changes
 

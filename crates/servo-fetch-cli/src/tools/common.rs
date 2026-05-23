@@ -2,10 +2,9 @@
 
 use std::sync::OnceLock;
 
-use tokio::sync::Semaphore;
-
 use servo_fetch::Page;
 use servo_fetch::extract::{self, ExtractInput};
+use tokio::sync::Semaphore;
 
 use super::error::{ToolError, ToolResult};
 

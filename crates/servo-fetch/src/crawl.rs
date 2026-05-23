@@ -1,10 +1,11 @@
 //! Site crawling — BFS link traversal with scope, robots.txt, and rate limiting.
 
 use std::collections::{HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
+use std::fmt;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::{Duration, SystemTime};
 
-use tokio::task::JoinSet;
+use tokio::task::{JoinSet, spawn_blocking};
 use tokio::time::{MissedTickBehavior, interval};
 use url::Url;
 
@@ -152,8 +153,8 @@ pub struct CrawlError {
     pub message: String,
 }
 
-impl std::fmt::Display for CrawlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for CrawlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.message)
     }
 }
@@ -218,7 +219,7 @@ pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlResult)) -> 
     net::ensure_crypto_provider();
     let plan = build_crawl_plan(&opts)?;
     crate::runtime::block_on(async {
-        let robots = tokio::task::spawn_blocking({
+        let robots = spawn_blocking({
             let seed = plan.seed.clone();
             let user_agent = plan.user_agent.clone();
             let timeout = Duration::from_secs(plan.timeout_secs);
@@ -336,7 +337,7 @@ impl Frontier {
     }
 
     fn is_duplicate_content(&mut self, content: &str) -> bool {
-        let mut h = std::hash::DefaultHasher::new();
+        let mut h = DefaultHasher::new();
         content.hash(&mut h);
         !self.content_hashes.insert(h.finish())
     }
@@ -564,9 +565,10 @@ fn error_result(url: &Url, depth: usize, error: String, fetched_at: SystemTime) 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
     use std::sync::Arc;
+
+    use super::*;
 
     #[test]
     fn crawl_options_defaults() {
@@ -641,7 +643,7 @@ mod tests {
     }
 
     fn page(links: &[&str]) -> String {
-        use std::fmt::Write;
+        use std::fmt::Write as _;
         let mut anchors = String::new();
         for l in links {
             write!(anchors, r#"<a href="{l}">link</a>"#).unwrap();

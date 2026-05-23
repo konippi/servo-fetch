@@ -1,11 +1,12 @@
 //! Output sinks.
 
+use std::fmt::{self, Write as _};
 use std::fs;
-use std::io::Write as _;
+use std::io::{self, Write as _};
 use std::path::Path;
 
 use anyhow::{Result, bail};
-
+use serde_json::Value;
 use servo_fetch::Page;
 
 /// File extension for sink-emitted content.
@@ -28,8 +29,8 @@ impl Ext {
     }
 }
 
-impl std::fmt::Display for Ext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Ext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -72,7 +73,7 @@ impl<'a> Sink<'a> {
         let needs_nl = ensure_newline && !sanitized.ends_with('\n');
         match self {
             Self::Stdout => {
-                let mut out = std::io::stdout().lock();
+                let mut out = io::stdout().lock();
                 out.write_all(sanitized.as_bytes())?;
                 if needs_nl {
                     out.write_all(b"\n")?;
@@ -140,7 +141,7 @@ impl Json<'_> {
     /// Emit a single-line NDJSON record for batch output.
     pub(crate) fn execute_compact(&self, sink: Sink<'_>) -> Result<()> {
         let pretty = self.render()?;
-        let line = serde_json::from_str::<serde_json::Value>(&pretty)
+        let line = serde_json::from_str::<Value>(&pretty)
             .ok()
             .and_then(|v| serde_json::to_string(&v).ok())
             .unwrap_or(pretty);
@@ -197,10 +198,10 @@ impl Extracted<'_> {
         sink.writeln(self.url, Ext::Json, &serde_json::to_string(&self.payload())?)
     }
 
-    fn payload(&self) -> serde_json::Value {
+    fn payload(&self) -> Value {
         serde_json::json!({
             "url": self.url,
-            "extracted": self.page.extracted.as_ref().unwrap_or(&serde_json::Value::Null),
+            "extracted": self.page.extracted.as_ref().unwrap_or(&Value::Null),
         })
     }
 }
@@ -217,7 +218,6 @@ fn slug_from_url(url: &str, ext: Ext) -> String {
     let stripped = url::Url::parse(url).ok().map_or_else(
         || url.to_owned(),
         |u| {
-            use std::fmt::Write as _;
             let mut s = u.host_str().unwrap_or("").to_owned();
             if let Some(p) = u.port() {
                 let _ = write!(s, ":{p}");

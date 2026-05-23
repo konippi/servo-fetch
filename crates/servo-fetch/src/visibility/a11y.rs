@@ -4,7 +4,8 @@ use std::collections::{BTreeSet, HashMap};
 
 use servo::accesskit::{Node, NodeId, Rect, Role};
 
-use super::{VisibilityFlags, VisibilityPolicy, selectors::make_selector};
+use super::selectors::make_selector;
+use super::{VisibilityFlags, VisibilityPolicy};
 
 /// Threshold matching common off-screen hide patterns.
 const OFFSCREEN_THRESHOLD_PX: f64 = 99_999.0;

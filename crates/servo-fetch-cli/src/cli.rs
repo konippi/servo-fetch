@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::builder::NonEmptyStringValueParser;
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum, value_parser};
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(
     name = "servo-fetch",
     version,
@@ -131,7 +131,7 @@ pub(crate) enum CrawlFormat {
 }
 
 /// Available subcommands.
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub(crate) enum Command {
     /// Start MCP server (stdio transport by default, or HTTP with --port)
     Mcp(McpArgs),
@@ -251,7 +251,25 @@ pub(crate) struct MapArgs {
 
 #[cfg(test)]
 mod tests {
+    use clap::error::ErrorKind;
+
     use super::*;
+    use crate::commands::fetch::validate_args;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("servo-fetch").chain(args.iter().copied()))
+    }
+
+    #[track_caller]
+    fn error_kind(args: &[&str]) -> ErrorKind {
+        parse(args).unwrap_err().kind()
+    }
+
+    #[track_caller]
+    fn assert_validation_err(args: &[&str], expected: &str) {
+        let err = validate_args(&parse(args).unwrap().fetch).unwrap_err().to_string();
+        assert!(err.contains(expected), "expected {expected:?}, got: {err}");
+    }
 
     #[test]
     fn format_from_str() {
@@ -270,133 +288,105 @@ mod tests {
         assert!(CrawlFormat::from_str("json", true).is_ok());
         assert!(CrawlFormat::from_str("html", true).is_err());
     }
-}
-
-#[cfg(test)]
-mod cli_tests {
-    use assert_cmd::Command;
-    use predicates::prelude::*;
-
-    fn servo_fetch() -> Command {
-        Command::cargo_bin("servo-fetch").expect("binary exists")
-    }
 
     #[test]
     fn conflicting_format_and_screenshot() {
-        servo_fetch()
-            .args(["--format", "json", "--screenshot", "out.png", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("cannot be used with"));
+        assert_eq!(
+            error_kind(&["--format", "json", "--screenshot", "out.png", "https://example.com"]),
+            ErrorKind::ArgumentConflict,
+        );
     }
 
     #[test]
     fn settle_rejects_out_of_range() {
-        servo_fetch()
-            .args(["--settle", "10001", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("invalid value"));
+        assert_eq!(
+            error_kind(&["--settle", "10001", "https://example.com"]),
+            ErrorKind::ValueValidation,
+        );
     }
 
     #[test]
     fn invalid_format_rejected() {
-        servo_fetch()
-            .args(["--format", "xml", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("invalid value"));
+        assert_eq!(
+            error_kind(&["--format", "xml", "https://example.com"]),
+            ErrorKind::InvalidValue,
+        );
     }
 
     #[test]
     fn full_page_requires_screenshot() {
-        servo_fetch()
-            .args(["--full-page", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("--screenshot"));
+        assert_eq!(
+            error_kind(&["--full-page", "https://example.com"]),
+            ErrorKind::MissingRequiredArgument,
+        );
     }
 
     #[test]
     fn schema_conflicts_with_selector() {
-        servo_fetch()
-            .args(["--schema", "s.json", "--selector", "div", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("cannot be used with"));
+        assert_eq!(
+            error_kind(&["--schema", "s.json", "--selector", "div", "https://example.com"]),
+            ErrorKind::ArgumentConflict,
+        );
     }
 
     #[test]
     fn schema_conflicts_with_format() {
-        servo_fetch()
-            .args(["--schema", "s.json", "--format", "json", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("cannot be used with"));
-    }
-
-    #[test]
-    fn format_html_with_selector_errors() {
-        servo_fetch()
-            .args(["--format", "html", "--selector", "article", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains(
-                "--selector cannot be used with --format html or text",
-            ));
-    }
-
-    #[test]
-    fn format_html_with_multi_urls_errors() {
-        servo_fetch()
-            .args(["--format", "html", "https://example.com", "https://example.org"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("cannot be used with multiple URLs"));
+        assert_eq!(
+            error_kind(&["--schema", "s.json", "--format", "json", "https://example.com"]),
+            ErrorKind::ArgumentConflict,
+        );
     }
 
     #[test]
     fn output_dir_conflicts_with_screenshot() {
-        servo_fetch()
-            .args(["--output-dir", "out", "--screenshot", "out.png", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("cannot be used with"));
+        assert_eq!(
+            error_kind(&["--output-dir", "out", "--screenshot", "out.png", "https://example.com"]),
+            ErrorKind::ArgumentConflict,
+        );
     }
 
     #[test]
     fn output_conflicts_with_screenshot() {
-        servo_fetch()
-            .args(["-o", "out.md", "--screenshot", "out.png", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("cannot be used with"));
+        assert_eq!(
+            error_kind(&["-o", "out.md", "--screenshot", "out.png", "https://example.com"]),
+            ErrorKind::ArgumentConflict,
+        );
     }
 
     #[test]
     fn output_conflicts_with_output_dir() {
-        servo_fetch()
-            .args(["-o", "out.md", "--output-dir", "out", "https://example.com"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("cannot be used with"));
-    }
-
-    #[test]
-    fn output_with_multi_urls_errors() {
-        servo_fetch()
-            .args(["-o", "out.md", "https://example.com", "https://example.org"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("only valid with a single URL"));
+        assert_eq!(
+            error_kind(&["-o", "out.md", "--output-dir", "out", "https://example.com"]),
+            ErrorKind::ArgumentConflict,
+        );
     }
 
     #[test]
     fn output_with_js_is_allowed() {
-        servo_fetch()
-            .args(["--output", "out.txt", "--js", "document.title", "https://example.com"])
-            .assert()
-            .stderr(predicate::str::contains("cannot be used with").not())
-            .stderr(predicate::str::contains("only valid with").not());
+        parse(&["-o", "out.txt", "--js", "document.title", "https://example.com"]).unwrap();
+    }
+
+    #[test]
+    fn format_html_with_selector_errors() {
+        assert_validation_err(
+            &["--format", "html", "--selector", "article", "https://example.com"],
+            "--selector cannot be used with --format html or text",
+        );
+    }
+
+    #[test]
+    fn format_html_with_multi_urls_errors() {
+        assert_validation_err(
+            &["--format", "html", "https://example.com", "https://example.org"],
+            "cannot be used with multiple URLs",
+        );
+    }
+
+    #[test]
+    fn output_with_multi_urls_errors() {
+        assert_validation_err(
+            &["-o", "out.md", "https://example.com", "https://example.org"],
+            "only valid with a single URL",
+        );
     }
 }

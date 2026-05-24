@@ -6,20 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- *(cli)* Add -o/--output and --output-dir for file output
-- *(cli)* Unify output flags under --format
+- *(cli)* Add -o/--output and --output-dir for file output ([#207](https://github.com/konippi/servo-fetch/pull/207))
+- *(cli)* Unify output flags under --format ([#206](https://github.com/konippi/servo-fetch/pull/206))
 
 ### Bug Fixes
 
-- *(bridge)* Bail out on timeout to avoid Servo parser race
+- *(bridge)* Bail out on timeout to avoid Servo parser race ([#208](https://github.com/konippi/servo-fetch/pull/208))
 
 ### Refactor
 
-- *(test)* Run CLI tests in-process instead of spawning binary
+- *(test)* Run CLI tests in-process instead of spawning binary ([#211](https://github.com/konippi/servo-fetch/pull/211))
 
 ### Miscellaneous
 
-- Enforce canonical imports via pinned nightly rustfmt
+- Enforce canonical imports via pinned nightly rustfmt ([#210](https://github.com/konippi/servo-fetch/pull/210))
 
 ## [0.11.0](https://github.com/konippi/servo-fetch/compare/v0.10.1..v0.11.0) - 2026-05-21
 

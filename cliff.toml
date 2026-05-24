@@ -16,7 +16,7 @@ body = """
 ### {{ group | striptags | trim }}
 
 {% for commit in commits %}\
-- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message | upper_first }}{% if commit.remote.pr_number %} ([#{{ commit.remote.pr_number }}]({{ self::remote_url() }}/pull/{{ commit.remote.pr_number }})){% endif %}
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message | upper_first }}
 {% endfor %}\
 {% endfor %}
 {%- endif %}
@@ -26,11 +26,12 @@ body = """
 sort_commits = "newest"
 tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
 commit_preprocessors = [
-  { pattern = '(?m)[ \t]+\(#\d+\)$', replace = "" },
+  { pattern = '(?m)\(#([0-9]+)\)$', replace = '([#${1}](https://github.com/konippi/servo-fetch/pull/${1}))' },
 ]
 commit_parsers = [
   { message = "^chore: bump version", skip = true },
   { message = "^chore: trigger", skip = true },
+  { message = "^chore: release", skip = true },
   { message = "^chore\\(release\\)", skip = true },
   { message = "^Merge pull request", skip = true },
   { message = "^Merge branch", skip = true },

@@ -35,14 +35,10 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Generate release notes
-        id: git-cliff
-        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0
-        with:
-          version: "v2.13.1"
-          args: --latest --strip header --github-repo ${{ github.repository }}
-        env:
-          OUTPUT: RELEASE_NOTES.md
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          awk '/^## \[v?[0-9]/{n++; if (n==2) exit} n==1' CHANGELOG.md > RELEASE_NOTES.md
+          [ -s RELEASE_NOTES.md ] || echo "Release ${TAG#v}" > RELEASE_NOTES.md
       - name: Create GitHub release
         run: gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file RELEASE_NOTES.md
     outputs:

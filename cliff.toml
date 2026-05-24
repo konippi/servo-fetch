@@ -5,7 +5,13 @@ header = """
 All notable changes to this project will be documented in this file.
 """
 body = """
-{%- macro remote_url() -%}https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}{%- endmacro -%}
+{%- macro remote_url() -%}
+{%- if remote.owner -%} {# release-plz specific variable #}
+https://github.com/{{ remote.owner }}/{{ remote.repo }}\
+{%- else -%}
+https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}\
+{%- endif -%}
+{% endmacro %}
 {% if version %}
 {% if previous.version %}\
 ## [{{ version | trim_start_matches(pat="v") }}]({{ self::remote_url() }}/compare/{{ previous.version }}..{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}

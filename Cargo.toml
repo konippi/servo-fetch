@@ -35,7 +35,7 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 tracing = "0.1"
 url = "2"
 ureq = { version = "3", default-features = false, features = ["gzip", "rustls-no-provider", "rustls-webpki-roots"] }
-quick-xml = "0.39"
+quick-xml = "0.40"
 flate2 = "1"
 humantime = "2"
 wiremock = "0.6"

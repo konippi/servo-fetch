@@ -1268,7 +1268,7 @@ version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2"
 dependencies = [
- "cssparser-macros",
+ "cssparser-macros 0.6.1",
  "dtoa-short",
  "itoa",
  "phf",
@@ -1277,10 +1277,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "cssparser"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98"
+dependencies = [
+ "cssparser-macros 0.7.0",
+ "dtoa-short",
+ "itoa",
+ "phf",
+ "smallvec",
+]
+
+[[package]]
 name = "cssparser-macros"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13b588ba4ac1a99f7f2964d24b3d896ddc6bf847ee3855dbd4366f058cfcd331"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "cssparser-macros"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a2a99df6e410a8ff4245aa2006499ea662245f967cc7c0a38c83ef8eb44dbf"
 dependencies = [
  "quote",
  "syn",
@@ -1570,7 +1593,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23e4c03f2421dab1870544d171d3db22bdab0da4015995ff0b2f23125bbda9fb"
 dependencies = [
  "bit-set",
- "cssparser",
+ "cssparser 0.36.0",
  "foldhash 0.2.0",
  "html5ever 0.38.0",
  "nom 8.0.0",
@@ -6052,7 +6075,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c"
 dependencies = [
  "bitflags 2.11.1",
- "cssparser",
+ "cssparser 0.36.0",
  "derive_more",
  "log",
  "new_debug_unreachable",
@@ -6558,7 +6581,7 @@ version = "0.11.1"
 dependencies = [
  "anyhow",
  "bitflags 2.11.1",
- "cssparser",
+ "cssparser 0.37.0",
  "dom_query",
  "dom_smoothie",
  "dpi",
@@ -7287,7 +7310,7 @@ dependencies = [
  "content-security-policy",
  "cookie 0.18.1",
  "crossbeam-channel",
- "cssparser",
+ "cssparser 0.36.0",
  "ctr",
  "data-url",
  "der",
@@ -7987,7 +8010,7 @@ dependencies = [
  "atomic_refcell",
  "bitflags 2.11.1",
  "byteorder",
- "cssparser",
+ "cssparser 0.36.0",
  "derive_more",
  "encoding_rs",
  "euclid 0.22.14",
@@ -8073,7 +8096,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8cd4ec615ff7bbc849d1d7d95891c39db20dfd1cb79eb8ba29c54107a4101a3"
 dependencies = [
  "app_units",
- "cssparser",
+ "cssparser 0.36.0",
  "euclid 0.22.14",
  "selectors",
  "servo_arc",
@@ -8098,7 +8121,7 @@ checksum = "30cc7f5c9b43201f0d5c81ca190ccbf29382cff3af4cc926c9cd5e53beb6c9e5"
 dependencies = [
  "app_units",
  "bitflags 2.11.1",
- "cssparser",
+ "cssparser 0.36.0",
  "euclid 0.22.14",
  "malloc_size_of_derive",
  "selectors",
@@ -8452,7 +8475,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eab187810ca1e6aaa4c97a06492aac9ade2ffae6a301fd2aac103656f5a69edb"
 dependencies = [
- "cssparser",
+ "cssparser 0.36.0",
  "servo_arc",
  "smallbitvec",
  "smallvec",

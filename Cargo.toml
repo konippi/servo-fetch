@@ -17,7 +17,7 @@ servo = { version = "0.1.0", default-features = false, features = ["baked-in-res
 anyhow = "1"
 base64 = "0.22"
 bitflags = "2"
-cssparser = "0.36"
+cssparser = "0.37"
 dom_query = "0.26"
 dom_smoothie = "0.16"
 dpi = "0.1"

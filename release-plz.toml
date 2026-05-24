@@ -1,0 +1,14 @@
+[workspace]
+changelog_config = "cliff.toml"
+changelog_update = false
+publish = false
+git_tag_enable = false
+semver_check = false
+release_commits = "^(feat|fix|perf)[!(:]"
+pr_labels = ["release"]
+
+[[package]]
+name = "servo-fetch-cli"
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+changelog_include = ["servo-fetch", "servo-fetch-python"]

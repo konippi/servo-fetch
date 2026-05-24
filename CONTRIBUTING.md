@@ -61,7 +61,7 @@ See [`benchmarks/README.md`](benchmarks/README.md) for the full guide.
 
 ## Commit conventions
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/).
+This project uses [Conventional Commits](https://www.conventionalcommits.org/). The `CHANGELOG.md` is generated from these by [git-cliff](https://git-cliff.org/).
 
 ```text
 feat: add PDF output support

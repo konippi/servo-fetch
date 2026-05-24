@@ -26,27 +26,27 @@ body = """
 sort_commits = "newest"
 tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
 commit_preprocessors = [
-    { pattern = '(?m)[ \t]+\(#\d+\)$', replace = "" },
+  { pattern = '(?m)[ \t]+\(#\d+\)$', replace = "" },
 ]
 commit_parsers = [
-    { message = "^chore: bump version", skip = true },
-    { message = "^chore: trigger", skip = true },
-    { message = "^chore\\(release\\)", skip = true },
-    { message = "^Merge pull request", skip = true },
-    { message = "^Merge branch", skip = true },
-    { message = "^feat", group = "<!-- 00 -->Features" },
-    { message = "^fix", group = "<!-- 01 -->Bug Fixes" },
-    { message = "^perf", group = "<!-- 02 -->Performance" },
-    { message = "^refactor", group = "<!-- 03 -->Refactor" },
-    { message = "^doc", group = "<!-- 04 -->Documentation" },
-    { message = "^test", group = "<!-- 05 -->Testing" },
-    { message = "^build", group = "<!-- 06 -->Build" },
-    { message = "^chore\\(ci\\)", group = "<!-- 07 -->CI" },
-    { message = "^ci", group = "<!-- 07 -->CI" },
-    { message = "^style", group = "<!-- 08 -->Styling" },
-    { message = "^chore\\(deps\\)", group = "<!-- 09 -->Dependencies" },
-    { message = "^chore", group = "<!-- 10 -->Miscellaneous" },
-    { message = "^revert", group = "<!-- 11 -->Revert" },
+  { message = "^chore: bump version", skip = true },
+  { message = "^chore: trigger", skip = true },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^Merge pull request", skip = true },
+  { message = "^Merge branch", skip = true },
+  { message = "^feat", group = "<!-- 00 -->Features" },
+  { message = "^fix", group = "<!-- 01 -->Bug Fixes" },
+  { message = "^perf", group = "<!-- 02 -->Performance" },
+  { message = "^refactor", group = "<!-- 03 -->Refactor" },
+  { message = "^doc", group = "<!-- 04 -->Documentation" },
+  { message = "^test", group = "<!-- 05 -->Testing" },
+  { message = "^build", group = "<!-- 06 -->Build" },
+  { message = "^chore\\(ci\\)", group = "<!-- 07 -->CI" },
+  { message = "^ci", group = "<!-- 07 -->CI" },
+  { message = "^style", group = "<!-- 08 -->Styling" },
+  { message = "^chore\\(deps\\)", group = "<!-- 09 -->Dependencies" },
+  { message = "^chore", group = "<!-- 10 -->Miscellaneous" },
+  { message = "^revert", group = "<!-- 11 -->Revert" },
 ]
 
 [remote.github]

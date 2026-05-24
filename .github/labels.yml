@@ -1,4 +1,4 @@
-# What kind of work? (aligned with Conventional Commits)
+# Type — what kind of work?
 - name: "type: bug"
   color: d73a4a
   description: "Something isn't working as documented"
@@ -29,22 +29,42 @@
 - name: "type: security"
   color: b60205
   description: "Security-sensitive change"
+- name: "type: question"
+  color: d876e3
+  description: "Further information is requested"
 
-# Components / areas
-- name: "cli"
+# Priority — how urgent?
+- name: "priority: high"
+  color: e11d21
+  description: "Critical or urgent — should be worked on soon"
+- name: "priority: medium"
+  color: fbca04
+  description: "Important, normal priority"
+- name: "priority: low"
+  color: 0e8a16
+  description: "Nice to have, no rush"
+
+# Area — which part of the project?
+- name: "area: cli"
   color: 1d76db
   description: "CLI binary, subcommands, flags, installer"
-- name: "mcp"
+- name: "area: mcp"
   color: 1d76db
   description: "MCP server, protocol, tools"
-- name: "skill"
+- name: "area: skill"
   color: 1d76db
   description: "Agent Skills package"
-- name: "benchmark"
+- name: "area: benchmark"
   color: 1d76db
   description: "Benchmark harness, fixtures, runners, measurement methodology"
+- name: "area: python-bindings"
+  color: 1d76db
+  description: "Python bindings (PyO3, maturin, PyPI wheels)"
+- name: "area: docker"
+  color: 1d76db
+  description: "Dockerfile, container image, Docker workflow"
 
-# Status
+# Status — workflow state
 - name: "good first issue"
   color: 7057ff
   description: "Good for newcomers — well-scoped and approachable"
@@ -53,10 +73,18 @@
   description: "Extra attention or external contributors welcome"
 - name: "needs triage"
   color: ededed
-  description: "Awaiting maintainer review and categorization"
+  description: "Awaiting initial review (type + area assignment)"
 - name: "needs info"
   color: fbca04
   description: "Waiting for more information from the reporter"
+
+# Modifier — orthogonal flags
+- name: "breaking change"
+  color: ee0701
+  description: "Introduces a breaking change (semver-major)"
+- name: "release"
+  color: ededed
+  description: "Release PR opened by release-plz"
 
 # Resolution
 - name: "duplicate"

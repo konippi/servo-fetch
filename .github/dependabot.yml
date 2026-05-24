@@ -2,6 +2,7 @@ version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
+    labels: ["type: deps"]
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
@@ -14,6 +15,7 @@ updates:
         update-types: ["patch"]
   - package-ecosystem: github-actions
     directory: /
+    labels: ["type: ci"]
     schedule:
       interval: weekly
     commit-message:
@@ -22,6 +24,7 @@ updates:
       default-days: 7
   - package-ecosystem: docker
     directory: /
+    labels: ["type: deps", "area: docker"]
     schedule:
       interval: weekly
     commit-message:

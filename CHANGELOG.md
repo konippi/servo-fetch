@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.1](https://github.com/konippi/servo-fetch/compare/0.11.0..0.11.1) - 2026-05-24
+
+### Features
+
+- *(cli)* Add -o/--output and --output-dir for file output
+- *(cli)* Unify output flags under --format
+
+### Bug Fixes
+
+- *(bridge)* Bail out on timeout to avoid Servo parser race
+
+### Refactor
+
+- *(test)* Run CLI tests in-process instead of spawning binary
+
+### Miscellaneous
+
+- Enforce canonical imports via pinned nightly rustfmt
+
 ## [0.11.0](https://github.com/konippi/servo-fetch/compare/v0.10.1..v0.11.0) - 2026-05-21
 
 ### Features

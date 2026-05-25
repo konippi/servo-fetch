@@ -27,18 +27,21 @@ fn main() -> ! {
 }
 
 fn dispatch(args: &Cli) -> anyhow::Result<()> {
-    let policy = if args.allow_private_addresses || std::env::var_os("SERVO_FETCH_ALLOW_PRIVATE").is_some() {
-        tracing::warn!("SSRF protection disabled: private/loopback addresses are reachable");
-        servo_fetch::NetworkPolicy::PERMISSIVE
-    } else {
-        servo_fetch::NetworkPolicy::STRICT
-    };
-    servo_fetch::init(policy);
+    if args.command.as_ref().is_none_or(Command::needs_servo_init) {
+        let policy = if args.allow_private_addresses || std::env::var_os("SERVO_FETCH_ALLOW_PRIVATE").is_some() {
+            tracing::warn!("SSRF protection disabled: private/loopback addresses are reachable");
+            servo_fetch::NetworkPolicy::PERMISSIVE
+        } else {
+            servo_fetch::NetworkPolicy::STRICT
+        };
+        servo_fetch::init(policy);
+    }
     match &args.command {
         Some(Command::Mcp(mcp)) => commands::mcp::run(mcp),
         Some(Command::Serve(serve)) => commands::serve::run(serve),
         Some(Command::Crawl(crawl)) => commands::crawl::run(crawl),
         Some(Command::Map(map)) => commands::map::run(map),
+        Some(Command::Healthcheck(hc)) => commands::healthcheck::run(hc),
         None => commands::fetch::run(&args.fetch),
     }
 }

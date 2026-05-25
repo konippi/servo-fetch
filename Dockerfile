@@ -19,7 +19,7 @@ LABEL org.opencontainers.image.title="servo-fetch" \
       org.opencontainers.image.base.digest="sha256:b6e2a152f22a40ff69d92cb397223c906017e1391a73c952b588e51af8883bf8"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl ca-certificates \
+      ca-certificates \
       libegl1 libegl-mesa0 libfontconfig1 libfreetype6 libharfbuzz0b \
       libglib2.0-0t64 libssl3t64 \
       fonts-dejavu-core fonts-noto-core fonts-liberation2 \
@@ -40,9 +40,6 @@ WORKDIR /home/servo
 EXPOSE 3000
 ENV XDG_CACHE_HOME=/tmp
 ENV XDG_RUNTIME_DIR=/tmp/runtime-servo
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -fsS --max-time 2 http://127.0.0.1:3000/health || exit 1
 
 ENTRYPOINT ["servo-fetch"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "3000"]

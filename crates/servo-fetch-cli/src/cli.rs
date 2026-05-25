@@ -141,6 +141,14 @@ pub(crate) enum Command {
     Crawl(CrawlArgs),
     /// Discover URLs on a site via sitemaps (no rendering).
     Map(MapArgs),
+    /// Probe the local /health endpoint. Exits 0 on 2xx, 1 otherwise.
+    Healthcheck(HealthcheckArgs),
+}
+
+impl Command {
+    pub(crate) fn needs_servo_init(&self) -> bool {
+        !matches!(self, Self::Healthcheck(_))
+    }
 }
 
 #[derive(Args, Debug)]
@@ -247,6 +255,13 @@ pub(crate) struct MapArgs {
     /// Timeout in seconds per HTTP request
     #[arg(short = 't', long, default_value_t = 30, value_parser = value_parser!(u64).range(1..), value_name = "SECS")]
     pub timeout: u64,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct HealthcheckArgs {
+    /// Port to probe.
+    #[arg(long, value_name = "PORT", default_value_t = 3000)]
+    pub port: u16,
 }
 
 #[cfg(test)]

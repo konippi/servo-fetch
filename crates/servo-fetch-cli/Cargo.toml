@@ -47,6 +47,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "request-id"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }
+ureq = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]

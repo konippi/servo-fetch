@@ -140,6 +140,14 @@ servo-fetch serve --host 0.0.0.0 --port 80   # expose to network
 
 See [HTTP API server](#http-api-server) below for the endpoint reference.
 
+### Healthcheck
+
+```bash
+servo-fetch healthcheck --port 3000   # exits 0 on 2xx /health, 1 otherwise
+```
+
+Self-contained `/health` probe for any orchestrator that runs a command and inspects the exit code.
+
 ## Options
 
 | Flag | Description |

@@ -119,7 +119,6 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.release-plz-release.outputs.tag }}
-    secrets: inherit
 
   publish-release:
     name: Publish release

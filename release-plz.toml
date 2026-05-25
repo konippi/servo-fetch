@@ -2,15 +2,30 @@
 changelog_update = false
 publish = false
 git_tag_enable = false
+git_release_enable = false
 semver_check = false
 release_commits = "^(feat|fix|perf)[!(:]"
 pr_labels = ["release"]
+git_release_body = """
+{{ changelog }}
+{% if remote.contributors %}
+### Contributors
+
+{% for contributor in remote.contributors %}* @{{ contributor.username }}
+{% endfor %}
+{% endif %}
+"""
 
 [[package]]
 name = "servo-fetch-cli"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = ["servo-fetch", "servo-fetch-python"]
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+git_release_enable = true
+git_release_name = "v{{ version }}"
+git_release_draft = true
 
 [changelog]
 header = """

@@ -1,52 +1,24 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.11.2)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v0.11.2)"
+        required: true
+        type: string
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      REPO: ${{ github.repository }}
-      TAG: ${{ github.ref_name }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Validate tag matches Cargo.toml version
-        id: version
-        run: |
-          VERSION="${TAG#v}"
-          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[] | select(.name == "servo-fetch-cli") | .version')
-          if [ "$VERSION" != "$CARGO_VERSION" ]; then
-            echo "::error::Tag $TAG does not match servo-fetch-cli version $CARGO_VERSION"
-            exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Extract release notes from CHANGELOG.md
-        run: |
-          awk '/^## \[v?[0-9]/{n++; if (n==2) exit} n==1' CHANGELOG.md > RELEASE_NOTES.md
-          [ -s RELEASE_NOTES.md ] || echo "Release ${TAG#v}" > RELEASE_NOTES.md
-      - name: Create GitHub release
-        run: gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file RELEASE_NOTES.md
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-
   build-release:
     name: Build ${{ matrix.target }}
-    needs: [create-release]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     permissions:
@@ -74,12 +46,12 @@ jobs:
       RUSTC_WRAPPER: sccache
       CCACHE: sccache
       TARGET: ${{ matrix.target }}
-      VERSION: ${{ needs.create-release.outputs.version }}
+      TAG: ${{ inputs.tag }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: refs/tags/${{ inputs.tag }}
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -87,7 +59,7 @@ jobs:
           toolchain: "1.95.0"
           targets: ${{ matrix.target }}
 
-      # zizmor: ignore[cache-poisoning] -- maintainer-controlled trigger only (tag push, no PR)
+      # zizmor: ignore[cache-poisoning] -- maintainer-controlled trigger only (release-plz-release or workflow_dispatch)
       - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
 
       - name: Install system dependencies (Linux)
@@ -120,21 +92,19 @@ jobs:
 
       - name: Smoke test (CLI only, no network)
         shell: bash
+        env:
+          BIN_EXT: ${{ runner.os == 'Windows' && '.exe' || '' }}
         run: |
           set -euo pipefail
-          BIN="target/$TARGET/release/servo-fetch"
-          [[ "${{ runner.os }}" == "Windows" ]] && BIN="$BIN.exe"
+          BIN="target/$TARGET/release/servo-fetch$BIN_EXT"
           "$BIN" --version | grep -q '^servo-fetch '
           "$BIN" --help >/dev/null
 
-      - name: Strip binary (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: strip "target/$TARGET/release/servo-fetch"
-
       - name: Determine archive name
         shell: bash
-        run: echo "ARCHIVE=servo-fetch-v${VERSION}-${TARGET}" >> "$GITHUB_ENV"
+        run: |
+          VERSION="${TAG#v}"
+          echo "ARCHIVE=servo-fetch-v${VERSION}-${TARGET}" >> "$GITHUB_ENV"
 
       - name: Build archive (Unix)
         if: runner.os != 'Windows'
@@ -174,13 +144,11 @@ jobs:
 
       - name: Upload release archive
         shell: bash
+        env:
+          ARCHIVE_EXT: ${{ runner.os == 'Windows' && 'zip' || 'tar.gz' }}
         run: |
           set -eu
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            gh release upload "$TAG" "$ARCHIVE.zip" "$ARCHIVE.zip.sha256"
-          else
-            gh release upload "$TAG" "$ARCHIVE.tar.gz" "$ARCHIVE.tar.gz.sha256"
-          fi
+          gh release upload "$TAG" "$ARCHIVE.$ARCHIVE_EXT" "$ARCHIVE.$ARCHIVE_EXT.sha256" --clobber
 
       - name: Upload Linux binary for docker job
         if: runner.os == 'Linux'
@@ -193,7 +161,7 @@ jobs:
 
   publish-crate:
     name: Publish to crates.io
-    needs: [create-release, build-release]
+    needs: build-release
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -201,6 +169,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: refs/tags/${{ inputs.tag }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
@@ -218,7 +187,7 @@ jobs:
 
   publish-docker:
     name: Publish Docker image
-    needs: [create-release, build-release]
+    needs: build-release
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -226,13 +195,19 @@ jobs:
       packages: write
       id-token: write
     env:
-      VERSION: ${{ needs.create-release.outputs.version }}
+      TAG: ${{ inputs.tag }}
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: refs/tags/${{ inputs.tag }}
           persist-credentials: false
+
+      - name: Compute version and revision
+        run: |
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Download Linux binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -248,25 +223,25 @@ jobs:
           cp artifacts/binary-aarch64-unknown-linux-gnu/servo-fetch dist/arm64/servo-fetch
           chmod +x dist/amd64/servo-fetch dist/arm64/servo-fetch
 
-      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
-      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+      - uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},value=${{ inputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }}
+            type=semver,pattern={{major}},value=${{ inputs.tag }}
+            type=raw,value=latest,enable=${{ !contains(inputs.tag, '-') }}
 
-      - uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+      - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         id: build
         with:
           context: .
@@ -276,7 +251,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ env.VERSION }}
-            REVISION=${{ github.sha }}
+            REVISION=${{ env.REVISION }}
           provenance: mode=max
           sbom: true
 
@@ -290,7 +265,7 @@ jobs:
 
   trivy-scan:
     name: Scan Docker image
-    needs: [publish-docker]
+    needs: publish-docker
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -312,22 +287,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           sarif_file: trivy-results.sarif
           category: trivy-image
-
-  publish-release:
-    name: Publish Release
-    needs: [create-release, build-release, publish-crate, publish-docker, trivy-scan]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      REPO: ${{ github.repository }}
-      TAG: ${{ github.ref_name }}
-    steps:
-      - name: Mark release as non-draft
-        run: gh release edit "$TAG" --repo "$REPO" --draft=false

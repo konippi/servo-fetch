@@ -87,7 +87,7 @@ sudo apt install -y libegl1 libfontconfig1 libfreetype6
 xvfb-run --auto-servernum servo-fetch "https://example.com"
 ```
 
-**Windows** — keep `servo-fetch.exe`, `libEGL.dll`, and `libGLESv2.dll` in the same directory.
+**Windows** — `cargo binstall` does not copy sidecar files ([cargo-binstall#353](https://github.com/cargo-bins/cargo-binstall/issues/353)), so the installed `servo-fetch.exe` fails at startup with a missing `libEGL.dll`. Download the `.zip` from [Releases](https://github.com/konippi/servo-fetch/releases) instead — it bundles `libEGL.dll` and `libGLESv2.dll`.
 
 **macOS** — no extra setup needed.
 

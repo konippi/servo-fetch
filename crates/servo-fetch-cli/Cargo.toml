@@ -61,6 +61,9 @@ wiremock = { workspace = true }
 workspace = true
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/servo-fetch-v{ version }-{ target }.tar.gz"
-pkg-fmt = "tgz"
-bin-dir = "servo-fetch"
+pkg-url = "{ repo }/releases/download/v{ version }/servo-fetch-v{ version }-{ target }{ archive-suffix }"
+bin-dir = "servo-fetch-v{ version }-{ target }/{ bin }{ binary-ext }"
+disabled-strategies = ["quick-install", "compile"]
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"

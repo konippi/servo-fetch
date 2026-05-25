@@ -100,11 +100,6 @@ jobs:
           "$BIN" --version | grep -q '^servo-fetch '
           "$BIN" --help >/dev/null
 
-      - name: Strip binary (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: strip "target/$TARGET/release/servo-fetch"
-
       - name: Determine archive name
         shell: bash
         run: |

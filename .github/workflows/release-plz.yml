@@ -81,10 +81,6 @@ jobs:
           STEPS_RELEASE_PLZ_OUTPUTS_RELEASES: ${{ steps.release-plz.outputs.releases }}
         run: |
           tag=$(echo "${STEPS_RELEASE_PLZ_OUTPUTS_RELEASES}" | jq -r '.[] | select(.package_name == "servo-fetch-cli") | .tag')
-          if [ -z "$tag" ]; then
-            echo "::error::No servo-fetch-cli release found in releases output"
-            exit 1
-          fi
           echo "Looking for untagged draft release to fix for tag: $tag"
           release_id=""
           for attempt in $(seq 1 10); do
@@ -115,7 +111,7 @@ jobs:
   upload-assets:
     name: Upload assets
     needs: release-plz-release
-    if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
+    if: ${{ needs.release-plz-release.outputs.tag != '' }}
     permissions:
       contents: write
       id-token: write
@@ -129,7 +125,7 @@ jobs:
   publish-release:
     name: Publish release
     needs: [release-plz-release, upload-assets]
-    if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
+    if: ${{ needs.release-plz-release.outputs.tag != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

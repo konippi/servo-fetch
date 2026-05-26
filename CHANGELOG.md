@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.2](https://github.com/konippi/servo-fetch/compare/0.11.1..0.11.2) - 2026-05-26
+
+### Features
+
+- *(cli)* Add healthcheck subcommand for orchestrator probes ([#239](https://github.com/konippi/servo-fetch/pull/239))
+
+### Bug Fixes
+
+- *(cli)* Align package.metadata.binstall with release archive layout ([#237](https://github.com/konippi/servo-fetch/pull/237))
+
 ## [0.11.1](https://github.com/konippi/servo-fetch/compare/0.11.0..0.11.1) - 2026-05-24
 
 ### Features

@@ -7,3 +7,9 @@ rustflags = ["-C", "link-arg=/Brepro"]
 
 [env]
 MACOSX_DEPLOYMENT_TARGET = "13.0"
+
+[alias]
+lint = "clippy --workspace --locked --all-targets -- -D warnings"
+test-ci = "nextest run --workspace --locked --cargo-profile ci --profile ci"
+test-doc = "test --workspace --locked --profile ci --doc"
+test-e2e = "nextest run -p servo-fetch-cli --run-ignored only --locked --cargo-profile ci --profile ci-e2e"

@@ -32,6 +32,15 @@ taplo fmt                                                   # Format TOML files 
 typos                                                       # Spell check
 ```
 
+For exact CI parity (with `--locked`, CI profile, etc.), use these cargo aliases:
+
+```sh
+cargo lint        # CI cargo-clippy
+cargo test-ci     # CI cargo-test (unit/integration)
+cargo test-doc    # CI cargo-test (doc)
+cargo test-e2e    # CI e2e (Servo-backed)
+```
+
 > Build/test run on stable. Format requires nightly rustfmt for unstable `imports_granularity` / `group_imports`; one-time: `rustup toolchain install nightly --component rustfmt --profile minimal`.
 
 ### Profiling

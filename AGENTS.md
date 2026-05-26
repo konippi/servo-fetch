@@ -38,6 +38,15 @@ cargo nextest run --workspace --profile ci                                   # U
 cargo nextest run -p servo-fetch-cli --run-ignored only --profile ci-e2e     # E2E, retries on flake
 ```
 
+Cargo aliases for exact CI parity (defined in `.cargo/config.toml`):
+
+```sh
+cargo lint        # cargo-clippy job
+cargo test-ci     # cargo-test job (unit/integration via nextest)
+cargo test-doc    # cargo-test job (doc tests)
+cargo test-e2e    # e2e job (Servo-backed, retries on flake)
+```
+
 Ignored tests require a working Servo environment. Servo uses `SoftwareRenderingContext` internally, so no X server is needed in CI (the apt install list in `release.yml` includes X11 libs for linking, not for runtime). If an `ignored` test fails locally, first retry; if it still fails, check whether the test hits the network or a site that requires `--settle`.
 
 ## Code conventions

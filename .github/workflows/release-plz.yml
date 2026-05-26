@@ -70,36 +70,6 @@ jobs:
           command: release
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-      - name: Fetch new tags
-        if: steps.release-plz.outputs.releases_created == 'true'
-        run: git fetch --tags
-      - name: Fix untagged-* draft release
-        if: steps.release-plz.outputs.releases_created == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          REPO: ${{ github.repository }}
-          STEPS_RELEASE_PLZ_OUTPUTS_RELEASES: ${{ steps.release-plz.outputs.releases }}
-        run: |
-          tag=$(echo "${STEPS_RELEASE_PLZ_OUTPUTS_RELEASES}" | jq -r '.[] | select(.package_name == "servo-fetch-cli") | .tag')
-          echo "Looking for untagged draft release to fix for tag: $tag"
-          release_id=""
-          for attempt in $(seq 1 10); do
-            release_id=$(gh api "repos/${REPO}/releases" \
-              | jq -r --arg tag "$tag" '.[] | select(.draft and (.tag_name | startswith("untagged-")) and (.name | contains($tag))) | .id' \
-              | head -1) || true
-            if [ -n "$release_id" ]; then
-              break
-            fi
-            echo "  Attempt $attempt/10: not found yet, retrying in 5s..."
-            sleep 5
-          done
-          if [ -n "$release_id" ]; then
-            echo "Fixing draft release $release_id: setting tag_name to $tag"
-            gh api "repos/${REPO}/releases/${release_id}" --method PATCH --field tag_name="$tag"
-          else
-            echo "::error::No untagged draft release found for $tag after 10 attempts"
-            exit 1
-          fi
       - id: tag
         if: steps.release-plz.outputs.releases_created == 'true'
         env:

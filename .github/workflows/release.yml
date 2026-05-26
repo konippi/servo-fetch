@@ -1,24 +1,86 @@
 name: Release
 
 on:
-  workflow_call:
-    inputs:
-      tag:
-        description: "Release tag (e.g. v0.11.2)"
-        required: true
-        type: string
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing tag to build (e.g. v0.11.2)"
-        required: true
-        type: string
+  push:
+    branches:
+      - main
 
 permissions: {}
 
 jobs:
+  release-plz-pr:
+    name: Release-plz PR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    if: ${{ github.repository_owner == 'konippi' }}
+    environment: release-plz
+    permissions:
+      contents: read
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: rustup update stable
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: release-plz/action@064f4d1e36c843611ddf013be726beaa4ad804db # v0.5.129
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+  release-plz-release:
+    name: Release-plz Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    if: ${{ github.repository_owner == 'konippi' }}
+    environment: release-plz
+    permissions:
+      contents: read
+    outputs:
+      releases_created: ${{ steps.release-plz.outputs.releases_created }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: rustup update stable
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - id: release-plz
+        uses: release-plz/action@064f4d1e36c843611ddf013be726beaa4ad804db # v0.5.129
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+      - id: tag
+        if: steps.release-plz.outputs.releases_created == 'true'
+        env:
+          STEPS_RELEASE_PLZ_OUTPUTS_RELEASES: ${{ steps.release-plz.outputs.releases }}
+        run: |
+          tag=$(echo "${STEPS_RELEASE_PLZ_OUTPUTS_RELEASES}" | jq -r '.[] | select(.package_name == "servo-fetch-cli") | .tag')
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
   build-release:
     name: Build ${{ matrix.target }}
+    needs: release-plz-release
+    if: needs.release-plz-release.outputs.releases_created == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     permissions:
@@ -46,12 +108,12 @@ jobs:
       RUSTC_WRAPPER: sccache
       CCACHE: sccache
       TARGET: ${{ matrix.target }}
-      TAG: ${{ inputs.tag }}
+      TAG: ${{ needs.release-plz-release.outputs.tag }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -59,7 +121,7 @@ jobs:
           toolchain: "1.95.0"
           targets: ${{ matrix.target }}
 
-      # zizmor: ignore[cache-poisoning] -- maintainer-controlled trigger only (release-plz-release or workflow_dispatch)
+      # zizmor: ignore[cache-poisoning] -- maintainer-controlled trigger only (push to main, gated on release-plz creating a release)
       - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
 
       - name: Install system dependencies (Linux)
@@ -161,7 +223,8 @@ jobs:
 
   publish-crate:
     name: Publish to crates.io
-    needs: build-release
+    needs: [release-plz-release, build-release]
+    if: needs.release-plz-release.outputs.releases_created == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -169,7 +232,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
@@ -187,7 +250,8 @@ jobs:
 
   publish-docker:
     name: Publish Docker image
-    needs: build-release
+    needs: [release-plz-release, build-release]
+    if: needs.release-plz-release.outputs.releases_created == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -195,13 +259,13 @@ jobs:
       packages: write
       id-token: write
     env:
-      TAG: ${{ inputs.tag }}
+      TAG: ${{ needs.release-plz-release.outputs.tag }}
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
           persist-credentials: false
 
       - name: Compute version and revision
@@ -236,10 +300,10 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}},value=${{ inputs.tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }}
-            type=semver,pattern={{major}},value=${{ inputs.tag }}
-            type=raw,value=latest,enable=${{ !contains(inputs.tag, '-') }}
+            type=semver,pattern={{version}},value=${{ needs.release-plz-release.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-plz-release.outputs.tag }}
+            type=semver,pattern={{major}},value=${{ needs.release-plz-release.outputs.tag }}
+            type=raw,value=latest,enable=${{ !contains(needs.release-plz-release.outputs.tag, '-') }}
 
       - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         id: build
@@ -291,3 +355,18 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
           category: trivy-image
+
+  publish-release:
+    name: Publish release
+    needs: [release-plz-release, build-release, publish-crate, publish-docker, trivy-scan]
+    if: needs.release-plz-release.outputs.releases_created == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      TAG: ${{ needs.release-plz-release.outputs.tag }}
+    steps:
+      - run: gh release edit "$TAG" --repo "$REPO" --draft=false

@@ -39,7 +39,7 @@ flate2 = { workspace = true }
 humantime = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 os_pipe = "1"

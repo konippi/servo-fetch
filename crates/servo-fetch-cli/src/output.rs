@@ -38,26 +38,27 @@ impl fmt::Display for Ext {
 /// Where rendered output goes.
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum Sink<'a> {
-    Stdout,
+    Stdout { explicit: bool },
     File(&'a Path),
     Dir(&'a Path),
 }
 
 impl<'a> Sink<'a> {
     pub(crate) fn from_dir(dir: Option<&'a Path>) -> Self {
-        dir.map_or(Self::Stdout, Self::Dir)
+        dir.map_or(Self::Stdout { explicit: false }, Self::Dir)
     }
 
     pub(crate) fn from_args(file: Option<&'a Path>, dir: Option<&'a Path>) -> Self {
         match (file, dir) {
+            (Some(p), _) if p.as_os_str() == "-" => Self::Stdout { explicit: true },
             (Some(p), _) => Self::File(p),
             (_, Some(d)) => Self::Dir(d),
-            _ => Self::Stdout,
+            _ => Self::Stdout { explicit: false },
         }
     }
 
     pub(crate) fn is_stdout(&self) -> bool {
-        matches!(self, Self::Stdout)
+        matches!(self, Self::Stdout { .. })
     }
 
     pub(crate) fn write(&self, url: &str, ext: Ext, content: &str) -> Result<()> {
@@ -72,7 +73,7 @@ impl<'a> Sink<'a> {
         let sanitized = servo_fetch::sanitize::sanitize(content);
         let needs_nl = ensure_newline && !sanitized.ends_with('\n');
         match self {
-            Self::Stdout => {
+            Self::Stdout { .. } => {
                 let mut out = io::stdout().lock();
                 out.write_all(sanitized.as_bytes())?;
                 if needs_nl {
@@ -87,6 +88,13 @@ impl<'a> Sink<'a> {
             }
         }
     }
+}
+
+fn refuse_binary_to_tty(explicit: bool, is_tty: bool) -> Result<()> {
+    if !explicit && is_tty {
+        bail!("refusing to write PNG to a terminal; use `-o FILE` or pipe to a viewer");
+    }
+    Ok(())
 }
 
 fn write_to_file(url: &str, path: &Path, body: &[u8], with_newline: bool) -> Result<()> {
@@ -163,18 +171,27 @@ impl Json<'_> {
 
 pub(crate) struct Screenshot<'a> {
     pub page: &'a Page,
-    pub path: &'a Path,
+    pub sink: Sink<'a>,
 }
 
 impl Screenshot<'_> {
     pub(crate) fn execute(&self) -> Result<()> {
-        match self.page.screenshot_png() {
-            Some(png) => {
-                fs::write(self.path, png)?;
-                tracing::info!(path = %self.path.display(), "screenshot saved");
+        let png = self.page.screenshot_png().ok_or_else(|| {
+            anyhow::anyhow!("failed to capture screenshot — the page may not have rendered correctly")
+        })?;
+        match self.sink {
+            Sink::Stdout { explicit } => {
+                use std::io::IsTerminal as _;
+                refuse_binary_to_tty(explicit, io::stdout().is_terminal())?;
+                io::stdout().lock().write_all(png)?;
                 Ok(())
             }
-            None => bail!("failed to capture screenshot — the page may not have rendered correctly"),
+            Sink::File(path) => {
+                fs::write(path, png)?;
+                tracing::info!(path = %path.display(), "screenshot saved");
+                Ok(())
+            }
+            Sink::Dir(_) => bail!("--format png cannot be used with --output-dir"),
         }
     }
 }
@@ -353,5 +370,46 @@ mod tests {
     fn slug_includes_non_default_port() {
         let s = slug_from_url("https://example.com:8080/foo", Ext::Markdown);
         assert!(s.contains("8080"), "must include non-default port, got: {s}");
+    }
+
+    #[test]
+    fn refuse_binary_to_tty_default_in_terminal_errors() {
+        let err = refuse_binary_to_tty(false, true).unwrap_err();
+        assert!(err.to_string().contains("refusing"));
+    }
+
+    #[test]
+    fn refuse_binary_to_tty_default_in_pipe_succeeds() {
+        refuse_binary_to_tty(false, false).unwrap();
+    }
+
+    #[test]
+    fn refuse_binary_to_tty_explicit_in_terminal_succeeds() {
+        refuse_binary_to_tty(true, true).unwrap();
+    }
+
+    #[test]
+    fn refuse_binary_to_tty_explicit_in_pipe_succeeds() {
+        refuse_binary_to_tty(true, false).unwrap();
+    }
+
+    #[test]
+    fn sink_from_args_dash_is_explicit_stdout() {
+        let dash = Path::new("-");
+        let sink = Sink::from_args(Some(dash), None);
+        assert!(matches!(sink, Sink::Stdout { explicit: true }));
+    }
+
+    #[test]
+    fn sink_from_args_dot_dash_is_file() {
+        let dot_dash = Path::new("./-");
+        let sink = Sink::from_args(Some(dot_dash), None);
+        assert!(matches!(sink, Sink::File(p) if p == dot_dash));
+    }
+
+    #[test]
+    fn sink_from_args_no_output_is_default_stdout() {
+        let sink = Sink::from_args(None, None);
+        assert!(matches!(sink, Sink::Stdout { explicit: false }));
     }
 }

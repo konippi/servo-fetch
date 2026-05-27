@@ -125,7 +125,7 @@ servo-fetch https://example.com                                  # Markdown (def
 servo-fetch https://example.com --format json                    # Structured JSON
 servo-fetch URL1 URL2 URL3                                       # Parallel batch (Markdown with separators)
 servo-fetch URL1 URL2 --format json                              # Parallel batch (NDJSON)
-servo-fetch https://example.com --screenshot out.png             # Save PNG screenshot
+servo-fetch https://example.com --format png -o out.png          # Save PNG screenshot
 servo-fetch https://example.com --js "document.title"            # Run JavaScript and print result
 servo-fetch https://example.com --selector article               # Extract a section by CSS selector
 servo-fetch https://example.com --schema schema.json             # Schema-driven JSON

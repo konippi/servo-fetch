@@ -49,8 +49,10 @@ servo-fetch URL1 URL2 --output-dir ./out/      # One file per URL (auto-created)
 ### Screenshots
 
 ```bash
-servo-fetch "https://example.com" --screenshot page.png
-servo-fetch "https://example.com" --screenshot full.png --full-page
+servo-fetch "https://example.com" --format png -o page.png
+servo-fetch "https://example.com" --format png --full-page -o full.png
+servo-fetch "https://example.com" --format png | chafa            # pipe to terminal renderer
+servo-fetch "https://example.com" --format png -o -               # stdout (explicit)
 ```
 
 ### JavaScript execution
@@ -153,8 +155,8 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | Flag | Description |
 | ---- | ----------- |
 | `--format json` | Structured JSON output (NDJSON for multiple URLs) |
-| `--screenshot <FILE>` | Save PNG screenshot |
-| `--full-page` | Capture full scrollable page (requires `--screenshot`) |
+| `--format png` | PNG screenshot of the rendered page (single URL only) |
+| `--full-page` | Capture full scrollable page (requires `--format png`) |
 | `--js <EXPR>` | Execute JavaScript and print result |
 | `--selector <CSS>` | Extract specific section by CSS selector |
 | `--format html\|text` | Raw HTML or plain text output |

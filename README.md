@@ -16,8 +16,8 @@ and a Python SDK.
 
 ```bash
 # CLI
-servo-fetch "https://example.com"                        # clean Markdown
-servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot
+servo-fetch "https://example.com"                          # clean Markdown
+servo-fetch "https://example.com" --format png -o page.png # PNG screenshot
 ```
 
 ```rust
@@ -65,7 +65,7 @@ Methodology, three-axis breakdown, per-fixture F1, and raw JSON:
 ## Install
 
 | Interface | Install | Docs |
-|-----------|---------|------|
+| --------- | ------- | ---- |
 | **CLI** | `curl -fsSL https://raw.githubusercontent.com/konippi/servo-fetch/main/install.sh \| sh` | [CLI docs](crates/servo-fetch-cli/README.md) |
 | **Rust** | `cargo add servo-fetch` | [Library docs](crates/servo-fetch/README.md) |
 | **Python** | `pip install servo-fetch` | [Python docs](bindings/python/README.md) |
@@ -98,19 +98,19 @@ xvfb-run --auto-servernum servo-fetch "https://example.com"
 ### CLI
 
 ```bash
-servo-fetch "https://example.com"                        # Markdown (default)
-servo-fetch "https://example.com" --format json          # Structured JSON
-servo-fetch "https://example.com" --screenshot page.png  # PNG screenshot
-servo-fetch "https://example.com" --js "document.title"  # Run JavaScript
-servo-fetch "https://example.com" --schema schema.json   # Schema-driven JSON
-servo-fetch URL1 URL2 URL3                               # Parallel batch
-servo-fetch "https://example.com" --output page.md       # Save to a single file
-servo-fetch URL1 URL2 --output-dir ./out/                # Save each URL to its own file
-servo-fetch crawl "https://docs.example.com" --limit 20  # Crawl a site
-servo-fetch crawl URL --output-dir ./pages/              # Save each crawled page to its own file
-servo-fetch map "https://example.com"                    # Discover URLs via sitemap
-servo-fetch mcp                                          # MCP server (stdio)
-servo-fetch serve                                        # HTTP API server
+servo-fetch "https://example.com"                          # Markdown (default)
+servo-fetch "https://example.com" --format json            # Structured JSON
+servo-fetch "https://example.com" --format png -o page.png # PNG screenshot
+servo-fetch "https://example.com" --js "document.title"    # Run JavaScript
+servo-fetch "https://example.com" --schema schema.json     # Schema-driven JSON
+servo-fetch URL1 URL2 URL3                                 # Parallel batch
+servo-fetch "https://example.com" --output page.md         # Save to a single file
+servo-fetch URL1 URL2 --output-dir ./out/                  # Save each URL to its own file
+servo-fetch crawl "https://docs.example.com" --limit 20    # Crawl a site
+servo-fetch crawl URL --output-dir ./pages/                # Save each crawled page to its own file
+servo-fetch map "https://example.com"                      # Discover URLs via sitemap
+servo-fetch mcp                                            # MCP server (stdio)
+servo-fetch serve                                          # HTTP API server
 ```
 
 Full CLI reference → [`servo-fetch-cli`](crates/servo-fetch-cli/README.md)

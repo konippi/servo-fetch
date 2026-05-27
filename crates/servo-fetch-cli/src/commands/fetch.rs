@@ -38,12 +38,26 @@ pub(crate) fn validate_args(args: &FetchArgs) -> Result<()> {
     if raw_format && args.selector.is_some() {
         bail!("--selector cannot be used with --format html or text");
     }
+    if args.format == Format::Png {
+        if args.selector.is_some() {
+            bail!("--selector cannot be used with --format png");
+        }
+        if args.urls.len() > 1 {
+            bail!("--format png only supports a single URL");
+        }
+        if args.output_dir.is_some() {
+            bail!("--format png cannot be used with --output-dir");
+        }
+    }
+    if args.full_page && args.format != Format::Png {
+        bail!("--full-page requires --format png");
+    }
     if args.urls.len() > 1 {
         if args.output.is_some() {
             bail!("-o/--output is only valid with a single URL; use --output-dir for multiple URLs");
         }
-        if args.screenshot.is_some() || args.js.is_some() || raw_format {
-            bail!("--screenshot, --js, and --format html or text cannot be used with multiple URLs");
+        if args.js.is_some() || raw_format {
+            bail!("--js, and --format html or text cannot be used with multiple URLs");
         }
     }
     Ok(())
@@ -141,20 +155,15 @@ fn batch_emit(args: &FetchArgs, page: &Page, url: &str, sink: Sink<'_>) -> Resul
                 output::Markdown { page, url, selector }.execute(sink)
             }
         }
-        Format::Html | Format::Text => unreachable!("guarded by validate_args before batch dispatch"),
+        Format::Html | Format::Text | Format::Png => {
+            unreachable!("guarded by validate_args before batch dispatch")
+        }
     }
 }
 
 fn dispatch_output(args: &FetchArgs, page: &Page, url: &str, sink: Sink<'_>) -> Result<()> {
     if let Some(result) = page.js_result.as_deref() {
         return output::js_eval(url, result, sink);
-    }
-    if let Some(path) = args.screenshot.as_deref() {
-        return output::Screenshot {
-            page,
-            path: Path::new(path),
-        }
-        .execute();
     }
     if args.schema.is_some() {
         return output::Extracted { page, url }.execute(sink);
@@ -165,11 +174,12 @@ fn dispatch_output(args: &FetchArgs, page: &Page, url: &str, sink: Sink<'_>) -> 
         Format::Json => output::Json { page, url, selector }.execute(sink),
         Format::Html => output::raw(url, output::Ext::Html, &page.html, sink),
         Format::Text => output::raw(url, output::Ext::Text, &page.inner_text, sink),
+        Format::Png => output::Screenshot { page, sink }.execute(),
     }
 }
 
 fn build_fetch_options(args: &FetchArgs, url: &str) -> Result<FetchOptions> {
-    let base = if args.screenshot.is_some() {
+    let base = if args.format == Format::Png {
         FetchOptions::screenshot(url, args.full_page)
     } else if let Some(expr) = args.js.as_deref() {
         FetchOptions::javascript(url, expr)

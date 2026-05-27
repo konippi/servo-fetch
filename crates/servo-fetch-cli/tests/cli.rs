@@ -145,7 +145,7 @@ fn js_eval_returns_result() {
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
-fn screenshot_creates_file() {
+fn format_png_creates_file() {
     block_on(async {
         let s = MockServer::start().await;
         Mock::given(method("GET"))
@@ -158,7 +158,9 @@ fn screenshot_creates_file() {
         let file = dir.join("test.png");
         servo_fetch()
             .args([
-                "--screenshot",
+                "--format",
+                "png",
+                "-o",
                 file.to_str().unwrap(),
                 "--allow-private-addresses",
                 TIMEOUT,

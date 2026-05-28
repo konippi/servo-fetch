@@ -146,7 +146,7 @@ jobs:
             | python3 -c 'import json,sys; json.load(sys.stdin)'
           sleep 2
 
-          "$BIN" --screenshot "$SHOT" 'https://example.com'
+          "$BIN" --format png -o "$SHOT" 'https://example.com'
           head -c 8 "$SHOT" | cmp -s - <(printf '\x89PNG\r\n\x1a\n')
           sleep 2
 

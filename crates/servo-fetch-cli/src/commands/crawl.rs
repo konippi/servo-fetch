@@ -43,9 +43,9 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
             return;
         }
         let res = if json {
-            emit_json(result, sink)
+            emit_json(&result, sink)
         } else {
-            emit_markdown(result, sink)
+            emit_markdown(&result, sink)
         };
         if let Err(e) = res {
             write_err = Some(e);

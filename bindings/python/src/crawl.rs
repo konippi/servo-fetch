@@ -42,8 +42,8 @@ impl CrawlResult {
     }
 
     #[getter]
-    fn error(&self) -> Option<&str> {
-        self.inner.outcome.as_ref().err().map(|e| e.message.as_str())
+    fn error(&self) -> Option<String> {
+        self.inner.outcome.as_ref().err().map(ToString::to_string)
     }
 
     /// `True` if the crawl succeeded for this URL.
@@ -71,7 +71,9 @@ impl CrawlResult {
             ),
             Err(e) => format!(
                 "{name}(url={:?}, depth={}, error={:?})",
-                this.inner.url, this.inner.depth, e.message
+                this.inner.url,
+                this.inner.depth,
+                e.to_string()
             ),
         })
     }

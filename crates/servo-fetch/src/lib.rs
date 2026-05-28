@@ -27,7 +27,7 @@ pub(crate) mod scope;
 pub(crate) mod screenshot;
 pub(crate) mod sys;
 
-pub use crawl::{CrawlError, CrawlOptions, CrawlPage, CrawlResult, crawl, crawl_each};
+pub use crawl::{CrawlOptions, CrawlPage, CrawlResult, crawl, crawl_each};
 pub use error::{Error, Result};
 pub use fetch::{ConsoleLevel, ConsoleMessage, FetchOptions, Page, extract_json, fetch, markdown, text};
 pub use map::{MapOptions, MappedUrl, map};

@@ -305,14 +305,13 @@ pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
     };
 
     let servo_page = crate::bridge::fetch_page(bridge_opts).map_err(|e| {
-        let msg = format!("{e:#}");
-        if msg.contains("timed out") {
+        if format!("{e:#}").contains("timed out") {
             Error::Timeout {
                 url: opts.url.clone(),
                 timeout: opts.timeout,
             }
         } else {
-            Error::Engine(msg)
+            Error::engine(e, Some(opts.url.clone()))
         }
     })?;
 

@@ -34,7 +34,7 @@ pub fn validate_url(url: &str) -> crate::error::Result<Url> {
 
 /// Validate a URL against the given [`NetworkPolicy`].
 pub(crate) fn validate_url_with_policy(input: &str, policy: NetworkPolicy) -> Result<Url, UrlError> {
-    let mut parsed = Url::parse(input).map_err(|e| UrlError::Invalid(format!("invalid URL: {input}: {e}")))?;
+    let mut parsed = Url::parse(input).map_err(|e| UrlError::Invalid(e.to_string()))?;
     match parsed.scheme() {
         "http" | "https" => {}
         s => {

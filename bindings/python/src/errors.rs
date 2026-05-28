@@ -51,8 +51,8 @@ pub(crate) fn map_error(err: servo_fetch::Error) -> PyErr {
         servo_fetch::Error::InvalidUrl { url, reason } => {
             InvalidUrlError::new_err(format!("invalid URL '{}': {reason}", redact_url(url)))
         }
-        servo_fetch::Error::AddressNotAllowed(host) => NetworkError::new_err(format!("address not allowed: {host}")),
-        servo_fetch::Error::Engine(msg) => EngineError::new_err(msg.clone()),
+        servo_fetch::Error::AddressNotAllowed { host } => NetworkError::new_err(format!("address not allowed: {host}")),
+        servo_fetch::Error::Engine { source, .. } => EngineError::new_err(source.to_string()),
         servo_fetch::Error::Schema(e) => SchemaError::new_err(e.to_string()),
         _ => ServoFetchError::new_err(err.to_string()),
     }

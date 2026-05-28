@@ -50,7 +50,7 @@ pub(crate) async fn crawl_pages(opts: CrawlOptions<'_>) -> ToolResult<Vec<(Strin
                 Ok(page) => paginate(&servo_fetch::sanitize::sanitize(&page.content), 0, max_len),
                 Err(e) => format!("[error] {e}"),
             };
-            results.push((r.url.clone(), text));
+            results.push((r.url, text));
         })
         .map_err(|e| ToolError::fetch(format!("{e:#}")))?;
         Ok(results)

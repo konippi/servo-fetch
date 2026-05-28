@@ -142,6 +142,7 @@ impl Client {
                 if stop.load(Ordering::Acquire) {
                     return;
                 }
+                let mut r_opt = Some(r);
                 Python::attach(|py| {
                     if let Some(ref ab) = abort {
                         if matches!(
@@ -152,7 +153,7 @@ impl Client {
                             return;
                         }
                     }
-                    let item = match Py::new(py, CrawlResult::from_core(r.clone())) {
+                    let item = match Py::new(py, CrawlResult::from_core(r_opt.take().expect("once"))) {
                         Ok(i) => i,
                         Err(e) => {
                             *cb_err.lock().expect("poisoned") = Some(e);

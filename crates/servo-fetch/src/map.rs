@@ -130,7 +130,7 @@ pub fn map(opts: MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
             lastmod: entry.lastmod.clone(),
         });
     }))
-    .map_err(|e| crate::error::Error::Engine(e.to_string()))?;
+    .map_err(|e| crate::error::Error::engine(e, None))?;
     Ok(results)
 }
 

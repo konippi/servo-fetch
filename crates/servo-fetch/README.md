@@ -112,8 +112,8 @@ use servo_fetch::{fetch, FetchOptions, Error};
 
 match fetch(FetchOptions::new(url)) {
     Ok(page) => { /* ... */ }
-    Err(e) if e.is_timeout() => { /* retry */ }
-    Err(Error::AddressNotAllowed(_)) => { /* skip */ }
+    Err(Error::Timeout { .. }) => { /* retry */ }
+    Err(Error::AddressNotAllowed { .. }) => { /* skip */ }
     Err(e) => return Err(e.into()),
 }
 ```

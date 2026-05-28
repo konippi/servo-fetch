@@ -1,7 +1,6 @@
 //! Site crawling — BFS link traversal with scope, robots.txt, and rate limiting.
 
 use std::collections::{HashSet, VecDeque};
-use std::fmt;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::{Duration, SystemTime};
 
@@ -122,7 +121,7 @@ impl CrawlOptions {
 }
 
 /// Result for a single crawled page.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct CrawlResult {
     /// URL of the crawled page.
@@ -132,7 +131,7 @@ pub struct CrawlResult {
     /// Wall-clock time when the fetch completed.
     pub fetched_at: SystemTime,
     /// Page content if successful, or error if failed.
-    pub outcome: Result<CrawlPage, CrawlError>,
+    pub outcome: Result<CrawlPage, crate::error::Error>,
 }
 
 /// Successfully crawled page.
@@ -145,21 +144,6 @@ pub struct CrawlPage {
     /// Number of links discovered on this page.
     pub links_found: usize,
 }
-
-/// Error from a failed crawl attempt.
-#[derive(Debug, Clone)]
-pub struct CrawlError {
-    /// Error message.
-    pub message: String,
-}
-
-impl fmt::Display for CrawlError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for CrawlError {}
 
 impl serde::Serialize for CrawlResult {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -185,7 +169,7 @@ impl serde::Serialize for CrawlResult {
                 map.serialize_entry("url", &self.url)?;
                 map.serialize_entry("depth", &self.depth)?;
                 map.serialize_entry("fetched_at", &fetched_at)?;
-                map.serialize_entry("error", &e.message)?;
+                map.serialize_entry("error", &e.to_string())?;
                 map.end()
             }
         }
@@ -193,19 +177,19 @@ impl serde::Serialize for CrawlResult {
 }
 
 impl CrawlResult {
-    fn from_internal(r: &CrawlPageResult) -> Self {
+    fn from_internal(r: CrawlPageResult) -> Self {
         let outcome = match r.status {
             CrawlStatus::Ok => Ok(CrawlPage {
-                title: r.title.clone(),
-                content: r.content.clone().unwrap_or_default(),
+                title: r.title,
+                content: r.content.unwrap_or_default(),
                 links_found: r.links_found,
             }),
-            CrawlStatus::Error => Err(CrawlError {
-                message: r.error.clone().unwrap_or_default(),
-            }),
+            CrawlStatus::Error => Err(r
+                .error
+                .unwrap_or_else(|| crate::error::Error::engine("unknown crawl error", None))),
         };
         Self {
-            url: r.url.clone(),
+            url: r.url,
             depth: r.depth,
             fetched_at: r.fetched_at,
             outcome,
@@ -215,7 +199,7 @@ impl CrawlResult {
 
 /// Crawl a site, invoking `on_page` for each result as it arrives.
 #[allow(clippy::needless_pass_by_value)]
-pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlResult)) -> crate::error::Result<()> {
+pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(CrawlResult)) -> crate::error::Result<()> {
     net::ensure_crypto_provider();
     let plan = build_crawl_plan(&opts)?;
     crate::runtime::block_on(async {
@@ -228,19 +212,18 @@ pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(&CrawlResult)) -> 
         .await
         .unwrap_or(RobotsPolicy::Unreachable);
         run(plan, robots, &bridge::ServoFetcher, |r| {
-            on_page(&CrawlResult::from_internal(r));
+            on_page(CrawlResult::from_internal(r));
         })
-        .await
+        .await;
     })
-    .map_err(|e| crate::error::Error::Engine(e.to_string()))?;
-    Ok(())
+    .map_err(|e| crate::error::Error::engine(e, None))
 }
 
 /// Crawl a site and collect all results.
 #[allow(clippy::needless_pass_by_value)]
 pub fn crawl(opts: CrawlOptions) -> crate::error::Result<Vec<CrawlResult>> {
     let mut results = Vec::new();
-    crawl_each(opts, |r| results.push(r.clone()))?;
+    crawl_each(opts, |r| results.push(r))?;
     Ok(results)
 }
 
@@ -297,7 +280,7 @@ pub(crate) struct CrawlPageResult {
     pub status: CrawlStatus,
     pub title: Option<String>,
     pub content: Option<String>,
-    pub error: Option<String>,
+    pub error: Option<crate::error::Error>,
     pub links_found: usize,
     pub fetched_at: SystemTime,
 }
@@ -367,10 +350,10 @@ pub(crate) async fn run(
     opts: CrawlPlan,
     robots: RobotsPolicy,
     fetcher: &(impl PageFetcher + Clone),
-    mut on_page: impl FnMut(&CrawlPageResult),
-) -> Vec<CrawlPageResult> {
+    mut on_page: impl FnMut(CrawlPageResult),
+) {
     let mut frontier = Frontier::new(&opts.seed);
-    let mut results = Vec::new();
+    let mut completed: usize = 0;
     let mut in_flight: JoinSet<FetchOutcome> = JoinSet::new();
 
     // `Delay` keeps the steady-state rate correct after fetches exceed `delay`.
@@ -383,7 +366,7 @@ pub(crate) async fn run(
     let concurrency = opts.concurrency.max(1);
 
     loop {
-        while in_flight.len() < concurrency && results.len() + in_flight.len() < opts.limit {
+        while in_flight.len() < concurrency && completed + in_flight.len() < opts.limit {
             let Some((url, depth)) = frontier.pop() else {
                 break;
             };
@@ -414,27 +397,24 @@ pub(crate) async fn run(
         } = outcome;
         let page = match result {
             Ok(p) => p,
-            Err(msg) => {
-                let r = error_result(&url, depth, msg, fetched_at);
-                on_page(&r);
-                results.push(r);
+            Err(err) => {
+                on_page(error_result(&url, depth, err, fetched_at));
+                completed += 1;
                 continue;
             }
         };
 
-        let budget_used = results.len() + in_flight.len() + 1;
+        let budget_used = completed + in_flight.len() + 1;
         let mut ctx = CrawlContext {
             frontier: &mut frontier,
             robots: &robots,
             opts: &opts,
         };
         if let Some(r) = process_ok_fetch(&mut ctx, &url, depth, &page, budget_used, fetched_at) {
-            on_page(&r);
-            results.push(r);
+            on_page(r);
+            completed += 1;
         }
     }
-
-    results
 }
 
 fn spawn_fetch(
@@ -458,7 +438,7 @@ fn spawn_fetch(
                 mode: bridge::FetchMode::Content { include_a11y: false },
                 user_agent: user_agent.as_deref(),
             })
-            .map_err(|e| format!("{e:#}"));
+            .map_err(|e| crate::error::Error::engine(e, Some(url_str.clone())));
         FetchOutcome {
             url,
             depth,
@@ -542,15 +522,15 @@ fn process_ok_fetch(
     })
 }
 
-/// Fetch result crossing the `JoinSet` boundary; error is pre-stringified for `Send`.
+/// Fetch result crossing the `JoinSet` boundary.
 struct FetchOutcome {
     url: Url,
     depth: usize,
-    result: Result<bridge::ServoPage, String>,
+    result: Result<bridge::ServoPage, crate::error::Error>,
     fetched_at: SystemTime,
 }
 
-fn error_result(url: &Url, depth: usize, error: String, fetched_at: SystemTime) -> CrawlPageResult {
+fn error_result(url: &Url, depth: usize, error: crate::error::Error, fetched_at: SystemTime) -> CrawlPageResult {
     CrawlPageResult {
         url: url.to_string(),
         depth,
@@ -679,7 +659,8 @@ mod tests {
             delay: None,
         };
         configure(&mut opts);
-        let results = run(opts, RobotsPolicy::Unavailable, &fetcher, |_| {}).await;
+        let mut results = Vec::new();
+        run(opts, RobotsPolicy::Unavailable, &fetcher, |r| results.push(r)).await;
         assert(&results);
     }
 
@@ -966,9 +947,9 @@ mod tests {
     #[test]
     fn error_result_fields() {
         let url = Url::parse("https://example.com/fail").unwrap();
-        let r = error_result(&url, 2, "timeout".into(), SystemTime::now());
+        let r = error_result(&url, 2, crate::error::Error::engine("timeout", None), SystemTime::now());
         assert!(matches!(r.status, CrawlStatus::Error));
-        assert_eq!(r.error.as_deref(), Some("timeout"));
+        assert!(r.error.as_ref().is_some_and(|e| e.to_string().contains("timeout")));
         assert!(r.content.is_none());
     }
 

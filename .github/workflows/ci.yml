@@ -134,6 +134,38 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
+  cargo-doc:
+    name: Doc
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+      RUSTDOCFLAGS: -D warnings
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
+      CCACHE: sccache
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: "1.95.0"
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - name: Install servo build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
+            libssl-dev libglib2.0-dev libegl1-mesa-dev
+      - run: cargo doc --workspace --lib --no-deps --locked
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
+
   taplo:
     name: TOML Lint
     needs: [changes]
@@ -310,7 +342,7 @@ jobs:
   ci-passed:
     name: CI Passed
     if: '!cancelled()'
-    needs: [changes, cargo-clippy, cargo-test, e2e, cargo-fmt, taplo, cargo-deny, cargo-shear, typos, python-lint, python-test]
+    needs: [changes, cargo-clippy, cargo-test, cargo-doc, e2e, cargo-fmt, taplo, cargo-deny, cargo-shear, typos, python-lint, python-test]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

@@ -4,8 +4,8 @@ use dom_query::{Document, Matcher, Selection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// Maximum `NestedList` nesting depth allowed in a schema.
-const MAX_NESTING_DEPTH: usize = 64;
+/// Maximum nesting depth allowed for `NestedList` schemas.
+pub const MAX_NESTING_DEPTH: usize = 64;
 
 /// Schema parse or validation error.
 #[derive(Debug, thiserror::Error)]

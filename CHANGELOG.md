@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.3](https://github.com/konippi/servo-fetch/compare/0.11.2..0.11.3) - 2026-05-27
+
+### Features
+
+- *(cli)* Replace --screenshot with --format png ([#246](https://github.com/konippi/servo-fetch/pull/246))
+
+### Miscellaneous
+
+- Consolidate all external deps into workspace.dependencies ([#244](https://github.com/konippi/servo-fetch/pull/244))
+
 ## [0.11.2](https://github.com/konippi/servo-fetch/compare/0.11.1..0.11.2) - 2026-05-26
 
 ### Features

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.4](https://github.com/konippi/servo-fetch/compare/0.11.3..0.11.4) - 2026-05-28
+
+### Features
+
+- Preserve source chain and restructure variants ([#249](https://github.com/konippi/servo-fetch/pull/249))
+
 ## [0.11.3](https://github.com/konippi/servo-fetch/compare/0.11.2..0.11.3) - 2026-05-27
 
 ### Features

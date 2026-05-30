@@ -20,7 +20,7 @@ use url::Url;
 
 use crate::{layout, visibility};
 
-const JS_EVAL_TIMEOUT: Duration = Duration::from_secs(10);
+const EXTRACTION_BUDGET: Duration = Duration::from_secs(10);
 
 pub(crate) fn default_user_agent() -> &'static str {
     static UA: OnceLock<String> = OnceLock::new();
@@ -263,7 +263,7 @@ pub(crate) enum FetchMode {
     ExecuteJs { expression: String },
 }
 
-type ReplyFn = Box<dyn FnOnce(Result<ServoPage>) + Send>;
+type ReplyFn = Box<dyn FnOnce(Result<ServoPage>) + Send + 'static>;
 
 struct FetchRequest {
     url: String,
@@ -357,14 +357,13 @@ fn build_request(opts: FetchOptions<'_>, reply: ReplyFn) -> FetchRequest {
     }
 }
 
-fn request_deadline(opts: &FetchOptions<'_>) -> Duration {
-    Duration::from_secs(opts.timeout_secs) + Duration::from_millis(opts.settle_ms) + Duration::from_secs(2)
+fn extraction_deadline_for(page_deadline: Instant) -> Instant {
+    page_deadline.max(Instant::now() + EXTRACTION_BUDGET)
 }
 
 pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
     let engine = ensure_engine();
     let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<ServoPage>>(1);
-    let deadline = request_deadline(&opts);
     let request = build_request(
         opts,
         Box::new(move |r| {
@@ -380,15 +379,9 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
         }
     })?;
     engine.wake.signal();
-    match reply_rx.recv_timeout(deadline) {
-        Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            Err(anyhow!("Servo engine did not respond within {}s", deadline.as_secs()))
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            Err(anyhow!("Servo engine crashed while processing this page"))
-        }
-    }
+    reply_rx
+        .recv()
+        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page")))
 }
 
 fn is_apple_gl_driver_noise(line: &str) -> bool {
@@ -570,23 +563,32 @@ fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
         let _ = ctx.make_current();
     }
 
-    wait_for_ready_state(servo, &p.webview, p.deadline);
+    let extraction_deadline = extraction_deadline_for(p.deadline);
 
-    let inner_text = eval_js(servo, &p.webview, "document.body.innerText").ok();
-    let layout_json = eval_js(servo, &p.webview, LAYOUT_JS).ok();
-    let visibility_json = eval_js(servo, &p.webview, VISIBILITY_JS).ok();
+    wait_for_ready_state(servo, &p.webview, extraction_deadline);
 
-    let html = match eval_js(servo, &p.webview, "document.documentElement.outerHTML") {
+    let inner_text = eval_js(servo, &p.webview, "document.body.innerText", extraction_deadline).ok();
+    let layout_json = eval_js(servo, &p.webview, LAYOUT_JS, extraction_deadline).ok();
+    let visibility_json = eval_js(servo, &p.webview, VISIBILITY_JS, extraction_deadline).ok();
+
+    let html = match eval_js(
+        servo,
+        &p.webview,
+        "document.documentElement.outerHTML",
+        extraction_deadline,
+    ) {
         Ok(h) if !h.is_empty() => h,
         other => other?,
     };
 
     let (screenshot, js_result) = match &p.request.mode {
         FetchMode::Screenshot { full_page } => (
-            crate::screenshot::capture(servo, &p.webview, *full_page, p.request.timeout_secs),
+            crate::screenshot::capture(servo, &p.webview, *full_page, extraction_deadline),
             None,
         ),
-        FetchMode::ExecuteJs { expression } => (None, Some(eval_js(servo, &p.webview, expression)?)),
+        FetchMode::ExecuteJs { expression } => {
+            (None, Some(eval_js(servo, &p.webview, expression, extraction_deadline)?))
+        }
         FetchMode::Content { .. } => (None, None),
     };
 
@@ -663,7 +665,7 @@ fn create_noise_removal_stylesheet() -> servo::user_contents::UserStyleSheet {
 fn wait_for_ready_state(servo: &servo::Servo, webview: &WebView, deadline: Instant) {
     loop {
         servo.spin_event_loop();
-        if matches!(eval_js(servo, webview, "document.readyState"), Ok(s) if s == "complete") {
+        if matches!(eval_js(servo, webview, "document.readyState", deadline), Ok(s) if s == "complete") {
             return;
         }
         let now = Instant::now();
@@ -675,7 +677,10 @@ fn wait_for_ready_state(servo: &servo::Servo, webview: &WebView, deadline: Insta
     }
 }
 
-pub(crate) fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str) -> Result<String> {
+pub(crate) fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str, deadline: Instant) -> Result<String> {
+    if Instant::now() >= deadline {
+        return Err(anyhow!("timeout waiting for JS evaluation"));
+    }
     let result: Rc<RefCell<Option<Result<String>>>> = Rc::new(RefCell::new(None));
     let cb_result = result.clone();
 
@@ -691,7 +696,6 @@ pub(crate) fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str) -> 
         *cb_result.borrow_mut() = Some(val);
     });
 
-    let deadline = Instant::now() + JS_EVAL_TIMEOUT;
     loop {
         servo.spin_event_loop();
         if let Some(val) = result.borrow_mut().take() {
@@ -929,19 +933,24 @@ mod tests {
         assert_eq!(req.timeout_secs, 5);
         assert_eq!(req.settle_ms, 100);
         assert_eq!(req.user_agent.as_deref(), Some("test-ua"));
+        assert!(matches!(req.mode, FetchMode::Content { include_a11y: false }));
     }
 
     #[test]
-    fn request_deadline_sums_timeout_settle_and_buffer() {
-        let opts = FetchOptions {
-            url: "x",
-            timeout_secs: 30,
-            settle_ms: 500,
-            mode: FetchMode::Content { include_a11y: false },
-            user_agent: None,
-        };
-        // 30s + 500ms + 2s = 32.5s
-        assert_eq!(request_deadline(&opts), Duration::from_millis(32_500));
+    fn extraction_deadline_floors_at_budget_when_page_deadline_passed() {
+        let result = extraction_deadline_for(Instant::now());
+        let remaining = result.saturating_duration_since(Instant::now());
+        assert!(
+            remaining >= Duration::from_millis(9_500) && remaining <= EXTRACTION_BUDGET,
+            "remaining outside expected window: {remaining:?}"
+        );
+    }
+
+    #[test]
+    fn extraction_deadline_uses_page_deadline_when_far_future() {
+        let future = Instant::now() + Duration::from_secs(60);
+        let result = extraction_deadline_for(future);
+        assert_eq!(result, future);
     }
 
     #[test]

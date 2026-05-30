@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use dpi::PhysicalSize;
 use euclid::{Box2D, Point2D};
@@ -18,7 +18,7 @@ pub(crate) fn capture(
     servo: &servo::Servo,
     webview: &WebView,
     full_page: bool,
-    timeout_secs: u64,
+    deadline: Instant,
 ) -> Option<RgbaImage> {
     /// 16,384 matches the GPU texture limit on most modern hardware and caps
     /// the RGBA framebuffer at ~1 GB.
@@ -27,17 +27,17 @@ pub(crate) fn capture(
     let viewport = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
 
     if !full_page {
-        return take_screenshot(servo, webview, None, timeout_secs);
+        return take_screenshot(servo, webview, None, deadline);
     }
 
-    let Some(measured) = measure_full_page(servo, webview) else {
+    let Some(measured) = measure_full_page(servo, webview, deadline) else {
         tracing::warn!("failed to measure full page size; falling back to viewport screenshot");
-        return take_screenshot(servo, webview, None, timeout_secs);
+        return take_screenshot(servo, webview, None, deadline);
     };
 
     let Some(resized) = resolve_full_page_size(measured, viewport, MAX_PIXELS) else {
         // Content already fits in the viewport; skip the resize round-trip.
-        return take_screenshot(servo, webview, None, timeout_secs);
+        return take_screenshot(servo, webview, None, deadline);
     };
 
     if resized != measured {
@@ -57,7 +57,7 @@ pub(crate) fn capture(
         size: viewport,
     };
     webview.resize(resized);
-    take_screenshot(servo, webview, Some(device_rect(resized)), timeout_secs)
+    take_screenshot(servo, webview, Some(device_rect(resized)), deadline)
 }
 
 /// RAII guard that restores the `WebView`'s viewport size on drop.
@@ -78,7 +78,7 @@ fn take_screenshot(
     servo: &servo::Servo,
     webview: &WebView,
     rect: Option<WebViewRect>,
-    timeout_secs: u64,
+    deadline: Instant,
 ) -> Option<RgbaImage> {
     let result: Rc<RefCell<Option<Result<RgbaImage, servo::ScreenshotCaptureError>>>> = Rc::new(RefCell::new(None));
     let cb_result = result.clone();
@@ -86,7 +86,6 @@ fn take_screenshot(
         *cb_result.borrow_mut() = Some(r);
     });
 
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     loop {
         servo.spin_event_loop();
         if let Some(outcome) = result.borrow_mut().take() {
@@ -94,11 +93,12 @@ fn take_screenshot(
                 .inspect_err(|e| tracing::warn!(error = ?e, "screenshot capture failed"))
                 .ok();
         }
-        if Instant::now() > deadline {
-            tracing::warn!(timeout_secs, "screenshot capture timed out");
+        let now = Instant::now();
+        if now >= deadline {
+            tracing::warn!("screenshot capture timed out");
             return None;
         }
-        wait_for_wake(Duration::from_millis(10));
+        wait_for_wake(deadline.saturating_duration_since(now));
     }
 }
 
@@ -128,7 +128,7 @@ fn resolve_full_page_size(
 }
 
 /// Read the full scrollable content size via JS, saturating at [`u32::MAX`].
-fn measure_full_page(servo: &servo::Servo, webview: &WebView) -> Option<PhysicalSize<u32>> {
+fn measure_full_page(servo: &servo::Servo, webview: &WebView, deadline: Instant) -> Option<PhysicalSize<u32>> {
     const SIZE_JS: &str = r"
         JSON.stringify({
             w: Math.max(document.body.scrollWidth, document.documentElement.scrollWidth),
@@ -140,7 +140,7 @@ fn measure_full_page(servo: &servo::Servo, webview: &WebView) -> Option<Physical
         w: f64,
         h: f64,
     }
-    let raw = eval_js(servo, webview, SIZE_JS).ok()?;
+    let raw = eval_js(servo, webview, SIZE_JS, deadline).ok()?;
     let size: Size = serde_json::from_str(&raw).ok()?;
 
     #[expect(

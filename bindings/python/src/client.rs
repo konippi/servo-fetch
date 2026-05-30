@@ -57,7 +57,9 @@ impl Client {
             javascript,
             schema,
         })?;
-        let page = py.detach(|| servo_fetch::fetch(prepared.opts)).map_err(map_error)?;
+        let page = py
+            .detach(|| servo_fetch::blocking::fetch(&prepared.opts))
+            .map_err(map_error)?;
         Ok(Page::new(
             page,
             prepared.url,
@@ -101,7 +103,7 @@ impl Client {
             concurrency,
             delay_ms,
         )?;
-        let results = py.detach(|| servo_fetch::crawl(opts)).map_err(map_error)?;
+        let results = py.detach(|| servo_fetch::blocking::crawl(&opts)).map_err(map_error)?;
         Ok(results.into_iter().map(CrawlResult::from_core).collect())
     }
 
@@ -138,7 +140,7 @@ impl Client {
         let cb_err: Mutex<Option<PyErr>> = Mutex::new(None);
 
         let result = py.detach(|| {
-            servo_fetch::crawl_each(opts, |r| {
+            servo_fetch::blocking::crawl_each(&opts, |r| {
                 if stop.load(Ordering::Acquire) {
                     return;
                 }
@@ -198,7 +200,7 @@ impl Client {
         if let Some(ua) = self.user_agent.as_deref() {
             opts = opts.user_agent(ua);
         }
-        let urls = py.detach(|| servo_fetch::map(opts)).map_err(map_error)?;
+        let urls = py.detach(|| servo_fetch::blocking::map(&opts)).map_err(map_error)?;
         Ok(urls.into_iter().map(MappedUrl::from_core).collect())
     }
 

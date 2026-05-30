@@ -15,7 +15,7 @@ use servo::{
     ConsoleLogLevel, EventLoopWaker, JSValue, LoadStatus, NavigationRequest, Preferences, RenderingContext,
     ServoBuilder, SoftwareRenderingContext, UserContentManager, WebView, WebViewBuilder, WebViewDelegate, WebViewId,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use url::Url;
 
 use crate::{layout, visibility};
@@ -384,6 +384,26 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
         .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page")))
 }
 
+pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage> {
+    let engine = ensure_engine();
+    let (reply_tx, reply_rx) = oneshot::channel::<Result<ServoPage>>();
+    let request = build_request(
+        opts,
+        Box::new(move |r| {
+            let _ = reply_tx.send(r);
+        }),
+    );
+    engine
+        .requests
+        .send(request)
+        .await
+        .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
+    engine.wake.signal();
+    reply_rx
+        .await
+        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page")))
+}
+
 fn is_apple_gl_driver_noise(line: &str) -> bool {
     line.contains("GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type")
 }
@@ -742,8 +762,6 @@ fn jsvalue_to_json(val: &JSValue) -> Result<Value> {
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::oneshot;
-
     use super::*;
 
     #[test]

@@ -22,7 +22,7 @@ servo-fetch "https://example.com" --format png -o page.png # PNG screenshot
 
 ```rust
 // Rust
-let md = servo_fetch::markdown("https://example.com")?;
+let md = servo_fetch::blocking::markdown("https://example.com")?;
 ```
 
 ```python
@@ -122,32 +122,32 @@ cargo add servo-fetch
 ```
 
 ```rust
-// URL → Markdown in one line
-let md = servo_fetch::markdown("https://example.com")?;
+// URL → Markdown in one line (async by default; use `blocking::*` for sync)
+let md = servo_fetch::markdown("https://example.com").await?;
 
 // Fetch with options
 use servo_fetch::{fetch, FetchOptions};
 use std::time::Duration;
 
-let page = fetch(FetchOptions::new("https://example.com").timeout(Duration::from_secs(60)))?;
+let page = fetch(&FetchOptions::new("https://example.com").timeout(Duration::from_secs(60))).await?;
 println!("{}", page.html);
 let md = page.markdown()?;
 
 // Crawl a site
 servo_fetch::crawl_each(
-    servo_fetch::CrawlOptions::new("https://docs.example.com")
+    &servo_fetch::CrawlOptions::new("https://docs.example.com")
         .limit(100)
         .user_agent("MyBot/1.0"),
     |result| match &result.outcome {
         Ok(page) => println!("{}: {} chars", result.url, page.content.len()),
         Err(e) => eprintln!("{}: {e}", result.url),
     },
-)?;
+).await?;
 
 // Discover URLs via sitemap (no rendering)
 let urls = servo_fetch::map(
-    servo_fetch::MapOptions::new("https://example.com").limit(1000),
-)?;
+    &servo_fetch::MapOptions::new("https://example.com").limit(1000),
+).await?;
 for u in &urls {
     println!("{}", u.url);
 }

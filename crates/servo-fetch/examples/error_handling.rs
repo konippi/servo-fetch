@@ -2,7 +2,8 @@
 
 use servo_fetch::{Error, FetchOptions, fetch};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let urls = [
         "https://example.com",
         "not a url",
@@ -11,7 +12,7 @@ fn main() {
     ];
 
     for url in urls {
-        match fetch(FetchOptions::new(url)) {
+        match fetch(&FetchOptions::new(url)).await {
             Ok(page) => println!("✓ {url} — {} bytes", page.html.len()),
             Err(e) if e.is_timeout() => println!("⏱ {url} — timeout, retrying..."),
             Err(Error::InvalidUrl { reason, .. }) => println!("✗ {url} — {reason}"),

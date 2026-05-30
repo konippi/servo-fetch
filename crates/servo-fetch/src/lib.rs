@@ -1,19 +1,31 @@
 //! Fetch, render, and extract web content as Markdown, JSON, or screenshots with an embedded Servo browser engine.
 //! No Chromium, no containers, no external processes.
 //!
+//! ## Async usage
+//!
 //! ```no_run
-//! let md = servo_fetch::markdown("https://example.com")?;
+//! # async fn run() -> servo_fetch::Result<()> {
+//! let md = servo_fetch::markdown("https://example.com").await?;
+//! # Ok(()) }
+//! ```
+//!
+//! ## Sync usage
+//!
+//! ```no_run
+//! let md = servo_fetch::blocking::markdown("https://example.com")?;
 //! # Ok::<(), servo_fetch::Error>(())
 //! ```
 
 #![deny(unsafe_code)]
 
+pub mod blocking;
 pub mod extract;
 pub mod sanitize;
 pub mod schema;
 pub mod visibility;
 
 pub(crate) mod bridge;
+pub(crate) mod client;
 pub(crate) mod crawl;
 pub(crate) mod error;
 pub(crate) mod fetch;
@@ -27,6 +39,7 @@ pub(crate) mod scope;
 pub(crate) mod screenshot;
 pub(crate) mod sys;
 
+pub use client::{Client, ClientBuilder, ScreenshotOptions};
 pub use crawl::{CrawlOptions, CrawlPage, CrawlResult, crawl, crawl_each};
 pub use error::{Error, Result};
 pub use fetch::{ConsoleLevel, ConsoleMessage, FetchOptions, Page, extract_json, fetch, markdown, text};

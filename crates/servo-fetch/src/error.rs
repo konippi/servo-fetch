@@ -94,6 +94,22 @@ impl Error {
         }
     }
 
+    /// Construct an [`Error::Screenshot`] from any error type, preserving source chain.
+    pub(crate) fn screenshot(source: impl Into<BoxError>, url: Option<String>) -> Self {
+        Self::Screenshot {
+            url,
+            source: source.into(),
+        }
+    }
+
+    /// Construct an [`Error::JavaScript`] from any error type, preserving source chain.
+    pub(crate) fn javascript(source: impl Into<BoxError>, url: Option<String>) -> Self {
+        Self::JavaScript {
+            url,
+            source: source.into(),
+        }
+    }
+
     /// Returns `true` if this is a timeout error.
     #[must_use]
     pub fn is_timeout(&self) -> bool {

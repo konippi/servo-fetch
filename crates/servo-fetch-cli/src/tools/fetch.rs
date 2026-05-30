@@ -16,8 +16,8 @@ pub(crate) async fn fetch_page(url: &str, timeout: u64, settle_ms: u64) -> ToolR
         .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
     let url = url.to_string();
     spawn_blocking(move || {
-        servo_fetch::fetch(
-            FetchOptions::new(&url)
+        servo_fetch::blocking::fetch(
+            &FetchOptions::new(&url)
                 .timeout(Duration::from_secs(timeout))
                 .settle(Duration::from_millis(settle_ms)),
         )
@@ -35,8 +35,8 @@ pub(crate) async fn fetch_js(url: &str, expression: &str, timeout: u64, settle_m
     let url = url.to_string();
     let expression = expression.to_string();
     spawn_blocking(move || {
-        servo_fetch::fetch(
-            FetchOptions::javascript(&url, &expression)
+        servo_fetch::blocking::fetch(
+            &FetchOptions::javascript(&url, &expression)
                 .timeout(Duration::from_secs(timeout))
                 .settle(Duration::from_millis(settle_ms)),
         )
@@ -53,8 +53,8 @@ pub(crate) async fn fetch_screenshot(url: &str, full_page: bool, timeout: u64, s
         .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
     let url = url.to_string();
     spawn_blocking(move || {
-        servo_fetch::fetch(
-            FetchOptions::screenshot(&url, full_page)
+        servo_fetch::blocking::fetch(
+            &FetchOptions::screenshot(&url, full_page)
                 .timeout(Duration::from_secs(timeout))
                 .settle(Duration::from_millis(settle_ms)),
         )
@@ -102,8 +102,8 @@ fn fetch_and_render(
     selector: Option<&str>,
     max_len: usize,
 ) -> String {
-    let page = match servo_fetch::fetch(
-        FetchOptions::new(url)
+    let page = match servo_fetch::blocking::fetch(
+        &FetchOptions::new(url)
             .timeout(Duration::from_secs(timeout))
             .settle(Duration::from_millis(settle_ms)),
     ) {

@@ -96,9 +96,13 @@ pub struct MappedUrl {
     pub lastmod: Option<String>,
 }
 
-/// Discover URLs on a site via sitemaps and link extraction (no rendering).
-#[allow(clippy::needless_pass_by_value)]
-pub fn map(opts: MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
+/// Discover URLs on a site via sitemaps and link extraction (blocking).
+pub fn map_blocking(opts: &MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
+    crate::runtime::block_on(map(opts)).map_err(|e| crate::error::Error::engine(e, None))?
+}
+
+/// Discover URLs on a site via sitemaps and link extraction.
+pub async fn map(opts: &MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
     net::ensure_crypto_provider();
     let seed = net::validate_url(&opts.url)?;
 
@@ -118,19 +122,19 @@ pub fn map(opts: MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
         limit: opts.limit,
         include,
         exclude,
-        user_agent: opts.user_agent,
+        user_agent: opts.user_agent.clone(),
         timeout: Duration::from_secs(opts.timeout),
         no_fallback: opts.no_fallback,
     };
 
     let mut results = Vec::new();
-    crate::runtime::block_on(run(&internal, |entry| {
+    run(&internal, |entry| {
         results.push(MappedUrl {
             url: entry.url.clone(),
             lastmod: entry.lastmod.clone(),
         });
-    }))
-    .map_err(|e| crate::error::Error::engine(e, None))?;
+    })
+    .await;
     Ok(results)
 }
 

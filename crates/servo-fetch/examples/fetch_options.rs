@@ -4,12 +4,14 @@ use std::time::Duration;
 
 use servo_fetch::{FetchOptions, fetch};
 
-fn main() -> Result<(), servo_fetch::Error> {
+#[tokio::main]
+async fn main() -> Result<(), servo_fetch::Error> {
     let page = fetch(
-        FetchOptions::new("https://example.com")
+        &FetchOptions::new("https://example.com")
             .timeout(Duration::from_secs(60))
             .settle(Duration::from_secs(3)),
-    )?;
+    )
+    .await?;
 
     println!("Title: {:?}", page.title);
     println!("HTML length: {}", page.html.len());

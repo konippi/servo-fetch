@@ -15,7 +15,7 @@ use servo::{
     ConsoleLogLevel, EventLoopWaker, JSValue, LoadStatus, NavigationRequest, Preferences, RenderingContext,
     ServoBuilder, SoftwareRenderingContext, UserContentManager, WebView, WebViewBuilder, WebViewDelegate, WebViewId,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use url::Url;
 
 use crate::{layout, visibility};
@@ -263,13 +263,15 @@ pub(crate) enum FetchMode {
     ExecuteJs { expression: String },
 }
 
+type ReplyFn = Box<dyn FnOnce(Result<ServoPage>) + Send>;
+
 struct FetchRequest {
     url: String,
     timeout_secs: u64,
     settle_ms: u64,
     mode: FetchMode,
     user_agent: Option<String>,
-    reply: oneshot::Sender<Result<ServoPage>>,
+    reply: ReplyFn,
 }
 
 struct PendingFetch {
@@ -324,14 +326,10 @@ impl PageFetcher for ServoFetcher {
     }
 }
 
-pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
-    crate::runtime::block_on(fetch_page_async(opts))?
-}
+const PENDING_CAPACITY: usize = 64;
 
-pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage> {
-    const PENDING_CAPACITY: usize = 64;
-
-    let engine = ENGINE.get_or_init(|| {
+fn ensure_engine() -> &'static Engine {
+    ENGINE.get_or_init(|| {
         let (tx, rx) = mpsc::channel::<FetchRequest>(PENDING_CAPACITY);
         let wake = Arc::new(WakeFlag::default());
         let wake_for_thread = wake.clone();
@@ -345,45 +343,52 @@ pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage
             wake,
             policy,
         }
-    });
+    })
+}
 
-    let (reply_tx, reply_rx) = oneshot::channel();
-    let deadline =
-        Duration::from_secs(opts.timeout_secs) + Duration::from_millis(opts.settle_ms) + Duration::from_secs(2);
-    let request = FetchRequest {
+fn build_request(opts: FetchOptions<'_>, reply: ReplyFn) -> FetchRequest {
+    FetchRequest {
         url: opts.url.to_string(),
         timeout_secs: opts.timeout_secs,
         settle_ms: opts.settle_ms,
         mode: opts.mode,
         user_agent: opts.user_agent.map(String::from),
-        reply: reply_tx,
-    };
-
-    match tokio::time::timeout(
-        deadline,
-        dispatch_request(&engine.requests, &engine.wake, request, reply_rx),
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => Err(anyhow!("Servo engine did not respond within {}s", deadline.as_secs())),
+        reply,
     }
 }
 
-async fn dispatch_request(
-    sender: &mpsc::Sender<FetchRequest>,
-    wake: &WakeFlag,
-    request: FetchRequest,
-    reply_rx: oneshot::Receiver<Result<ServoPage>>,
-) -> Result<ServoPage> {
-    sender
-        .send(request)
-        .await
-        .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
-    wake.signal();
-    reply_rx
-        .await
-        .map_err(|_| anyhow!("Servo engine crashed while processing this page"))?
+fn request_deadline(opts: &FetchOptions<'_>) -> Duration {
+    Duration::from_secs(opts.timeout_secs) + Duration::from_millis(opts.settle_ms) + Duration::from_secs(2)
+}
+
+pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
+    let engine = ensure_engine();
+    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<ServoPage>>(1);
+    let deadline = request_deadline(&opts);
+    let request = build_request(
+        opts,
+        Box::new(move |r| {
+            let _ = reply_tx.send(r);
+        }),
+    );
+    engine.requests.try_send(request).map_err(|e| match e {
+        mpsc::error::TrySendError::Full(_) => {
+            anyhow!("Servo engine queue is full ({PENDING_CAPACITY} pending); back off and retry")
+        }
+        mpsc::error::TrySendError::Closed(_) => {
+            anyhow!("Servo engine is not running (it may have crashed on a previous request)")
+        }
+    })?;
+    engine.wake.signal();
+    match reply_rx.recv_timeout(deadline) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            Err(anyhow!("Servo engine did not respond within {}s", deadline.as_secs()))
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err(anyhow!("Servo engine crashed while processing this page"))
+        }
+    }
 }
 
 fn is_apple_gl_driver_noise(line: &str) -> bool {
@@ -401,7 +406,7 @@ fn servo_thread(mut request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag
         Ok(pair) => pair,
         Err(e) => {
             if let Some(req) = request_rx.blocking_recv() {
-                let _ = req.reply.send(Err(e.context("Servo initialization failed")));
+                (req.reply)(Err(e.context("Servo initialization failed")));
             }
             return;
         }
@@ -466,7 +471,7 @@ fn accept_request(
             pending.insert(p.webview.id(), p);
         }
         Err((req, err)) => {
-            let _ = req.reply.send(Err(err));
+            (req.reply)(Err(err));
         }
     }
 }
@@ -490,7 +495,7 @@ fn harvest(servo: &servo::Servo, delegate: &Rc<SharedDelegate>, pending: &mut Ha
         let result = finish_fetch(servo, &p);
         delegate.remove(id);
         drop(p.webview);
-        let _ = p.request.reply.send(result);
+        (p.request.reply)(result);
     }
 }
 
@@ -733,6 +738,8 @@ fn jsvalue_to_json(val: &JSValue) -> Result<Value> {
 
 #[cfg(test)]
 mod tests {
+    use tokio::sync::oneshot;
+
     use super::*;
 
     #[test]
@@ -897,100 +904,93 @@ mod tests {
         );
     }
 
-    fn test_request(reply_tx: oneshot::Sender<Result<ServoPage>>) -> FetchRequest {
+    fn closure_test_request(reply: ReplyFn) -> FetchRequest {
         FetchRequest {
             url: "test://".into(),
             timeout_secs: 1,
             settle_ms: 0,
             mode: FetchMode::Content { include_a11y: false },
             user_agent: None,
-            reply: reply_tx,
+            reply,
+        }
+    }
+
+    #[test]
+    fn build_request_preserves_fields() {
+        let opts = FetchOptions {
+            url: "test://example",
+            timeout_secs: 5,
+            settle_ms: 100,
+            mode: FetchMode::Content { include_a11y: false },
+            user_agent: Some("test-ua"),
+        };
+        let req = build_request(opts, Box::new(|_| {}));
+        assert_eq!(req.url, "test://example");
+        assert_eq!(req.timeout_secs, 5);
+        assert_eq!(req.settle_ms, 100);
+        assert_eq!(req.user_agent.as_deref(), Some("test-ua"));
+    }
+
+    #[test]
+    fn request_deadline_sums_timeout_settle_and_buffer() {
+        let opts = FetchOptions {
+            url: "x",
+            timeout_secs: 30,
+            settle_ms: 500,
+            mode: FetchMode::Content { include_a11y: false },
+            user_agent: None,
+        };
+        // 30s + 500ms + 2s = 32.5s
+        assert_eq!(request_deadline(&opts), Duration::from_millis(32_500));
+    }
+
+    #[test]
+    fn closure_reply_delivers_via_std_mpsc() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<ServoPage>>(1);
+        let req = closure_test_request(Box::new(move |r| {
+            let _ = tx.send(r);
+        }));
+        (req.reply)(Ok(ServoPage::default()));
+        let Ok(Ok(page)) = rx.recv_timeout(Duration::from_millis(50)) else {
+            panic!("expected Ok delivery");
+        };
+        assert!(page.html.is_empty());
+    }
+
+    #[tokio::test]
+    async fn closure_reply_delivers_via_oneshot() {
+        let (tx, rx) = oneshot::channel::<Result<ServoPage>>();
+        let req = closure_test_request(Box::new(move |r| {
+            let _ = tx.send(r);
+        }));
+        (req.reply)(Err(anyhow!("test failure")));
+        let Ok(Err(err)) = rx.await else {
+            panic!("expected Err delivery");
+        };
+        assert!(err.to_string().contains("test failure"));
+    }
+
+    #[test]
+    fn closure_drop_disconnects_std_mpsc_receiver() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<ServoPage>>(1);
+        let req = closure_test_request(Box::new(move |r| {
+            let _ = tx.send(r);
+        }));
+        drop(req); // simulate engine dropping the request before invoking reply
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(_) => panic!("expected disconnect"),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+            Err(other) => panic!("expected Disconnected, got: {other:?}"),
         }
     }
 
     #[tokio::test]
-    async fn dispatch_request_returns_ok_when_engine_replies() {
-        let (req_tx, mut req_rx) = mpsc::channel::<FetchRequest>(1);
-        let wake = WakeFlag::default();
-        let (reply_tx, reply_rx) = oneshot::channel();
-
-        tokio::spawn(async move {
-            if let Some(req) = req_rx.recv().await {
-                let _ = req.reply.send(Ok(ServoPage::default()));
-            }
-        });
-
-        let Ok(page) = dispatch_request(&req_tx, &wake, test_request(reply_tx), reply_rx).await else {
-            panic!("expected Ok");
-        };
-        assert!(page.html.is_empty(), "default ServoPage has empty html");
-    }
-
-    #[tokio::test]
-    async fn dispatch_request_propagates_engine_error() {
-        let (req_tx, mut req_rx) = mpsc::channel::<FetchRequest>(1);
-        let wake = WakeFlag::default();
-        let (reply_tx, reply_rx) = oneshot::channel();
-
-        tokio::spawn(async move {
-            if let Some(req) = req_rx.recv().await {
-                let _ = req.reply.send(Err(anyhow!("custom failure: page exploded")));
-            }
-        });
-
-        let Err(err) = dispatch_request(&req_tx, &wake, test_request(reply_tx), reply_rx).await else {
-            panic!("expected error");
-        };
-        assert!(
-            err.to_string().contains("page exploded"),
-            "original error preserved, got: {err}"
-        );
-    }
-
-    #[tokio::test]
-    async fn dispatch_request_yields_crashed_when_reply_dropped() {
-        let (req_tx, mut req_rx) = mpsc::channel::<FetchRequest>(1);
-        let wake = WakeFlag::default();
-        let (reply_tx, reply_rx) = oneshot::channel();
-
-        tokio::spawn(async move {
-            if let Some(req) = req_rx.recv().await {
-                drop(req.reply);
-            }
-        });
-
-        let Err(err) = dispatch_request(&req_tx, &wake, test_request(reply_tx), reply_rx).await else {
-            panic!("expected crash error");
-        };
-        assert!(err.to_string().contains("crashed"), "got: {err}");
-    }
-
-    #[tokio::test]
-    async fn dispatch_request_yields_not_running_when_channel_closed() {
-        let (req_tx, req_rx) = mpsc::channel::<FetchRequest>(1);
-        let wake = WakeFlag::default();
-        let (reply_tx, reply_rx) = oneshot::channel();
-        drop(req_rx);
-
-        let Err(err) = dispatch_request(&req_tx, &wake, test_request(reply_tx), reply_rx).await else {
-            panic!("expected not running error");
-        };
-        assert!(err.to_string().contains("not running"), "got: {err}");
-    }
-
-    #[tokio::test]
-    async fn outer_timeout_yields_did_not_respond_error() {
-        let (req_tx, _req_rx) = mpsc::channel::<FetchRequest>(1);
-        let wake = WakeFlag::default();
-        let (reply_tx, reply_rx) = oneshot::channel();
-        let request_fut = dispatch_request(&req_tx, &wake, test_request(reply_tx), reply_rx);
-        let deadline = Duration::from_millis(50);
-
-        let result: Result<ServoPage> = match tokio::time::timeout(deadline, request_fut).await {
-            Ok(r) => r,
-            Err(_) => Err(anyhow!("Servo engine did not respond within {}s", deadline.as_secs())),
-        };
-        let Err(err) = result else { panic!("expected timeout") };
-        assert!(err.to_string().contains("did not respond"), "got: {err}");
+    async fn closure_drop_disconnects_oneshot_receiver() {
+        let (tx, rx) = oneshot::channel::<Result<ServoPage>>();
+        let req = closure_test_request(Box::new(move |r| {
+            let _ = tx.send(r);
+        }));
+        drop(req);
+        assert!(rx.await.is_err());
     }
 }

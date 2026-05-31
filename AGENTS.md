@@ -73,6 +73,8 @@ Conventional Commits, **subject-only** by default. Use the body only when critic
 
 Examples: `fix(build): drop +crt-static on Windows to match mozjs-sys CRT`, `chore(deps): bump rustls`.
 
+**Breaking changes:** mark with `!` in the subject (`feat(api)!: split sync and async`, `refactor(error)!: rename Error::Timeout`). The marker drives release-plz's minor/major bump and the `### Breaking Changes` changelog section. Put migration guidance for users in the release PR's `CHANGELOG.md` under `### Migration Guide`, not in commit bodies (release-plz does not surface commit bodies).
+
 ### Branch names
 
 Kebab-case under a type prefix: `fix/windows-crt-mismatch`, `refactor/wiremock-body-mime-consistency`, `ci/trivy-image-scan`.

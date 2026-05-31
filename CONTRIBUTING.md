@@ -78,6 +78,10 @@ fix: handle empty body in extract
 refactor: simplify bridge error handling
 ```
 
+### Breaking changes
+
+Mark breaking changes with `!` in the subject — for example, `feat(api)!: split sync and async` or `refactor(error)!: rename Error::Timeout`. The subject marker keeps the breaking nature visible in commit logs, PR titles, and the auto-generated changelog.
+
 ## Pull request guidelines
 
 - Keep PRs focused on a single change

@@ -22,7 +22,7 @@ servo-fetch "https://example.com" --format png -o page.png # PNG screenshot
 
 ```rust
 // Rust
-let md = servo_fetch::blocking::markdown("https://example.com")?;
+let md = servo_fetch::markdown("https://example.com").await?;
 ```
 
 ```python

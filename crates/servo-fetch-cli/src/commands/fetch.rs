@@ -72,7 +72,7 @@ fn run_single(args: &FetchArgs, url_str: &str) -> Result<()> {
     progress.ticker(&format!("Fetching {url_str}..."));
 
     let opts = build_fetch_options(args, url_str)?;
-    let page = servo_fetch::fetch(opts).map_err(Error::from);
+    let page = servo_fetch::blocking::fetch(&opts).map_err(Error::from);
     progress.clear();
     let page = page?;
     dispatch_output(args, &page, url_str, sink(args))
@@ -108,7 +108,7 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
             if let Some(s) = schema {
                 opts = opts.schema(s);
             }
-            let result = servo_fetch::fetch(opts);
+            let result = servo_fetch::blocking::fetch(&opts);
             let _ = tx.blocking_send((url_str, result));
             drop(permit);
         });

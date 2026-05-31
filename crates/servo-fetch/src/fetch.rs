@@ -11,7 +11,7 @@ use servo::accesskit::{Node, NodeId};
 use crate::error::Error;
 use crate::net::sanitize_user_agent;
 
-/// Rendered page returned by [`fetch`].
+/// Rendered page returned by [`crate::fetch()`].
 #[derive(Debug, Clone, Default, serde::Serialize)]
 #[non_exhaustive]
 pub struct Page {
@@ -203,25 +203,33 @@ pub(crate) enum FetchMode {
 #[derive(Debug, Clone)]
 pub struct FetchOptions {
     pub(crate) url: String,
-    pub(crate) timeout: Duration,
-    pub(crate) settle: Duration,
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) settle: Option<Duration>,
     pub(crate) mode: FetchMode,
     pub(crate) user_agent: Option<String>,
     pub(crate) extract_schema: Option<crate::schema::ExtractSchema>,
-    pub(crate) visibility: crate::visibility::VisibilityPolicy,
+    pub(crate) visibility: Option<crate::visibility::VisibilityPolicy>,
 }
 
 impl FetchOptions {
+    /// Default page-load timeout used when neither `FetchOptions::timeout` nor
+    /// a [`crate::Client`] override is set.
+    pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// Default settle wait used when neither `FetchOptions::settle` nor a
+    /// [`crate::Client`] override is set.
+    pub(crate) const DEFAULT_SETTLE: Duration = Duration::ZERO;
+
     /// Fetch rendered content (default mode).
     pub fn new(url: &str) -> Self {
         Self {
             url: url.into(),
-            timeout: Duration::from_secs(30),
-            settle: Duration::ZERO,
+            timeout: None,
+            settle: None,
             mode: FetchMode::Content,
             user_agent: None,
             extract_schema: None,
-            visibility: crate::visibility::VisibilityPolicy::default(),
+            visibility: None,
         }
     }
 
@@ -243,13 +251,13 @@ impl FetchOptions {
 
     /// Page load timeout (default: 30s).
     pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
+        self.timeout = Some(timeout);
         self
     }
 
     /// Extra wait after load event for SPA hydration (default: 0).
     pub fn settle(mut self, settle: Duration) -> Self {
-        self.settle = settle;
+        self.settle = Some(settle);
         self
     }
 
@@ -267,33 +275,123 @@ impl FetchOptions {
 
     /// Visibility-filtering policy applied during extraction.
     pub fn visibility(mut self, policy: crate::visibility::VisibilityPolicy) -> Self {
-        self.visibility = policy;
+        self.visibility = Some(policy);
         self
+    }
+
+    /// Resolve the effective timeout, falling back to [`Self::DEFAULT_TIMEOUT`].
+    pub(crate) fn effective_timeout(&self) -> Duration {
+        self.timeout.unwrap_or(Self::DEFAULT_TIMEOUT)
+    }
+
+    /// Resolve the effective settle wait, falling back to [`Self::DEFAULT_SETTLE`].
+    pub(crate) fn effective_settle(&self) -> Duration {
+        self.settle.unwrap_or(Self::DEFAULT_SETTLE)
+    }
+
+    /// Resolve the effective visibility policy, falling back to its default.
+    pub(crate) fn effective_visibility(&self) -> crate::visibility::VisibilityPolicy {
+        self.visibility.unwrap_or_default()
     }
 }
 
-/// Fetch a single page via the embedded Servo engine.
-#[allow(clippy::needless_pass_by_value)]
-pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
-    crate::net::ensure_crypto_provider();
+/// Fetch a single page via the embedded Servo engine (blocking).
+pub fn fetch_blocking(opts: &FetchOptions) -> crate::error::Result<Page> {
+    if let Some(pdf_page) = pre_fetch(opts)? {
+        return Ok(pdf_page);
+    }
+    let bridge_opts = build_bridge_options(opts);
+    let servo_page = crate::bridge::fetch_page(bridge_opts).map_err(|e| map_engine_error(e, opts))?;
+    Ok(finalize_page(servo_page, opts))
+}
 
+/// Fetch a single page via the embedded Servo engine.
+pub async fn fetch(opts: &FetchOptions) -> crate::error::Result<Page> {
+    if let Some(pdf_page) = pre_fetch_async(opts).await? {
+        return Ok(pdf_page);
+    }
+    let bridge_opts = build_bridge_options(opts);
+    let servo_page = crate::bridge::fetch_page_async(bridge_opts)
+        .await
+        .map_err(|e| map_engine_error(e, opts))?;
+    Ok(finalize_page(servo_page, opts))
+}
+
+/// Fetch a URL and return readable Markdown (blocking).
+pub fn markdown_blocking(url: &str) -> crate::error::Result<String> {
+    fetch_blocking(&FetchOptions::new(url))?.markdown_with_url(url)
+}
+
+/// Fetch a URL and return readable Markdown.
+pub async fn markdown(url: &str) -> crate::error::Result<String> {
+    fetch(&FetchOptions::new(url)).await?.markdown_with_url(url)
+}
+
+/// Fetch a URL and return structured JSON (blocking).
+pub fn extract_json_blocking(url: &str) -> crate::error::Result<String> {
+    fetch_blocking(&FetchOptions::new(url))?.extract_json_with_url(url)
+}
+
+/// Fetch a URL and return structured JSON.
+pub async fn extract_json(url: &str) -> crate::error::Result<String> {
+    fetch(&FetchOptions::new(url)).await?.extract_json_with_url(url)
+}
+
+/// Fetch a URL and return plain text (`document.body.innerText`) (blocking).
+pub fn text_blocking(url: &str) -> crate::error::Result<String> {
+    Ok(fetch_blocking(&FetchOptions::new(url))?.inner_text)
+}
+
+/// Fetch a URL and return plain text (`document.body.innerText`).
+pub async fn text(url: &str) -> crate::error::Result<String> {
+    Ok(fetch(&FetchOptions::new(url)).await?.inner_text)
+}
+
+fn pre_fetch(opts: &FetchOptions) -> crate::error::Result<Option<Page>> {
+    crate::net::ensure_crypto_provider();
     crate::net::validate_url(&opts.url)?;
 
     if matches!(opts.mode, FetchMode::Content)
-        && let Some(bytes) = crate::pdf::probe(&opts.url, opts.timeout.as_secs().max(1))
+        && let Some(bytes) = crate::pdf::probe(&opts.url, opts.effective_timeout().as_secs().max(1))
     {
-        let text = crate::extract::extract_pdf(&bytes);
-        return Ok(Page {
-            html: String::new(),
-            inner_text: text,
-            ..Page::default()
-        });
+        return Ok(Some(pdf_page(&bytes)));
     }
 
-    let bridge_opts = crate::bridge::FetchOptions {
+    Ok(None)
+}
+
+async fn pre_fetch_async(opts: &FetchOptions) -> crate::error::Result<Option<Page>> {
+    crate::net::ensure_crypto_provider();
+    crate::net::validate_url(&opts.url)?;
+
+    if matches!(opts.mode, FetchMode::Content) {
+        let url = opts.url.clone();
+        let timeout_secs = opts.effective_timeout().as_secs().max(1);
+        let probe = tokio::task::spawn_blocking(move || crate::pdf::probe(&url, timeout_secs))
+            .await
+            .map_err(|e| Error::engine(anyhow::anyhow!("pdf probe task panicked: {e}"), Some(opts.url.clone())))?;
+        if let Some(bytes) = probe {
+            return Ok(Some(pdf_page(&bytes)));
+        }
+    }
+
+    Ok(None)
+}
+
+fn pdf_page(bytes: &[u8]) -> Page {
+    let text = crate::extract::extract_pdf(bytes);
+    Page {
+        html: String::new(),
+        inner_text: text,
+        ..Page::default()
+    }
+}
+
+fn build_bridge_options(opts: &FetchOptions) -> crate::bridge::FetchOptions<'_> {
+    crate::bridge::FetchOptions {
         url: &opts.url,
-        timeout_secs: opts.timeout.as_secs().max(1),
-        settle_ms: u64::try_from(opts.settle.as_millis()).unwrap_or(u64::MAX),
+        timeout_secs: opts.effective_timeout().as_secs().max(1),
+        settle_ms: u64::try_from(opts.effective_settle().as_millis()).unwrap_or(u64::MAX),
         user_agent: opts.user_agent.as_deref(),
         mode: match opts.mode {
             FetchMode::Content => crate::bridge::FetchMode::Content { include_a11y: false },
@@ -302,40 +400,27 @@ pub fn fetch(opts: FetchOptions) -> crate::error::Result<Page> {
                 expression: expr.clone(),
             },
         },
-    };
+    }
+}
 
-    let servo_page = crate::bridge::fetch_page(bridge_opts).map_err(|e| {
-        if format!("{e:#}").contains("timed out") {
-            Error::Timeout {
-                url: opts.url.clone(),
-                timeout: opts.timeout,
-            }
-        } else {
-            Error::engine(e, Some(opts.url.clone()))
-        }
-    })?;
-
+fn finalize_page(servo_page: crate::bridge::ServoPage, opts: &FetchOptions) -> Page {
     let mut page = Page::from_servo(servo_page);
-    page.visibility_policy = opts.visibility;
+    page.visibility_policy = opts.effective_visibility();
     if let Some(schema) = opts.extract_schema.as_ref() {
         page.extracted = Some(schema.extract_from(&page.html));
     }
-    Ok(page)
+    page
 }
 
-/// Fetch a URL and return readable Markdown.
-pub fn markdown(url: &str) -> crate::error::Result<String> {
-    fetch(FetchOptions::new(url))?.markdown_with_url(url)
-}
-
-/// Fetch a URL and return structured JSON.
-pub fn extract_json(url: &str) -> crate::error::Result<String> {
-    fetch(FetchOptions::new(url))?.extract_json_with_url(url)
-}
-
-/// Fetch a URL and return plain text (`document.body.innerText`).
-pub fn text(url: &str) -> crate::error::Result<String> {
-    Ok(fetch(FetchOptions::new(url))?.inner_text)
+fn map_engine_error(e: anyhow::Error, opts: &FetchOptions) -> Error {
+    if format!("{e:#}").contains("timed out") {
+        Error::Timeout {
+            url: opts.url.clone(),
+            timeout: opts.effective_timeout(),
+        }
+    } else {
+        Error::engine(e, Some(opts.url.clone()))
+    }
 }
 
 #[cfg(test)]
@@ -346,9 +431,28 @@ mod tests {
     fn fetch_options_defaults() {
         let opts = FetchOptions::new("https://example.com");
         assert_eq!(opts.url, "https://example.com");
-        assert_eq!(opts.timeout, Duration::from_secs(30));
-        assert_eq!(opts.settle, Duration::ZERO);
+        assert_eq!(opts.timeout, None);
+        assert_eq!(opts.settle, None);
+        assert_eq!(opts.visibility, None);
         assert!(matches!(opts.mode, FetchMode::Content));
+    }
+
+    #[test]
+    fn fetch_options_effective_defaults() {
+        let opts = FetchOptions::new("https://example.com");
+        assert_eq!(opts.effective_timeout(), Duration::from_secs(30));
+        assert_eq!(opts.effective_settle(), Duration::ZERO);
+    }
+
+    #[test]
+    fn fetch_options_caller_value_preserved() {
+        let opts = FetchOptions::new("https://example.com")
+            .timeout(Duration::from_secs(45))
+            .settle(Duration::from_millis(250));
+        assert_eq!(opts.timeout, Some(Duration::from_secs(45)));
+        assert_eq!(opts.settle, Some(Duration::from_millis(250)));
+        assert_eq!(opts.effective_timeout(), Duration::from_secs(45));
+        assert_eq!(opts.effective_settle(), Duration::from_millis(250));
     }
 
     #[test]
@@ -368,8 +472,8 @@ mod tests {
         let opts = FetchOptions::new("https://example.com")
             .timeout(Duration::from_secs(60))
             .settle(Duration::from_millis(500));
-        assert_eq!(opts.timeout, Duration::from_secs(60));
-        assert_eq!(opts.settle, Duration::from_millis(500));
+        assert_eq!(opts.timeout, Some(Duration::from_secs(60)));
+        assert_eq!(opts.settle, Some(Duration::from_millis(500)));
     }
 
     #[test]
@@ -486,7 +590,7 @@ mod tests {
 
     #[test]
     fn fetch_rejects_invalid_url() {
-        let result = fetch(FetchOptions::new("not a url"));
+        let result = fetch_blocking(&FetchOptions::new("not a url"));
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, Error::InvalidUrl { .. }));
@@ -494,13 +598,13 @@ mod tests {
 
     #[test]
     fn fetch_rejects_private_ip() {
-        let result = fetch(FetchOptions::new("http://127.0.0.1/"));
+        let result = fetch_blocking(&FetchOptions::new("http://127.0.0.1/"));
         assert!(result.is_err());
     }
 
     #[test]
     fn fetch_rejects_file_scheme() {
-        let result = fetch(FetchOptions::new("file:///etc/passwd"));
+        let result = fetch_blocking(&FetchOptions::new("file:///etc/passwd"));
         assert!(result.is_err());
     }
 

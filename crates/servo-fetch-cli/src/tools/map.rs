@@ -20,7 +20,7 @@ pub(crate) async fn discover_urls(
         opts.exclude(&exclude_glob.iter().map(String::as_str).collect::<Vec<_>>())
     };
 
-    let results = tokio::task::spawn_blocking(move || servo_fetch::map(opts))
+    let results = tokio::task::spawn_blocking(move || servo_fetch::blocking::map(&opts))
         .await
         .map_err(|e| ToolError::internal(e.to_string()))?
         .map_err(|e| ToolError::fetch(e.to_string()))?;

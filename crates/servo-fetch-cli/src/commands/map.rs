@@ -20,7 +20,7 @@ pub(crate) fn run(args: &MapArgs) -> anyhow::Result<()> {
         opts = opts.user_agent(ua);
     }
 
-    let results = servo_fetch::map(opts)?;
+    let results = servo_fetch::blocking::map(&opts)?;
 
     let mut out = io::stdout().lock();
     if args.json {

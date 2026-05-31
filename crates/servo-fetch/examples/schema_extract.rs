@@ -3,7 +3,8 @@
 use servo_fetch::schema::ExtractSchema;
 use servo_fetch::{FetchOptions, fetch};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let product_schema = ExtractSchema::from_json(
         r#"{
         "base_selector": ".product",
@@ -15,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }"#,
     )?;
 
-    let page = fetch(FetchOptions::new("https://shop.example.com").schema(product_schema))?;
+    let page = fetch(&FetchOptions::new("https://shop.example.com").schema(product_schema)).await?;
 
     match page.extracted {
         Some(value) => println!("{}", serde_json::to_string_pretty(&value)?),

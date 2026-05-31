@@ -45,7 +45,7 @@ pub(crate) async fn crawl_pages(opts: CrawlOptions<'_>) -> ToolResult<Vec<(Strin
     let max_len = opts.max_len;
     tokio::task::spawn_blocking(move || {
         let mut results = Vec::new();
-        servo_fetch::crawl_each(builder, |r| {
+        servo_fetch::blocking::crawl_each(&builder, |r| {
             let text = match &r.outcome {
                 Ok(page) => paginate(&servo_fetch::sanitize::sanitize(&page.content), 0, max_len),
                 Err(e) => format!("[error] {e}"),

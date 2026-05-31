@@ -2,8 +2,9 @@
 
 use servo_fetch::{FetchOptions, fetch};
 
-fn main() -> Result<(), servo_fetch::Error> {
-    let page = fetch(FetchOptions::javascript("https://example.com", "document.title"))?;
+#[tokio::main]
+async fn main() -> Result<(), servo_fetch::Error> {
+    let page = fetch(&FetchOptions::javascript("https://example.com", "document.title")).await?;
 
     println!("JS result: {:?}", page.js_result);
 

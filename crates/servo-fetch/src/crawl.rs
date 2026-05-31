@@ -197,33 +197,47 @@ impl CrawlResult {
     }
 }
 
+/// Crawl a site, invoking `on_page` for each result as it arrives (blocking).
+pub fn crawl_each_blocking<F>(opts: &CrawlOptions, on_page: F) -> crate::error::Result<()>
+where
+    F: FnMut(CrawlResult) + Send,
+{
+    crate::runtime::block_on(crawl_each(opts, on_page)).map_err(|e| crate::error::Error::engine(e, None))?
+}
+
 /// Crawl a site, invoking `on_page` for each result as it arrives.
-#[allow(clippy::needless_pass_by_value)]
-pub fn crawl_each(opts: CrawlOptions, mut on_page: impl FnMut(CrawlResult)) -> crate::error::Result<()> {
+pub async fn crawl_each<F>(opts: &CrawlOptions, mut on_page: F) -> crate::error::Result<()>
+where
+    F: FnMut(CrawlResult) + Send,
+{
     net::ensure_crypto_provider();
-    let plan = build_crawl_plan(&opts)?;
-    crate::runtime::block_on(async {
-        let robots = spawn_blocking({
-            let seed = plan.seed.clone();
-            let user_agent = plan.user_agent.clone();
-            let timeout = Duration::from_secs(plan.timeout_secs);
-            move || crate::robots::RobotsRules::fetch(&seed, user_agent.as_deref(), timeout)
-        })
-        .await
-        .unwrap_or(RobotsPolicy::Unreachable);
-        run(plan, robots, &bridge::ServoFetcher, |r| {
-            on_page(CrawlResult::from_internal(r));
-        })
-        .await;
+    let plan = build_crawl_plan(opts)?;
+    let robots = spawn_blocking({
+        let seed = plan.seed.clone();
+        let user_agent = plan.user_agent.clone();
+        let timeout = Duration::from_secs(plan.timeout_secs);
+        move || crate::robots::RobotsRules::fetch(&seed, user_agent.as_deref(), timeout)
     })
-    .map_err(|e| crate::error::Error::engine(e, None))
+    .await
+    .unwrap_or(RobotsPolicy::Unreachable);
+    run(plan, robots, &bridge::ServoFetcher, |r| {
+        on_page(CrawlResult::from_internal(r));
+    })
+    .await;
+    Ok(())
+}
+
+/// Crawl a site and collect all results (blocking).
+pub fn crawl_blocking(opts: &CrawlOptions) -> crate::error::Result<Vec<CrawlResult>> {
+    let mut results = Vec::new();
+    crawl_each_blocking(opts, |r| results.push(r))?;
+    Ok(results)
 }
 
 /// Crawl a site and collect all results.
-#[allow(clippy::needless_pass_by_value)]
-pub fn crawl(opts: CrawlOptions) -> crate::error::Result<Vec<CrawlResult>> {
+pub async fn crawl(opts: &CrawlOptions) -> crate::error::Result<Vec<CrawlResult>> {
     let mut results = Vec::new();
-    crawl_each(opts, |r| results.push(r))?;
+    crawl_each(opts, |r| results.push(r)).await?;
     Ok(results)
 }
 

@@ -2,9 +2,10 @@
 
 use servo_fetch::{CrawlOptions, crawl_each};
 
-fn main() -> Result<(), servo_fetch::Error> {
+#[tokio::main]
+async fn main() -> Result<(), servo_fetch::Error> {
     crawl_each(
-        CrawlOptions::new("https://example.com").limit(5).max_depth(1),
+        &CrawlOptions::new("https://example.com").limit(5).max_depth(1),
         |result| match &result.outcome {
             Ok(page) => {
                 println!("✓ {} (depth={}, links={})", result.url, result.depth, page.links_found);
@@ -13,7 +14,8 @@ fn main() -> Result<(), servo_fetch::Error> {
                 println!("✗ {} — {e}", result.url);
             }
         },
-    )?;
+    )
+    .await?;
 
     Ok(())
 }

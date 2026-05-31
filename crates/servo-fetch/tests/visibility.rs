@@ -1,6 +1,7 @@
 //! Visibility-aware extraction integration tests.
 
-use servo_fetch::{FetchOptions, NetworkPolicy, VisibilityPolicy, fetch};
+use servo_fetch::blocking::fetch;
+use servo_fetch::{FetchOptions, NetworkPolicy, VisibilityPolicy};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -52,7 +53,7 @@ async fn moderate_policy_filters_hidden_content() {
     let url = format!("{}/", server.uri());
 
     let md = tokio::task::spawn_blocking(move || {
-        fetch(FetchOptions::new(&url).visibility(VisibilityPolicy::moderate()))
+        fetch(&FetchOptions::new(&url).visibility(VisibilityPolicy::moderate()))
             .expect("fetch")
             .markdown()
             .expect("markdown")

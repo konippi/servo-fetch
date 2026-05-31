@@ -2,8 +2,9 @@
 
 use servo_fetch::{FetchOptions, fetch};
 
-fn main() -> Result<(), servo_fetch::Error> {
-    let page = fetch(FetchOptions::screenshot("https://example.com", true))?;
+#[tokio::main]
+async fn main() -> Result<(), servo_fetch::Error> {
+    let page = fetch(&FetchOptions::screenshot("https://example.com", true)).await?;
 
     match page.screenshot_png() {
         Some(png) => {

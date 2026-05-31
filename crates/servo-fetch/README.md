@@ -13,7 +13,7 @@ Looking for the CLI? See [`servo-fetch-cli`](https://crates.io/crates/servo-fetc
 - **Real JS execution** — SpiderMonkey runs JavaScript, parallel CSS engine computes layout
 - **Layout- and visibility-aware extraction** — strips navbars/footers by rendered position, plus cookie banners, modals, and CSS-hidden content
 - **Schema-driven JSON** — declarative CSS-selector schema pulls structured data, no LLM
-- **Sync API** — no async runtime required; wrap with `spawn_blocking` for async contexts
+- **Async-first API** — top-level functions are `async`; sync mirror in [`blocking`] submodule
 - **PDF auto-detection** — URLs returning PDF are automatically extracted as text
 - **Typed errors** — `Error::Timeout`, `Error::InvalidUrl`, etc. for match-based retry logic
 - **SSRF protection** — blocks private IPs, reserved ranges, and metadata endpoints
@@ -21,7 +21,13 @@ Looking for the CLI? See [`servo-fetch-cli`](https://crates.io/crates/servo-fetc
 ## Quick Start
 
 ```rust
-let md = servo_fetch::markdown("https://example.com")?;
+let md = servo_fetch::markdown("https://example.com").await?;
+```
+
+For synchronous code, use the [`blocking`] submodule:
+
+```rust
+let md = servo_fetch::blocking::markdown("https://example.com")?;
 ```
 
 ## Examples
@@ -33,11 +39,11 @@ use servo_fetch::{fetch, FetchOptions};
 use std::time::Duration;
 
 let page = fetch(
-    FetchOptions::new("https://spa-site.com")
+    &FetchOptions::new("https://spa-site.com")
         .timeout(Duration::from_secs(60))
         .settle(Duration::from_millis(3000))
         .user_agent("MyBot/1.0"),
-)?;
+).await?;
 println!("{}", page.html);
 let md = page.markdown()?;
 ```
@@ -47,7 +53,7 @@ let md = page.markdown()?;
 ```rust
 use servo_fetch::{fetch, FetchOptions};
 
-let page = fetch(FetchOptions::screenshot("https://example.com", true))?;
+let page = fetch(&FetchOptions::screenshot("https://example.com", true)).await?;
 std::fs::write("page.png", page.screenshot_png().unwrap())?;
 ```
 
@@ -56,7 +62,7 @@ std::fs::write("page.png", page.screenshot_png().unwrap())?;
 ```rust
 use servo_fetch::{fetch, FetchOptions};
 
-let page = fetch(FetchOptions::javascript("https://example.com", "document.title"))?;
+let page = fetch(&FetchOptions::javascript("https://example.com", "document.title")).await?;
 println!("{}", page.js_result.unwrap());
 ```
 
@@ -66,14 +72,14 @@ println!("{}", page.js_result.unwrap());
 use servo_fetch::{crawl_each, CrawlOptions};
 
 crawl_each(
-    CrawlOptions::new("https://docs.example.com")
+    &CrawlOptions::new("https://docs.example.com")
         .limit(100)
         .include(&["/docs/**"]),
     |result| match &result.outcome {
         Ok(page) => println!("{}: {} chars", result.url, page.content.len()),
         Err(e) => eprintln!("{}: {e}", result.url),
     },
-)?;
+).await?;
 ```
 
 ### Schema-driven JSON extraction
@@ -94,7 +100,7 @@ let product_schema = ExtractSchema::from_json(r#"{
     ]
 }"#)?;
 
-let page = fetch(FetchOptions::new("https://shop.example.com").schema(product_schema))?;
+let page = fetch(&FetchOptions::new("https://shop.example.com").schema(product_schema)).await?;
 if let Some(value) = &page.extracted {
     println!("{}", serde_json::to_string_pretty(value)?);
 }
@@ -110,7 +116,7 @@ programmatic construction, see [`ExtractSchema::builder()`].
 ```rust
 use servo_fetch::{fetch, FetchOptions, Error};
 
-match fetch(FetchOptions::new(url)) {
+match fetch(&FetchOptions::new(url)).await {
     Ok(page) => { /* ... */ }
     Err(Error::Timeout { .. }) => { /* retry */ }
     Err(Error::AddressNotAllowed { .. }) => { /* skip */ }
@@ -118,12 +124,29 @@ match fetch(FetchOptions::new(url)) {
 }
 ```
 
-### From async contexts
+### Client
 
 ```rust
-let page = tokio::task::spawn_blocking(|| {
-    servo_fetch::fetch(servo_fetch::FetchOptions::new("https://example.com"))
-}).await??;
+use servo_fetch::Client;
+use std::time::Duration;
+
+let client = Client::builder()
+    .timeout(Duration::from_secs(60))
+    .user_agent("MyBot/1.0")
+    .build();
+
+let p1 = client.fetch("https://a.com").await?;
+let p2 = client.fetch("https://b.com").await?;
+```
+
+### Sync mode
+
+```rust
+use servo_fetch::blocking;
+
+let md = blocking::markdown("https://example.com")?;
+let client = blocking::Client::builder().timeout(std::time::Duration::from_secs(60)).build();
+let page = client.fetch("https://example.com")?;
 ```
 
 ## Environment Variables
@@ -134,16 +157,18 @@ let page = tokio::task::spawn_blocking(|| {
 
 ## API Overview
 
-| Function | Description |
-| -------- | ----------- |
-| `markdown(url)` | Fetch → readable Markdown |
-| `extract_json(url)` | Fetch → structured JSON |
-| `text(url)` | Fetch → plain text (`innerText`) |
-| `fetch(opts)` | Fetch with full options → `Page` |
-| `crawl(opts)` | Crawl site → `Vec<CrawlResult>` |
-| `crawl_each(opts, cb)` | Crawl site, streaming results |
-| `map(opts)` | Discover URLs via sitemaps → `Vec<MappedUrl>` |
-| `schema.extract_from(html)` | Apply a CSS-selector schema to HTML → `serde_json::Value` |
+Every function is available in both async (top-level) and sync (`blocking::*`) form.
+
+| Function | Returns |
+| -------- | ------- |
+| `markdown(url)` | Readable Markdown |
+| `text(url)` | Plain text (`innerText`) |
+| `extract_json(url)` | Structured JSON |
+| `fetch(opts)` | `Page` |
+| `crawl(opts)` | `Vec<CrawlResult>` |
+| `crawl_each(opts, cb)` | Streaming results via callback |
+| `map(opts)` | `Vec<MappedUrl>` (URL discovery) |
+| `Client` / `ClientBuilder` | Reusable client with defaults |
 
 See [docs.rs](https://docs.rs/servo-fetch) for the full API reference and [`examples/`](examples/) for complete runnable programs.
 

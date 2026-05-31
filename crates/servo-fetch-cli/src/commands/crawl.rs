@@ -34,7 +34,7 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     let mut write_err: Option<anyhow::Error> = None;
     let started = Instant::now();
 
-    servo_fetch::crawl_each(opts, |result| {
+    servo_fetch::blocking::crawl_each(&opts, |result| {
         completed += 1;
         if result.outcome.is_err() {
             errors += 1;

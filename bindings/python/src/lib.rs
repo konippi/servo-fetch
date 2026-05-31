@@ -37,7 +37,9 @@ fn fetch(
         javascript,
         schema,
     })?;
-    let servo_page = py.detach(|| servo_fetch::fetch(prepared.opts)).map_err(map_error)?;
+    let servo_page = py
+        .detach(|| servo_fetch::blocking::fetch(&prepared.opts))
+        .map_err(map_error)?;
     Ok(page::Page::new(
         servo_page,
         prepared.url,

@@ -8,8 +8,6 @@ use crate::fetch::{self, FetchOptions, Page};
 use crate::net::sanitize_user_agent;
 use crate::visibility::VisibilityPolicy;
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// Async client carrying reusable fetch defaults.
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -48,8 +46,11 @@ impl Client {
     }
 
     /// Fetch a page with explicit options.
+    ///
+    /// Unset fields on `opts` fall back to the client's defaults; explicit
+    /// values on `opts` always win.
     pub async fn fetch_with(&self, opts: &FetchOptions) -> Result<Page> {
-        fetch::fetch(opts).await
+        fetch::fetch(&self.apply_defaults(opts)).await
     }
 
     /// Fetch and extract readable Markdown.
@@ -69,7 +70,7 @@ impl Client {
 
     /// Capture a PNG screenshot of the page.
     pub async fn screenshot(&self, url: &str, opts: &ScreenshotOptions) -> Result<Vec<u8>> {
-        let fopts = self.apply_defaults(FetchOptions::screenshot(url, opts.full_page));
+        let fopts = self.apply_defaults(&FetchOptions::screenshot(url, opts.full_page));
         let page = fetch::fetch(&fopts).await?;
         page.screenshot_png()
             .map(<[u8]>::to_vec)
@@ -78,24 +79,33 @@ impl Client {
 
     /// Execute a JavaScript expression after page load and return the result.
     pub async fn execute_js(&self, url: &str, expression: impl Into<String>) -> Result<String> {
-        let fopts = self.apply_defaults(FetchOptions::javascript(url, expression));
+        let fopts = self.apply_defaults(&FetchOptions::javascript(url, expression));
         let page = fetch::fetch(&fopts).await?;
         page.js_result
             .ok_or_else(|| Error::javascript(anyhow::anyhow!("execute_js returned no result"), Some(url.to_string())))
     }
 
-    fn apply_defaults(&self, mut opts: FetchOptions) -> FetchOptions {
-        opts.timeout = self.inner.timeout;
-        opts.settle = self.inner.settle;
-        opts.visibility = self.inner.visibility;
-        if let Some(ua) = &self.inner.user_agent {
-            opts.user_agent = Some(ua.clone());
+    fn apply_defaults(&self, opts: &FetchOptions) -> FetchOptions {
+        let mut opts = opts.clone();
+        if opts.timeout.is_none() {
+            opts.timeout = Some(self.inner.timeout);
+        }
+        if opts.settle.is_none() {
+            opts.settle = Some(self.inner.settle);
+        }
+        if opts.visibility.is_none() {
+            opts.visibility = Some(self.inner.visibility);
+        }
+        if opts.user_agent.is_none()
+            && let Some(ua) = self.inner.user_agent.as_deref()
+        {
+            opts.user_agent = Some(ua.to_owned());
         }
         opts
     }
 
     fn options(&self, url: &str) -> FetchOptions {
-        self.apply_defaults(FetchOptions::new(url))
+        self.apply_defaults(&FetchOptions::new(url))
     }
 }
 
@@ -152,7 +162,7 @@ impl ClientBuilder {
 
     pub(crate) fn build_inner(self) -> ClientInner {
         ClientInner {
-            timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
+            timeout: self.timeout.unwrap_or(FetchOptions::DEFAULT_TIMEOUT),
             settle: self.settle.unwrap_or_default(),
             user_agent: self.user_agent,
             visibility: self.visibility.unwrap_or_default(),
@@ -166,7 +176,7 @@ mod tests {
 
     #[test]
     fn client_default_uses_30s_timeout() {
-        assert_eq!(Client::default().inner.timeout, DEFAULT_TIMEOUT);
+        assert_eq!(Client::default().inner.timeout, FetchOptions::DEFAULT_TIMEOUT);
     }
 
     #[test]
@@ -195,9 +205,41 @@ mod tests {
             .user_agent("MyBot")
             .build();
         let opts = client.options("https://example.com");
-        assert_eq!(opts.timeout, Duration::from_secs(60));
-        assert_eq!(opts.settle, Duration::from_millis(500));
+        assert_eq!(opts.timeout, Some(Duration::from_secs(60)));
+        assert_eq!(opts.settle, Some(Duration::from_millis(500)));
         assert_eq!(opts.user_agent.as_deref(), Some("MyBot"));
+    }
+
+    #[test]
+    fn client_apply_defaults_caller_value_wins() {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(60))
+            .user_agent("ClientBot")
+            .build();
+        let user_opts = FetchOptions::new("https://example.com")
+            .timeout(Duration::from_secs(10))
+            .user_agent("UserBot");
+        let merged = client.apply_defaults(&user_opts);
+        // Caller's explicit values win
+        assert_eq!(merged.timeout, Some(Duration::from_secs(10)));
+        assert_eq!(merged.user_agent.as_deref(), Some("UserBot"));
+    }
+
+    #[test]
+    fn client_apply_defaults_fills_unset_fields() {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(60))
+            .settle(Duration::from_millis(750))
+            .user_agent("ClientBot")
+            .visibility(VisibilityPolicy::off())
+            .build();
+        let user_opts = FetchOptions::new("https://example.com");
+        let merged = client.apply_defaults(&user_opts);
+        // None fields filled with client defaults
+        assert_eq!(merged.timeout, Some(Duration::from_secs(60)));
+        assert_eq!(merged.settle, Some(Duration::from_millis(750)));
+        assert_eq!(merged.user_agent.as_deref(), Some("ClientBot"));
+        assert_eq!(merged.visibility, Some(VisibilityPolicy::off()));
     }
 
     #[test]

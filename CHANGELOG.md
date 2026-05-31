@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0](https://github.com/konippi/servo-fetch/compare/0.11.4..0.12.0) - 2026-05-31
+
+### Breaking Changes
+
+- *(api)* Split sync and async ([#258](https://github.com/konippi/servo-fetch/pull/258))
+
+### Migration Guide
+
+The top-level synchronous helpers `fetch`, `markdown`, `text`, `extract_json`,
+`crawl`, `crawl_each`, and `map` have been moved to `servo_fetch::blocking::*`.
+Names, arguments, and behavior are unchanged.
+
+### Features
+
+- *(api)* Split sync and async (#258)
+
 ## [0.11.4](https://github.com/konippi/servo-fetch/compare/0.11.3..0.11.4) - 2026-05-28
 
 ### Features

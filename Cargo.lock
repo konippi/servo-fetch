@@ -6162,9 +6162,9 @@ dependencies = [
 
 [[package]]
 name = "servo"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0070e405abc520d91ff75db643bca36f9d13e99b9b3448c6bcc154769d4a75fe"
+checksum = "2311cff3de4f2352ea13a9db0718262645202c0773f668a4aad20cc07fe6b06f"
 dependencies = [
  "accesskit",
  "bitflags 2.11.1",

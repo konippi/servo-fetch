@@ -35,14 +35,15 @@ let md = servo_fetch::blocking::markdown("https://example.com")?;
 ### Fetch with options
 
 ```rust
-use servo_fetch::{fetch, FetchOptions};
+use servo_fetch::{fetch, load_cookies, FetchOptions};
 use std::time::Duration;
 
 let page = fetch(
     &FetchOptions::new("https://spa-site.com")
         .timeout(Duration::from_secs(60))
         .settle(Duration::from_millis(3000))
-        .user_agent("MyBot/1.0"),
+        .user_agent("MyBot/1.0")
+        .cookies(load_cookies("cookies.txt")?),
 ).await?;
 println!("{}", page.html);
 let md = page.markdown()?;

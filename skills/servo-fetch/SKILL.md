@@ -129,6 +129,7 @@ servo-fetch https://example.com --format png -o out.png          # Save PNG scre
 servo-fetch https://example.com --js "document.title"            # Run JavaScript and print result
 servo-fetch https://example.com --selector article               # Extract a section by CSS selector
 servo-fetch https://example.com --schema schema.json             # Schema-driven JSON
+servo-fetch https://example.com --cookies cookies.txt            # Send session cookies (cookies.txt)
 servo-fetch https://example.com --format html                    # Raw HTML
 servo-fetch https://example.com --format text                    # Plain text
 servo-fetch https://example.com -t 60                            # Custom timeout

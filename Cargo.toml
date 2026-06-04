@@ -18,6 +18,7 @@ axum = "0.8"
 base64 = "0.22"
 bitflags = "2"
 clap = { version = "4", features = ["derive"] }
+cookie = "0.18"
 cssparser = "0.36"
 dom_query = "0.27"
 dom_smoothie = "0.17"

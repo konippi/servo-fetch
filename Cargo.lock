@@ -6558,6 +6558,7 @@ version = "0.12.0"
 dependencies = [
  "anyhow",
  "bitflags 2.11.1",
+ "cookie 0.18.1",
  "cssparser",
  "dom_query",
  "dom_smoothie",
@@ -6577,6 +6578,7 @@ dependencies = [
  "serde",
  "serde_json",
  "servo",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

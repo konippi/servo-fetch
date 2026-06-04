@@ -31,6 +31,7 @@ pub struct CrawlOptions {
     pub(crate) user_agent: Option<String>,
     pub(crate) concurrency: usize,
     pub(crate) delay: Option<Duration>,
+    pub(crate) cookies: Vec<crate::cookies::CookieSpec>,
 }
 
 impl CrawlOptions {
@@ -49,6 +50,7 @@ impl CrawlOptions {
             user_agent: None,
             concurrency: 1,
             delay: Some(Duration::from_millis(500)),
+            cookies: Vec::new(),
         }
     }
 
@@ -116,6 +118,12 @@ impl CrawlOptions {
     /// Minimum dispatch interval (default: `Some(500ms)`). `None` disables rate limiting.
     pub fn delay(mut self, delay: Option<Duration>) -> Self {
         self.delay = delay;
+        self
+    }
+
+    /// Seed session cookies before crawling, scoped to the seed's site.
+    pub fn cookies(mut self, cookies: Vec<crate::cookies::CookieSpec>) -> Self {
+        self.cookies = cookies;
         self
     }
 }
@@ -266,6 +274,7 @@ fn build_crawl_plan(opts: &CrawlOptions) -> crate::error::Result<CrawlPlan> {
         user_agent: opts.user_agent.clone(),
         concurrency: opts.concurrency,
         delay: opts.delay,
+        cookies: opts.cookies.clone(),
     })
 }
 
@@ -285,6 +294,7 @@ pub(crate) struct CrawlPlan {
     pub concurrency: usize,
     /// Dispatch interval; `None` disables rate limiting.
     pub delay: Option<Duration>,
+    pub cookies: Vec<crate::cookies::CookieSpec>,
 }
 
 /// Result for a single crawled page.
@@ -442,6 +452,7 @@ fn spawn_fetch(
     let timeout = opts.timeout_secs;
     let settle = opts.settle_ms;
     let user_agent = opts.user_agent.clone();
+    let cookies = opts.cookies.clone();
     let f = fetcher.clone();
     in_flight.spawn_blocking(move || {
         let result = f
@@ -451,6 +462,7 @@ fn spawn_fetch(
                 settle_ms: settle,
                 mode: bridge::FetchMode::Content { include_a11y: false },
                 user_agent: user_agent.as_deref(),
+                cookies: &cookies,
             })
             .map_err(|e| crate::error::Error::engine(e, Some(url_str.clone())));
         FetchOutcome {
@@ -671,6 +683,7 @@ mod tests {
             user_agent: None,
             concurrency: 1,
             delay: None,
+            cookies: Vec::new(),
         };
         configure(&mut opts);
         let mut results = Vec::new();

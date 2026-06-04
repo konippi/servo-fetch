@@ -16,6 +16,7 @@ include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "LICENSE-APACHE", "README.md
 servo = { workspace = true }
 anyhow = { workspace = true }
 bitflags = { workspace = true }
+cookie = { workspace = true }
 cssparser = { workspace = true }
 dom_query = { workspace = true }
 dom_smoothie = { workspace = true }
@@ -48,6 +49,7 @@ os_pipe = "1"
 servo = { workspace = true, features = ["no-wgl"] }
 
 [dev-dependencies]
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "test-util"] }
 wiremock = { workspace = true }
 

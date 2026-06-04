@@ -18,6 +18,7 @@ use servo::{
 use tokio::sync::{mpsc, oneshot};
 use url::Url;
 
+use crate::cookies::CookieSpec;
 use crate::{layout, visibility};
 
 const EXTRACTION_BUDGET: Duration = Duration::from_secs(10);
@@ -254,6 +255,7 @@ pub(crate) struct FetchOptions<'a> {
     pub settle_ms: u64,
     pub mode: FetchMode,
     pub user_agent: Option<&'a str>,
+    pub cookies: &'a [CookieSpec],
 }
 
 /// What to do once the page has loaded. Variants are mutually exclusive.
@@ -271,6 +273,7 @@ struct FetchRequest {
     settle_ms: u64,
     mode: FetchMode,
     user_agent: Option<String>,
+    cookies: Vec<CookieSpec>,
     reply: ReplyFn,
 }
 
@@ -353,6 +356,7 @@ fn build_request(opts: FetchOptions<'_>, reply: ReplyFn) -> FetchRequest {
         settle_ms: opts.settle_ms,
         mode: opts.mode,
         user_agent: opts.user_agent.map(String::from),
+        cookies: opts.cookies.to_vec(),
         reply,
     }
 }
@@ -479,13 +483,8 @@ fn accept_request(
     req: FetchRequest,
     pending: &mut HashMap<WebViewId, PendingFetch>,
 ) {
-    match start_fetch(servo, rc_ctx, delegate, ucm, req) {
-        Ok(p) => {
-            pending.insert(p.webview.id(), p);
-        }
-        Err((req, err)) => {
-            (req.reply)(Err(err));
-        }
+    if let Some(p) = start_fetch(servo, rc_ctx, delegate, ucm, req) {
+        pending.insert(p.webview.id(), p);
     }
 }
 
@@ -518,25 +517,34 @@ fn start_fetch(
     delegate: &Rc<SharedDelegate>,
     ucm: &Rc<UserContentManager>,
     req: FetchRequest,
-) -> std::result::Result<PendingFetch, (FetchRequest, anyhow::Error)> {
+) -> Option<PendingFetch> {
     let parsed_url = match Url::parse(&req.url) {
         Ok(u) => u,
-        Err(e) => return Err((req, anyhow!("bad url: {e}"))),
+        Err(e) => {
+            (req.reply)(Err(anyhow!("bad url: {e}")));
+            return None;
+        }
     };
 
     let ua = req.user_agent.as_deref().unwrap_or_else(|| default_user_agent());
     servo.set_preference("user_agent", servo::PrefValue::Str(ua.to_owned()));
+
+    crate::cookies::seed(servo, &parsed_url, &req.cookies);
 
     let dedicated_ctx = if matches!(req.mode, FetchMode::Screenshot { .. }) {
         let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
         match SoftwareRenderingContext::new(size) {
             Ok(ctx) => {
                 if let Err(e) = ctx.make_current() {
-                    return Err((req, anyhow!("failed to make screenshot context current: {e:?}")));
+                    (req.reply)(Err(anyhow!("failed to make screenshot context current: {e:?}")));
+                    return None;
                 }
                 Some(Rc::new(ctx))
             }
-            Err(e) => return Err((req, anyhow!("failed to create screenshot context: {e:?}"))),
+            Err(e) => {
+                (req.reply)(Err(anyhow!("failed to create screenshot context: {e:?}")));
+                return None;
+            }
         }
     } else {
         None
@@ -560,7 +568,7 @@ fn start_fetch(
 
     let state = delegate.register(webview.id());
     let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
-    Ok(PendingFetch {
+    Some(PendingFetch {
         webview,
         request: req,
         deadline,
@@ -933,6 +941,7 @@ mod tests {
             settle_ms: 0,
             mode: FetchMode::Content { include_a11y: false },
             user_agent: None,
+            cookies: Vec::new(),
             reply,
         }
     }
@@ -945,6 +954,7 @@ mod tests {
             settle_ms: 100,
             mode: FetchMode::Content { include_a11y: false },
             user_agent: Some("test-ua"),
+            cookies: &[],
         };
         let req = build_request(opts, Box::new(|_| {}));
         assert_eq!(req.url, "test://example");

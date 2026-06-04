@@ -209,6 +209,7 @@ pub struct FetchOptions {
     pub(crate) user_agent: Option<String>,
     pub(crate) extract_schema: Option<crate::schema::ExtractSchema>,
     pub(crate) visibility: Option<crate::visibility::VisibilityPolicy>,
+    pub(crate) cookies: Vec<crate::cookies::CookieSpec>,
 }
 
 impl FetchOptions {
@@ -230,6 +231,7 @@ impl FetchOptions {
             user_agent: None,
             extract_schema: None,
             visibility: None,
+            cookies: Vec::new(),
         }
     }
 
@@ -276,6 +278,12 @@ impl FetchOptions {
     /// Visibility-filtering policy applied during extraction.
     pub fn visibility(mut self, policy: crate::visibility::VisibilityPolicy) -> Self {
         self.visibility = Some(policy);
+        self
+    }
+
+    /// Seed session cookies before navigation, scoped to the target's site.
+    pub fn cookies(mut self, cookies: Vec<crate::cookies::CookieSpec>) -> Self {
+        self.cookies = cookies;
         self
     }
 
@@ -393,6 +401,7 @@ fn build_bridge_options(opts: &FetchOptions) -> crate::bridge::FetchOptions<'_> 
         timeout_secs: opts.effective_timeout().as_secs().max(1),
         settle_ms: u64::try_from(opts.effective_settle().as_millis()).unwrap_or(u64::MAX),
         user_agent: opts.user_agent.as_deref(),
+        cookies: &opts.cookies,
         mode: match opts.mode {
             FetchMode::Content => crate::bridge::FetchMode::Content { include_a11y: false },
             FetchMode::Screenshot { full_page } => crate::bridge::FetchMode::Screenshot { full_page },

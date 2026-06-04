@@ -26,7 +26,10 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     }
     let json = matches!(args.format, CrawlFormat::Json);
     let sink = Sink::from_dir(args.output_dir.as_deref());
-    let opts = build_crawl_options(args, json);
+    let mut opts = build_crawl_options(args, json);
+    if let Some(path) = &args.cookies {
+        opts = opts.cookies(servo_fetch::load_cookies(path)?);
+    }
 
     let progress = Progress::new();
     let mut completed = 0u64;

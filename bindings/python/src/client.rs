@@ -1,8 +1,8 @@
 //! `Client` pyclass: shared defaults + per-call overrides.
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use pyo3::prelude::*;

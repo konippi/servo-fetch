@@ -173,7 +173,8 @@ impl Schema {
     /// Load a schema from a JSON file on disk. Accepts `str` or `os.PathLike`.
     #[staticmethod]
     fn from_file(path: PathBuf) -> PyResult<Self> {
-        let inner = servo_fetch::schema::ExtractSchema::from_path(&path).map_err(|e| SchemaError::new_err(e.to_string()))?;
+        let inner =
+            servo_fetch::schema::ExtractSchema::from_path(&path).map_err(|e| SchemaError::new_err(e.to_string()))?;
         Ok(Self { inner })
     }
 

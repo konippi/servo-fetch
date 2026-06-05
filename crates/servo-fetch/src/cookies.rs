@@ -37,7 +37,7 @@ impl std::fmt::Debug for CookieSpec {
     }
 }
 
-/// Load cookies from a Netscape/Mozilla `cookies.txt` file (curl/wget compatible).
+/// Load cookies from a Netscape format `cookies.txt` file.
 pub fn load_cookies(path: impl AsRef<Path>) -> Result<Vec<CookieSpec>> {
     let path = path.as_ref();
     let fail = |reason: String| Error::Cookies {

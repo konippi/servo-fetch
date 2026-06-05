@@ -72,6 +72,15 @@ pub enum Error {
     #[error(transparent)]
     Extract(#[from] crate::extract::ExtractError),
 
+    /// Failed to load or parse a cookies file.
+    #[error("failed to load cookies from {path}: {reason}")]
+    Cookies {
+        /// The cookies file path.
+        path: String,
+        /// Why loading failed.
+        reason: String,
+    },
+
     /// Schema-based structured extraction failed.
     #[error(transparent)]
     Schema(#[from] crate::schema::SchemaError),

@@ -49,6 +49,24 @@ page = servo_fetch.fetch("https://shop.example.com", schema=schema)
 page.extracted  # [{"title": "...", "price": "...", "url": "..."}]
 ```
 
+## Session Cookies
+
+To fetch authenticated pages, pass a `str` or `os.PathLike` path to a
+Netscape-format `cookies.txt` via `cookies_file`:
+
+```python
+import servo_fetch
+
+page = servo_fetch.fetch("https://app.example.com/dashboard", cookies_file="cookies.txt")
+
+# Also accepted by Client.fetch / Client.crawl and their async equivalents.
+client = servo_fetch.Client(user_agent="MyBot/1.0")
+pages = client.crawl("https://app.example.com", cookies_file="cookies.txt", max_pages=20)
+```
+
+A missing or malformed file raises `servo_fetch.CookieError`. Cookies are scoped
+to the target's site, so out-of-scope entries in the file are ignored.
+
 ## Async
 
 ```python

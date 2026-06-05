@@ -66,6 +66,10 @@ pub(crate) struct FetchArgs {
     #[arg(long, value_name = "UA")]
     pub user_agent: Option<String>,
 
+    /// Load cookies from a Netscape-format cookies.txt file.
+    #[arg(long, value_name = "FILE")]
+    pub cookies: Option<PathBuf>,
+
     /// Path to a CSS-selector schema file for structured JSON extraction
     #[arg(long, value_name = "FILE", conflicts_with_all = ["js", "selector", "format"])]
     pub schema: Option<PathBuf>,
@@ -215,6 +219,10 @@ pub(crate) struct CrawlArgs {
     /// Override the User-Agent string
     #[arg(long, value_name = "UA")]
     pub user_agent: Option<String>,
+
+    /// Load cookies from a Netscape-format cookies.txt file.
+    #[arg(long, value_name = "FILE")]
+    pub cookies: Option<PathBuf>,
 
     /// Write each crawled page's output to a file in this directory.
     #[arg(long, value_name = "DIR")]

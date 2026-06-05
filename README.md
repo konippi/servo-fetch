@@ -103,6 +103,7 @@ servo-fetch "https://example.com" --format json            # Structured JSON
 servo-fetch "https://example.com" --format png -o page.png # PNG screenshot
 servo-fetch "https://example.com" --js "document.title"    # Run JavaScript
 servo-fetch "https://example.com" --schema schema.json     # Schema-driven JSON
+servo-fetch "https://example.com" --cookies cookies.txt    # Send session cookies
 servo-fetch URL1 URL2 URL3                                 # Parallel batch
 servo-fetch "https://example.com" --output page.md         # Save to a single file
 servo-fetch URL1 URL2 --output-dir ./out/                  # Save each URL to its own file
@@ -249,7 +250,7 @@ See [SECURITY.md](./SECURITY.md) for details.
 
 ## Limitations
 
-- Sites behind login walls or CAPTCHAs are not supported.
+- Sites behind CAPTCHAs are not supported.
 
 ## Contributing
 

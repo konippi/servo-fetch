@@ -26,6 +26,7 @@ pub mod visibility;
 
 pub(crate) mod bridge;
 pub(crate) mod client;
+pub(crate) mod cookies;
 pub(crate) mod crawl;
 pub(crate) mod error;
 pub(crate) mod fetch;
@@ -40,6 +41,7 @@ pub(crate) mod screenshot;
 pub(crate) mod sys;
 
 pub use client::{Client, ClientBuilder, ScreenshotOptions};
+pub use cookies::{CookieSpec, load_cookies};
 pub use crawl::{CrawlOptions, CrawlPage, CrawlResult, crawl, crawl_each};
 pub use error::{Error, Result};
 pub use fetch::{ConsoleLevel, ConsoleMessage, FetchOptions, Page, extract_json, fetch, markdown, text};

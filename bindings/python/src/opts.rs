@@ -1,5 +1,7 @@
 //! Build [`servo_fetch::FetchOptions`] from Python kwargs.
 
+use std::path::PathBuf;
+
 use pyo3::prelude::*;
 
 use crate::schema::Schema;
@@ -13,6 +15,7 @@ pub(crate) struct BuildOpts<'py> {
     pub screenshot: bool,
     pub javascript: Option<String>,
     pub schema: Option<Bound<'py, Schema>>,
+    pub cookies_file: Option<PathBuf>,
 }
 
 pub(crate) struct Prepared {
@@ -51,6 +54,12 @@ pub(crate) fn prepare(args: BuildOpts<'_>) -> PyResult<Prepared> {
     }
     if let Some(schema) = schema_inner {
         opts = opts.schema(schema);
+    }
+    if let Some(path) = &args.cookies_file {
+        let cookies = servo_fetch::load_cookies(path).map_err(crate::errors::map_error)?;
+        if !cookies.is_empty() {
+            opts = opts.cookies(cookies);
+        }
     }
 
     Ok(Prepared {

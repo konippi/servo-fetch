@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 from collections.abc import AsyncIterator
 from typing import cast
@@ -25,6 +26,7 @@ async def fetch_async(
     screenshot: bool = False,
     javascript: str | None = None,
     schema: Schema | None = None,
+    cookies_file: str | os.PathLike[str] | None = None,
 ) -> Page:
     """Asynchronously fetch a single URL."""
     return await asyncio.to_thread(
@@ -36,6 +38,7 @@ async def fetch_async(
         screenshot=screenshot,
         javascript=javascript,
         schema=schema,
+        cookies_file=cookies_file,
     )
 
 
@@ -60,6 +63,7 @@ class AsyncClient:
         screenshot: bool = False,
         javascript: str | None = None,
         schema: Schema | None = None,
+        cookies_file: str | os.PathLike[str] | None = None,
     ) -> Page:
         return await asyncio.to_thread(
             self._inner.fetch,
@@ -69,6 +73,7 @@ class AsyncClient:
             screenshot=screenshot,
             javascript=javascript,
             schema=schema,
+            cookies_file=cookies_file,
         )
 
     async def crawl(
@@ -81,6 +86,7 @@ class AsyncClient:
         exclude: str | list[str] | None = None,
         concurrency: int = 1,
         delay_ms: int = 0,
+        cookies_file: str | os.PathLike[str] | None = None,
     ) -> list[CrawlResult]:
         return await asyncio.to_thread(
             self._inner.crawl,
@@ -91,6 +97,7 @@ class AsyncClient:
             exclude=exclude,
             concurrency=concurrency,
             delay_ms=delay_ms,
+            cookies_file=cookies_file,
         )
 
     async def crawl_stream(
@@ -103,6 +110,7 @@ class AsyncClient:
         exclude: str | list[str] | None = None,
         concurrency: int = 1,
         delay_ms: int = 0,
+        cookies_file: str | os.PathLike[str] | None = None,
     ) -> AsyncIterator[CrawlResult]:
         """Crawl a site, yielding each page as it completes."""
         loop = asyncio.get_running_loop()
@@ -125,6 +133,7 @@ class AsyncClient:
                     exclude=exclude,
                     concurrency=concurrency,
                     delay_ms=delay_ms,
+                    cookies_file=cookies_file,
                 )
             finally:
                 fut = asyncio.run_coroutine_threadsafe(queue.put(_SENTINEL), loop)

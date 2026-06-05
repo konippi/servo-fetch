@@ -164,6 +164,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `-t, --timeout <SECS>` | Page load timeout in seconds (default: 30) |
 | `--settle <MS>` | Extra wait after load event in ms (default: 0, max: 10000) |
 | `--user-agent <UA>` | Override the User-Agent string |
+| `--cookies <FILE>` | Load session cookies from a Netscape/Mozilla cookies.txt file |
 | `-v, --verbose` | Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
 | `-q, --quiet` | Suppress all logs except errors |
 
@@ -196,6 +197,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `--concurrency <N>` | Maximum parallel page fetches (default: 1; completion order when >1) |
 | `--delay-ms <MS>` | Minimum dispatch interval in ms (default: 500; 0 disables rate limiting) |
 | `--user-agent <UA>` | Override the User-Agent string |
+| `--cookies <FILE>` | Load session cookies from a Netscape/Mozilla cookies.txt file |
 | `-t, --timeout <SECS>` | Page load timeout in seconds per page (default: 30) |
 | `--settle <MS>` | Extra wait after load event in ms per page (default: 0, max: 10000) |
 

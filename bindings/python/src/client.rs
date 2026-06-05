@@ -1,5 +1,6 @@
 //! `Client` pyclass: shared defaults + per-call overrides.
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -34,7 +35,7 @@ impl Client {
     }
 
     /// Fetch a single URL, merging client defaults with per-call overrides.
-    #[pyo3(signature = (url, *, timeout=None, settle=None, screenshot=false, javascript=None, schema=None))]
+    #[pyo3(signature = (url, *, timeout=None, settle=None, screenshot=false, javascript=None, schema=None, cookies_file=None))]
     #[allow(clippy::too_many_arguments)]
     fn fetch(
         &self,
@@ -45,6 +46,7 @@ impl Client {
         screenshot: bool,
         javascript: Option<String>,
         schema: Option<Bound<'_, Schema>>,
+        cookies_file: Option<PathBuf>,
     ) -> PyResult<Page> {
         let timeout = timeout.or(Some(self.timeout.as_secs_f64()));
         let settle = settle.or(Some(self.settle.as_secs_f64()));
@@ -56,6 +58,7 @@ impl Client {
             screenshot,
             javascript,
             schema,
+            cookies_file,
         })?;
         let page = py
             .detach(|| servo_fetch::blocking::fetch(&prepared.opts))
@@ -78,6 +81,7 @@ impl Client {
         exclude=None,
         concurrency=1,
         delay_ms=0,
+        cookies_file=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn crawl(
@@ -90,6 +94,7 @@ impl Client {
         exclude: Option<&Bound<'_, PyAny>>,
         concurrency: usize,
         delay_ms: u64,
+        cookies_file: Option<PathBuf>,
     ) -> PyResult<Vec<CrawlResult>> {
         let opts = build_crawl_opts(
             &url,
@@ -102,13 +107,14 @@ impl Client {
             exclude,
             concurrency,
             delay_ms,
+            cookies_file,
         )?;
         let results = py.detach(|| servo_fetch::blocking::crawl(&opts)).map_err(map_error)?;
         Ok(results.into_iter().map(CrawlResult::from_core).collect())
     }
 
     /// Crawl a site, invoking `callback(CrawlResult)` as each page completes.
-    #[pyo3(signature = (url, callback, *, max_pages=50, max_depth=3, include=None, exclude=None, concurrency=1, delay_ms=0, abort=None))]
+    #[pyo3(signature = (url, callback, *, max_pages=50, max_depth=3, include=None, exclude=None, concurrency=1, delay_ms=0, abort=None, cookies_file=None))]
     #[allow(clippy::too_many_arguments)]
     fn crawl_each(
         &self,
@@ -122,6 +128,7 @@ impl Client {
         concurrency: usize,
         delay_ms: u64,
         abort: Option<Py<PyAny>>,
+        cookies_file: Option<PathBuf>,
     ) -> PyResult<()> {
         let opts = build_crawl_opts(
             &url,
@@ -134,6 +141,7 @@ impl Client {
             exclude,
             concurrency,
             delay_ms,
+            cookies_file,
         )?;
 
         let stop = AtomicBool::new(false);
@@ -228,6 +236,7 @@ fn build_crawl_opts(
     exclude: Option<&Bound<'_, PyAny>>,
     concurrency: usize,
     delay_ms: u64,
+    cookies_file: Option<PathBuf>,
 ) -> PyResult<servo_fetch::CrawlOptions> {
     validate::url(url)?;
     let include = strings_from_any(include)?;
@@ -249,6 +258,12 @@ fn build_crawl_opts(
     };
     if let Some(ua) = user_agent {
         opts = opts.user_agent(ua);
+    }
+    if let Some(path) = &cookies_file {
+        let cookies = servo_fetch::load_cookies(path).map_err(map_error)?;
+        if !cookies.is_empty() {
+            opts = opts.cookies(cookies);
+        }
     }
     Ok(opts)
 }

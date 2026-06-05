@@ -66,7 +66,7 @@ pub(crate) struct FetchArgs {
     #[arg(long, value_name = "UA")]
     pub user_agent: Option<String>,
 
-    /// Load cookies from a Netscape/Mozilla cookies.txt file (curl/wget compatible).
+    /// Load cookies from a Netscape-format cookies.txt file.
     #[arg(long, value_name = "FILE")]
     pub cookies: Option<PathBuf>,
 
@@ -220,7 +220,7 @@ pub(crate) struct CrawlArgs {
     #[arg(long, value_name = "UA")]
     pub user_agent: Option<String>,
 
-    /// Load cookies from a Netscape/Mozilla cookies.txt file (curl/wget compatible).
+    /// Load cookies from a Netscape-format cookies.txt file.
     #[arg(long, value_name = "FILE")]
     pub cookies: Option<PathBuf>,
 

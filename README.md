@@ -250,7 +250,7 @@ See [SECURITY.md](./SECURITY.md) for details.
 
 ## Limitations
 
-- Authenticated pages work via session cookies (`--cookies` / `FetchOptions::cookies`).
+- Sites behind CAPTCHAs are not supported.
 
 ## Contributing
 

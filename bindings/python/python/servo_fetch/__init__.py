@@ -3,6 +3,7 @@
 from ._native import (
     Client,
     ConsoleMessage,
+    CookieError,
     CrawlResult,
     EngineError,
     FetchTimeoutError,
@@ -23,6 +24,7 @@ __all__ = [
     "AsyncClient",
     "Client",
     "ConsoleMessage",
+    "CookieError",
     "CrawlResult",
     "EngineError",
     "FetchTimeoutError",

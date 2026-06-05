@@ -40,6 +40,12 @@ create_exception!(
     ServoFetchError,
     "Schema parse, validation, or I/O failure."
 );
+create_exception!(
+    servo_fetch,
+    CookieError,
+    ServoFetchError,
+    "Failed to load or parse a cookies file."
+);
 
 pub(crate) fn map_error(err: servo_fetch::Error) -> PyErr {
     match &err {
@@ -54,6 +60,7 @@ pub(crate) fn map_error(err: servo_fetch::Error) -> PyErr {
         servo_fetch::Error::AddressNotAllowed { host } => NetworkError::new_err(format!("address not allowed: {host}")),
         servo_fetch::Error::Engine { source, .. } => EngineError::new_err(source.to_string()),
         servo_fetch::Error::Schema(e) => SchemaError::new_err(e.to_string()),
+        servo_fetch::Error::Cookies { .. } => CookieError::new_err(err.to_string()),
         _ => ServoFetchError::new_err(err.to_string()),
     }
 }
@@ -75,5 +82,6 @@ pub(crate) fn register(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> 
     m.add("NetworkError", py.get_type::<NetworkError>())?;
     m.add("EngineError", py.get_type::<EngineError>())?;
     m.add("SchemaError", py.get_type::<SchemaError>())?;
+    m.add("CookieError", py.get_type::<CookieError>())?;
     Ok(())
 }

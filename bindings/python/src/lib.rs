@@ -1,5 +1,7 @@
 //! PyO3 bindings for servo-fetch.
 
+use std::path::PathBuf;
+
 use pyo3::prelude::*;
 
 mod client;
@@ -16,7 +18,7 @@ use crate::opts::{BuildOpts, prepare};
 
 /// Fetch, render, and extract a single URL.
 #[pyfunction]
-#[pyo3(signature = (url, *, timeout=None, settle=None, user_agent=None, screenshot=false, javascript=None, schema=None))]
+#[pyo3(signature = (url, *, timeout=None, settle=None, user_agent=None, screenshot=false, javascript=None, schema=None, cookies_file=None))]
 #[allow(clippy::too_many_arguments)]
 fn fetch(
     py: Python<'_>,
@@ -27,6 +29,7 @@ fn fetch(
     screenshot: bool,
     javascript: Option<String>,
     schema: Option<Bound<'_, schema::Schema>>,
+    cookies_file: Option<PathBuf>,
 ) -> PyResult<page::Page> {
     let prepared = prepare(BuildOpts {
         url,
@@ -36,6 +39,7 @@ fn fetch(
         screenshot,
         javascript,
         schema,
+        cookies_file,
     })?;
     let servo_page = py
         .detach(|| servo_fetch::blocking::fetch(&prepared.opts))

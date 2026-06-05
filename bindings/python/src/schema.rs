@@ -1,5 +1,7 @@
 //! `Schema` and `Field` pyclasses over `servo_fetch::schema`.
 
+use std::path::PathBuf;
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -170,11 +172,8 @@ impl Schema {
 
     /// Load a schema from a JSON file on disk. Accepts `str` or `os.PathLike`.
     #[staticmethod]
-    fn from_file(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let os = py.import("os")?;
-        let path_str: String = os.call_method1("fspath", (path,))?.extract()?;
-        let inner = servo_fetch::schema::ExtractSchema::from_path(&path_str)
-            .map_err(|e| SchemaError::new_err(e.to_string()))?;
+    fn from_file(path: PathBuf) -> PyResult<Self> {
+        let inner = servo_fetch::schema::ExtractSchema::from_path(&path).map_err(|e| SchemaError::new_err(e.to_string()))?;
         Ok(Self { inner })
     }
 

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.1](https://github.com/konippi/servo-fetch/compare/0.12.0..0.12.1) - 2026-06-07
+
+### Features
+
+- *(cookies)* Add session-cookie injection from cookies.txt (#266)
+
 ## [0.12.0](https://github.com/konippi/servo-fetch/compare/0.11.4..0.12.0) - 2026-05-31
 
 ### Breaking Changes

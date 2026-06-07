@@ -34,15 +34,12 @@ impl Client {
 
     /// Fetch a page using the client's default options.
     pub fn fetch(&self, url: &str) -> Result<Page> {
-        fetch_blocking(&self.options(url))
+        fetch_blocking(&self.inner.options(url))
     }
 
     /// Fetch a page with explicit options.
-    ///
-    /// Unset fields on `opts` fall back to the client's defaults; explicit
-    /// values on `opts` always win.
     pub fn fetch_with(&self, opts: &FetchOptions) -> Result<Page> {
-        fetch_blocking(&self.apply_defaults(opts))
+        fetch_blocking(&self.inner.apply_defaults(opts.clone()))
     }
 
     /// Fetch and extract readable Markdown.
@@ -62,7 +59,7 @@ impl Client {
 
     /// Capture a PNG screenshot of the page.
     pub fn screenshot(&self, url: &str, opts: &ScreenshotOptions) -> Result<Vec<u8>> {
-        let fopts = self.apply_defaults(&FetchOptions::screenshot(url, opts.full_page));
+        let fopts = self.inner.apply_defaults(FetchOptions::screenshot(url, opts.full_page));
         let page = fetch_blocking(&fopts)?;
         page.screenshot_png()
             .map(<[u8]>::to_vec)
@@ -71,33 +68,10 @@ impl Client {
 
     /// Execute a JavaScript expression after page load and return the result.
     pub fn execute_js(&self, url: &str, expression: impl Into<String>) -> Result<String> {
-        let fopts = self.apply_defaults(&FetchOptions::javascript(url, expression));
+        let fopts = self.inner.apply_defaults(FetchOptions::javascript(url, expression));
         let page = fetch_blocking(&fopts)?;
         page.js_result
             .ok_or_else(|| Error::javascript(anyhow::anyhow!("execute_js returned no result"), Some(url.to_string())))
-    }
-
-    fn apply_defaults(&self, opts: &FetchOptions) -> FetchOptions {
-        let mut opts = opts.clone();
-        if opts.timeout.is_none() {
-            opts.timeout = Some(self.inner.timeout);
-        }
-        if opts.settle.is_none() {
-            opts.settle = Some(self.inner.settle);
-        }
-        if opts.visibility.is_none() {
-            opts.visibility = Some(self.inner.visibility);
-        }
-        if opts.user_agent.is_none()
-            && let Some(ua) = self.inner.user_agent.as_deref()
-        {
-            opts.user_agent = Some(ua.to_owned());
-        }
-        opts
-    }
-
-    fn options(&self, url: &str) -> FetchOptions {
-        self.apply_defaults(&FetchOptions::new(url))
     }
 }
 

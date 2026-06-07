@@ -22,6 +22,23 @@ pub(crate) struct ClientInner {
     pub(crate) visibility: VisibilityPolicy,
 }
 
+impl ClientInner {
+    /// Unset fields fall back to these defaults; values already set on `opts` win.
+    pub(crate) fn apply_defaults(&self, mut opts: FetchOptions) -> FetchOptions {
+        opts.timeout.get_or_insert(self.timeout);
+        opts.settle.get_or_insert(self.settle);
+        opts.visibility.get_or_insert(self.visibility);
+        if let Some(ua) = &self.user_agent {
+            opts.user_agent.get_or_insert_with(|| ua.clone());
+        }
+        opts
+    }
+
+    pub(crate) fn options(&self, url: &str) -> FetchOptions {
+        self.apply_defaults(FetchOptions::new(url))
+    }
+}
+
 impl Default for Client {
     fn default() -> Self {
         Self::new()
@@ -42,15 +59,12 @@ impl Client {
 
     /// Fetch a page using the client's default options.
     pub async fn fetch(&self, url: &str) -> Result<Page> {
-        fetch::fetch(&self.options(url)).await
+        fetch::fetch(&self.inner.options(url)).await
     }
 
     /// Fetch a page with explicit options.
-    ///
-    /// Unset fields on `opts` fall back to the client's defaults; explicit
-    /// values on `opts` always win.
     pub async fn fetch_with(&self, opts: &FetchOptions) -> Result<Page> {
-        fetch::fetch(&self.apply_defaults(opts)).await
+        fetch::fetch(&self.inner.apply_defaults(opts.clone())).await
     }
 
     /// Fetch and extract readable Markdown.
@@ -70,7 +84,7 @@ impl Client {
 
     /// Capture a PNG screenshot of the page.
     pub async fn screenshot(&self, url: &str, opts: &ScreenshotOptions) -> Result<Vec<u8>> {
-        let fopts = self.apply_defaults(&FetchOptions::screenshot(url, opts.full_page));
+        let fopts = self.inner.apply_defaults(FetchOptions::screenshot(url, opts.full_page));
         let page = fetch::fetch(&fopts).await?;
         page.screenshot_png()
             .map(<[u8]>::to_vec)
@@ -79,33 +93,10 @@ impl Client {
 
     /// Execute a JavaScript expression after page load and return the result.
     pub async fn execute_js(&self, url: &str, expression: impl Into<String>) -> Result<String> {
-        let fopts = self.apply_defaults(&FetchOptions::javascript(url, expression));
+        let fopts = self.inner.apply_defaults(FetchOptions::javascript(url, expression));
         let page = fetch::fetch(&fopts).await?;
         page.js_result
             .ok_or_else(|| Error::javascript(anyhow::anyhow!("execute_js returned no result"), Some(url.to_string())))
-    }
-
-    fn apply_defaults(&self, opts: &FetchOptions) -> FetchOptions {
-        let mut opts = opts.clone();
-        if opts.timeout.is_none() {
-            opts.timeout = Some(self.inner.timeout);
-        }
-        if opts.settle.is_none() {
-            opts.settle = Some(self.inner.settle);
-        }
-        if opts.visibility.is_none() {
-            opts.visibility = Some(self.inner.visibility);
-        }
-        if opts.user_agent.is_none()
-            && let Some(ua) = self.inner.user_agent.as_deref()
-        {
-            opts.user_agent = Some(ua.to_owned());
-        }
-        opts
-    }
-
-    fn options(&self, url: &str) -> FetchOptions {
-        self.apply_defaults(&FetchOptions::new(url))
     }
 }
 
@@ -204,7 +195,7 @@ mod tests {
             .settle(Duration::from_millis(500))
             .user_agent("MyBot")
             .build();
-        let opts = client.options("https://example.com");
+        let opts = client.inner.options("https://example.com");
         assert_eq!(opts.timeout, Some(Duration::from_secs(60)));
         assert_eq!(opts.settle, Some(Duration::from_millis(500)));
         assert_eq!(opts.user_agent.as_deref(), Some("MyBot"));
@@ -219,7 +210,7 @@ mod tests {
         let user_opts = FetchOptions::new("https://example.com")
             .timeout(Duration::from_secs(10))
             .user_agent("UserBot");
-        let merged = client.apply_defaults(&user_opts);
+        let merged = client.inner.apply_defaults(user_opts);
         // Caller's explicit values win
         assert_eq!(merged.timeout, Some(Duration::from_secs(10)));
         assert_eq!(merged.user_agent.as_deref(), Some("UserBot"));
@@ -234,7 +225,7 @@ mod tests {
             .visibility(VisibilityPolicy::off())
             .build();
         let user_opts = FetchOptions::new("https://example.com");
-        let merged = client.apply_defaults(&user_opts);
+        let merged = client.inner.apply_defaults(user_opts);
         // None fields filled with client defaults
         assert_eq!(merged.timeout, Some(Duration::from_secs(60)));
         assert_eq!(merged.settle, Some(Duration::from_millis(750)));

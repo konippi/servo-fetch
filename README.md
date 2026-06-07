@@ -42,6 +42,7 @@ print(page.markdown)
 - **URL discovery** — sitemap-based URL mapping without rendering (fast, lightweight)
 - **Screenshots without GPU** — software renderer captures PNG/full-page screenshots anywhere
 - **Accessibility tree** — AccessKit integration with roles, names, and bounding boxes
+- **Agent-ready** — drop-in web tool for AI agents: a built-in MCP server, or wrap the Python API as a tool in any agent framework
 
 ## Performance and quality
 
@@ -202,6 +203,8 @@ Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server with 
 Streamable HTTP: `servo-fetch mcp --port 8080`
 
 Full MCP tool reference → [`servo-fetch-cli` README](crates/servo-fetch-cli/README.md)
+
+Prefer in-process tools? Wrap the Python API as agent tools — see [`bindings/python/examples/strands_agent.py`](bindings/python/examples/strands_agent.py).
 
 ## HTTP API
 

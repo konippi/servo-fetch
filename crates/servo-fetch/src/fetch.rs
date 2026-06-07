@@ -114,21 +114,7 @@ impl Page {
             layout_json: page.layout_json,
             visibility_json: page.visibility_json,
             js_result: page.js_result,
-            console_messages: page
-                .console_messages
-                .into_iter()
-                .map(|m| ConsoleMessage {
-                    level: match m.level {
-                        crate::bridge::ConsoleLevel::Log => ConsoleLevel::Log,
-                        crate::bridge::ConsoleLevel::Debug => ConsoleLevel::Debug,
-                        crate::bridge::ConsoleLevel::Info => ConsoleLevel::Info,
-                        crate::bridge::ConsoleLevel::Warn => ConsoleLevel::Warn,
-                        crate::bridge::ConsoleLevel::Error => ConsoleLevel::Error,
-                        crate::bridge::ConsoleLevel::Trace => ConsoleLevel::Trace,
-                    },
-                    message: m.message,
-                })
-                .collect(),
+            console_messages: page.console_messages.into_iter().map(ConsoleMessage::from).collect(),
             screenshot_png,
             accessibility_tree: page.accessibility_tree,
             a11y: page.a11y.map(Arc::new),
@@ -185,6 +171,29 @@ impl ConsoleLevel {
 impl fmt::Display for ConsoleLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad(self.as_str())
+    }
+}
+
+impl From<crate::bridge::ConsoleLevel> for ConsoleLevel {
+    fn from(level: crate::bridge::ConsoleLevel) -> Self {
+        use crate::bridge::ConsoleLevel as Bridge;
+        match level {
+            Bridge::Log => Self::Log,
+            Bridge::Debug => Self::Debug,
+            Bridge::Info => Self::Info,
+            Bridge::Warn => Self::Warn,
+            Bridge::Error => Self::Error,
+            Bridge::Trace => Self::Trace,
+        }
+    }
+}
+
+impl From<crate::bridge::ConsoleMessage> for ConsoleMessage {
+    fn from(msg: crate::bridge::ConsoleMessage) -> Self {
+        Self {
+            level: msg.level.into(),
+            message: msg.message,
+        }
     }
 }
 

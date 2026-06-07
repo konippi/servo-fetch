@@ -265,7 +265,16 @@ pub(crate) enum FetchMode {
     ExecuteJs { expression: String },
 }
 
-type ReplyFn = Box<dyn FnOnce(Result<ServoPage>) + Send + 'static>;
+/// Engine failure. Callers only branch on `Timeout`; `Other` is opaque.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum EngineError {
+    #[error("page load timed out after {0}s (try increasing --timeout)")]
+    Timeout(u64),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+type ReplyFn = Box<dyn FnOnce(Result<ServoPage, EngineError>) + Send + 'static>;
 
 struct FetchRequest {
     url: String,
@@ -316,7 +325,7 @@ pub(crate) fn engine_policy() -> crate::net::NetworkPolicy {
 
 /// Page fetching abstraction for testability.
 pub(crate) trait PageFetcher: Send + Sync + 'static {
-    fn fetch_page(&self, opts: FetchOptions<'_>) -> Result<ServoPage>;
+    fn fetch_page(&self, opts: FetchOptions<'_>) -> Result<ServoPage, EngineError>;
 }
 
 /// Production implementation backed by the Servo engine.
@@ -324,7 +333,7 @@ pub(crate) trait PageFetcher: Send + Sync + 'static {
 pub(crate) struct ServoFetcher;
 
 impl PageFetcher for ServoFetcher {
-    fn fetch_page(&self, opts: FetchOptions<'_>) -> Result<ServoPage> {
+    fn fetch_page(&self, opts: FetchOptions<'_>) -> Result<ServoPage, EngineError> {
         fetch_page(opts)
     }
 }
@@ -365,9 +374,9 @@ fn extraction_deadline_for(page_deadline: Instant) -> Instant {
     page_deadline.max(Instant::now() + EXTRACTION_BUDGET)
 }
 
-pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
+pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage, EngineError> {
     let engine = ensure_engine();
-    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<ServoPage>>(1);
+    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<ServoPage, EngineError>>(1);
     let request = build_request(
         opts,
         Box::new(move |r| {
@@ -385,12 +394,12 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage> {
     engine.wake.signal();
     reply_rx
         .recv()
-        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page")))
+        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page").into()))
 }
 
-pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage> {
+pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage, EngineError> {
     let engine = ensure_engine();
-    let (reply_tx, reply_rx) = oneshot::channel::<Result<ServoPage>>();
+    let (reply_tx, reply_rx) = oneshot::channel::<Result<ServoPage, EngineError>>();
     let request = build_request(
         opts,
         Box::new(move |r| {
@@ -405,7 +414,7 @@ pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage
     engine.wake.signal();
     reply_rx
         .await
-        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page")))
+        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page").into()))
 }
 
 fn is_apple_gl_driver_noise(line: &str) -> bool {
@@ -423,7 +432,7 @@ fn servo_thread(mut request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag
         Ok(pair) => pair,
         Err(e) => {
             if let Some(req) = request_rx.blocking_recv() {
-                (req.reply)(Err(e.context("Servo initialization failed")));
+                (req.reply)(Err(e.context("Servo initialization failed").into()));
             }
             return;
         }
@@ -521,7 +530,7 @@ fn start_fetch(
     let parsed_url = match Url::parse(&req.url) {
         Ok(u) => u,
         Err(e) => {
-            (req.reply)(Err(anyhow!("bad url: {e}")));
+            (req.reply)(Err(anyhow!("bad url: {e}").into()));
             return None;
         }
     };
@@ -536,13 +545,13 @@ fn start_fetch(
         match SoftwareRenderingContext::new(size) {
             Ok(ctx) => {
                 if let Err(e) = ctx.make_current() {
-                    (req.reply)(Err(anyhow!("failed to make screenshot context current: {e:?}")));
+                    (req.reply)(Err(anyhow!("failed to make screenshot context current: {e:?}").into()));
                     return None;
                 }
                 Some(Rc::new(ctx))
             }
             Err(e) => {
-                (req.reply)(Err(anyhow!("failed to create screenshot context: {e:?}")));
+                (req.reply)(Err(anyhow!("failed to create screenshot context: {e:?}").into()));
                 return None;
             }
         }
@@ -577,14 +586,11 @@ fn start_fetch(
     })
 }
 
-fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage> {
+fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage, EngineError> {
     let timed_out = p.state.loaded_at.get().is_none() && Instant::now() > p.deadline;
 
     if timed_out {
-        return Err(anyhow!(
-            "page load timed out after {timeout}s (try increasing --timeout)",
-            timeout = p.request.timeout_secs,
-        ));
+        return Err(EngineError::Timeout(p.request.timeout_secs));
     }
 
     if let Some(ref ctx) = p.dedicated_ctx {
@@ -983,7 +989,7 @@ mod tests {
 
     #[test]
     fn closure_reply_delivers_via_std_mpsc() {
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<ServoPage>>(1);
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<ServoPage, EngineError>>(1);
         let req = closure_test_request(Box::new(move |r| {
             let _ = tx.send(r);
         }));
@@ -996,11 +1002,11 @@ mod tests {
 
     #[tokio::test]
     async fn closure_reply_delivers_via_oneshot() {
-        let (tx, rx) = oneshot::channel::<Result<ServoPage>>();
+        let (tx, rx) = oneshot::channel::<Result<ServoPage, EngineError>>();
         let req = closure_test_request(Box::new(move |r| {
             let _ = tx.send(r);
         }));
-        (req.reply)(Err(anyhow!("test failure")));
+        (req.reply)(Err(anyhow!("test failure").into()));
         let Ok(Err(err)) = rx.await else {
             panic!("expected Err delivery");
         };
@@ -1009,7 +1015,7 @@ mod tests {
 
     #[test]
     fn closure_drop_disconnects_std_mpsc_receiver() {
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<ServoPage>>(1);
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<ServoPage, EngineError>>(1);
         let req = closure_test_request(Box::new(move |r| {
             let _ = tx.send(r);
         }));
@@ -1023,7 +1029,7 @@ mod tests {
 
     #[tokio::test]
     async fn closure_drop_disconnects_oneshot_receiver() {
-        let (tx, rx) = oneshot::channel::<Result<ServoPage>>();
+        let (tx, rx) = oneshot::channel::<Result<ServoPage, EngineError>>();
         let req = closure_test_request(Box::new(move |r| {
             let _ = tx.send(r);
         }));

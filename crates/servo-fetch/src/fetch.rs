@@ -430,14 +430,13 @@ fn finalize_page(servo_page: crate::bridge::ServoPage, opts: &FetchOptions) -> P
     page
 }
 
-fn map_engine_error(e: anyhow::Error, opts: &FetchOptions) -> Error {
-    if format!("{e:#}").contains("timed out") {
-        Error::Timeout {
+fn map_engine_error(e: crate::bridge::EngineError, opts: &FetchOptions) -> Error {
+    match e {
+        crate::bridge::EngineError::Timeout(_) => Error::Timeout {
             url: opts.url.clone(),
             timeout: opts.effective_timeout(),
-        }
-    } else {
-        Error::engine(e, Some(opts.url.clone()))
+        },
+        crate::bridge::EngineError::Other(e) => Error::engine(e, Some(opts.url.clone())),
     }
 }
 

@@ -637,14 +637,14 @@ mod tests {
     }
 
     impl PageFetcher for MockFetcher {
-        fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> anyhow::Result<bridge::ServoPage> {
+        fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
             self.0
                 .get(opts.url)
                 .map(|html| bridge::ServoPage {
                     html: html.clone(),
                     ..Default::default()
                 })
-                .ok_or_else(|| anyhow::anyhow!("not found: {}", opts.url))
+                .ok_or_else(|| bridge::EngineError::Other(anyhow::anyhow!("not found: {}", opts.url)))
         }
     }
 

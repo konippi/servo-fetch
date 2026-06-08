@@ -230,6 +230,25 @@ RUST_LOG="servo_fetch=trace,servo=debug" servo-fetch "..." # include Servo inter
 
 `RUST_LOG` uses [`tracing-subscriber`'s directive syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html) and always wins over CLI flags.
 
+## Exit codes
+
+`0` on success. On failure the human-readable message goes to stderr and the
+exit code carries the failure category, following the
+[`sysexits.h`](https://man.freebsd.org/cgi/man.cgi?sysexits) convention so
+scripts can branch without parsing stderr:
+
+| Code | Name | Cause |
+| ---- | ---- | ----- |
+| `0` | `EX_OK` | Success (also returned when stdout is closed early, e.g. `\| head`) |
+| `64` | `EX_USAGE` | Invalid URL or argument |
+| `65` | `EX_DATAERR` | Invalid extraction schema |
+| `66` | `EX_NOINPUT` | Cookies file missing or unreadable |
+| `69` | `EX_UNAVAILABLE` | Blocked address (private/loopback) or unreachable host |
+| `70` | `EX_SOFTWARE` | Engine, JavaScript, screenshot, or extraction failure |
+| `74` | `EX_IOERR` | I/O error |
+| `75` | `EX_TEMPFAIL` | Navigation timeout (retryable) |
+| `1` | — | Any other error |
+
 ## Environment Variables
 
 | Variable | Description |

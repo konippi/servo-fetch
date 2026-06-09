@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.2](https://github.com/konippi/servo-fetch/compare/0.12.1..0.12.2) - 2026-06-08
+
+### Features
+
+- *(cli)* Return sysexits exit codes by error category ([#280](https://github.com/konippi/servo-fetch/pull/280))
+
 ## [0.12.1](https://github.com/konippi/servo-fetch/compare/0.12.0..0.12.1) - 2026-06-07
 
 ### Features

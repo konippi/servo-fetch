@@ -1,0 +1,28 @@
+{
+  "name": "@servo-fetch/win32-x64-msvc",
+  "version": "0.0.0-development",
+  "description": "Windows x64 binary for servo-fetch (bundles ANGLE libEGL/libGLESv2).",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/konippi/servo-fetch.git",
+    "directory": "bindings/node"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "preferUnplugged": true,
+  "files": [
+    "servo-fetch.exe",
+    "libEGL.dll",
+    "libGLESv2.dll",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ]
+}

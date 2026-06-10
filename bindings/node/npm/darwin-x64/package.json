@@ -1,0 +1,26 @@
+{
+  "name": "@servo-fetch/darwin-x64",
+  "version": "0.0.0-development",
+  "description": "macOS x64 binary for servo-fetch.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/konippi/servo-fetch.git",
+    "directory": "bindings/node"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "preferUnplugged": true,
+  "files": [
+    "servo-fetch",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ]
+}

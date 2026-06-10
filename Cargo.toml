@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/*", "bindings/*"]
+exclude = ["bindings/node"]
 default-members = ["crates/servo-fetch-cli"]
 resolver = "3"
 

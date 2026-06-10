@@ -31,3 +31,17 @@ updates:
       prefix: "chore(deps)"
     cooldown:
       default-days: 7
+  - package-ecosystem: npm
+    directory: /bindings/node
+    labels: ["type: deps", "area: node-bindings"]
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 7
+    groups:
+      patch-updates:
+        update-types: ["patch"]
+    ignore:
+      - dependency-name: "@servo-fetch/*"

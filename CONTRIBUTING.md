@@ -68,6 +68,30 @@ uv run ruff check src tests tools             # Lint
 
 See [`benchmarks/README.md`](benchmarks/README.md) for the full guide.
 
+### Language bindings
+
+The bindings live outside the cargo workspace and each has its own dev loop and README. The single source of truth for versions is `[workspace.package].version` in `Cargo.toml` (bumped by release-plz); the Node `package.json` versions are `0.0.0-development` placeholders that the release workflow fills from the release tag, so they never need hand-editing.
+
+**Python** ([`bindings/python/`](bindings/python/)) — [uv](https://docs.astral.sh/uv/), Python **3.10+**:
+
+```sh
+cd bindings/python
+uv sync --group all       # venv + dev deps
+uv run maturin develop    # build the extension
+uv run pytest             # tests
+uv run ruff check python tests && uv run ty check python   # lint + types
+```
+
+**Node** ([`bindings/node/`](bindings/node/)) — [pnpm](https://pnpm.io/), Node **22+**:
+
+```sh
+cd bindings/node
+pnpm install
+pnpm run build            # tsdown → dist (ESM + CJS + d.ts)
+pnpm test                 # vitest
+pnpm run typecheck && pnpm run lint   # tsc + biome
+```
+
 ## Commit conventions
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/). The `CHANGELOG.md` is generated from these by [release-plz](https://release-plz.dev/).

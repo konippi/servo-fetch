@@ -1,0 +1,29 @@
+{
+  "name": "@servo-fetch/linux-x64-gnu",
+  "version": "0.0.0-development",
+  "description": "Linux x64 (glibc) binary for servo-fetch.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/konippi/servo-fetch.git",
+    "directory": "bindings/node"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "preferUnplugged": true,
+  "files": [
+    "servo-fetch",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ]
+}

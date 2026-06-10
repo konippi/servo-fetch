@@ -1,0 +1,9 @@
+minimumReleaseAge: 1440
+strictDepBuilds: true
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+# Avoids false mismatch from unpublished @servo-fetch/* optional deps.
+verifyDepsBeforeRun: false
+trustPolicyExclude:
+  - undici-types@6.21.0
+allowBuilds: {}

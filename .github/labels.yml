@@ -60,6 +60,9 @@
 - name: "area: python-bindings"
   color: 1d76db
   description: "Python bindings (PyO3, maturin, PyPI wheels)"
+- name: "area: node-bindings"
+  color: 1d76db
+  description: "Node.js bindings (TypeScript wrapper, npm packages)"
 - name: "area: docker"
   color: 1d76db
   description: "Dockerfile, container image, Docker workflow"

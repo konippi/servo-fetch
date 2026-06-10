@@ -13,5 +13,21 @@
             "source.organizeImports.ruff": "explicit",
             "source.fixAll.ruff": "explicit"
         }
+    },
+    "[typescript]": {
+        "editor.defaultFormatter": "biomejs.biome",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports.biome": "explicit",
+            "quickfix.biome": "explicit"
+        }
+    },
+    "[javascript]": {
+        "editor.defaultFormatter": "biomejs.biome",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports.biome": "explicit",
+            "quickfix.biome": "explicit"
+        }
     }
 }

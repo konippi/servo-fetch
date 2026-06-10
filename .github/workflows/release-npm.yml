@@ -1,0 +1,131 @@
+name: Release npm
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.12.1)"
+        required: true
+      dry-run:
+        type: boolean
+        default: true
+        description: "Pack without publishing"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: release-npm
+      url: https://www.npmjs.com/package/servo-fetch
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DRY_RUN: ${{ inputs.dry-run == true && 'true' || 'false' }}
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      # Trusted publishing is handled by the npm CLI (pnpm does not support it yet: pnpm/pnpm#9812).
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Resolve version
+        run: |
+          set -euo pipefail
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Download release archives
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir artifacts \
+            --pattern '*.tar.gz' --pattern '*.zip'
+
+      - name: Verify artifact attestations
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in artifacts/*.tar.gz artifacts/*.zip; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY"
+          done
+
+      - name: Assemble platform packages
+        run: |
+          set -euo pipefail
+          declare -A KEY=(
+            [x86_64-apple-darwin]=darwin-x64
+            [aarch64-apple-darwin]=darwin-arm64
+            [x86_64-unknown-linux-gnu]=linux-x64-gnu
+            [aarch64-unknown-linux-gnu]=linux-arm64-gnu
+            [x86_64-pc-windows-msvc]=win32-x64-msvc
+          )
+          for target in "${!KEY[@]}"; do
+            key="${KEY[$target]}"
+            dest="bindings/node/npm/$key"
+            base="servo-fetch-${TAG}-${target}"
+            if [ "$target" = "x86_64-pc-windows-msvc" ]; then
+              unzip -oq "artifacts/${base}.zip" -d artifacts/extracted
+              cp "artifacts/extracted/${base}/servo-fetch.exe" "$dest/"
+              cp "artifacts/extracted/${base}/libEGL.dll" "artifacts/extracted/${base}/libGLESv2.dll" "$dest/"
+            else
+              tar xzf "artifacts/${base}.tar.gz" -C artifacts
+              cp "artifacts/${base}/servo-fetch" "$dest/"
+              chmod +x "$dest/servo-fetch"
+            fi
+            cp LICENSE-MIT LICENSE-APACHE "$dest/"
+          done
+
+      - name: Set versions
+        working-directory: bindings/node
+        run: |
+          set -euo pipefail
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          for key in darwin-arm64 darwin-x64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+            ( cd "npm/$key" && npm version "$VERSION" --no-git-tag-version --allow-same-version )
+            npm pkg set "optionalDependencies.@servo-fetch/$key=$VERSION"
+          done
+
+      - name: Build
+        working-directory: bindings/node
+        run: |
+          pnpm install --no-frozen-lockfile
+          pnpm run build
+
+      - name: Publish platform packages
+        working-directory: bindings/node
+        run: |
+          set -euo pipefail
+          [ "$DRY_RUN" = "true" ] && DRY="--dry-run" || DRY=""
+          for key in darwin-arm64 darwin-x64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+            npm publish "./npm/$key" --provenance --access public $DRY
+          done
+
+      - name: Publish main package
+        working-directory: bindings/node
+        run: |
+          set -euo pipefail
+          [ "$DRY_RUN" = "true" ] && DRY="--dry-run" || DRY=""
+          npm publish --provenance --access public $DRY

@@ -339,10 +339,122 @@ jobs:
         if: always()
         run: sccache --show-stats
 
+  node-lint:
+    name: Node Lint
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install
+        working-directory: bindings/node
+        run: pnpm install --no-frozen-lockfile
+      - name: Biome
+        working-directory: bindings/node
+        run: pnpm exec biome ci
+      - name: Typecheck
+        working-directory: bindings/node
+        run: pnpm run typecheck
+
+  node-test:
+    name: Node Test (${{ matrix.node }})
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install
+        working-directory: bindings/node
+        run: pnpm install --no-frozen-lockfile
+      - name: Build
+        working-directory: bindings/node
+        run: pnpm run build
+      - name: Test
+        working-directory: bindings/node
+        run: pnpm test
+
+  node-e2e:
+    name: Node E2E
+    needs: [changes, cargo-test]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+      SCCACHE_GHA_ENABLED: true
+      RUSTC_WRAPPER: sccache
+      CCACHE: sccache
+      RUSTFLAGS: -C debuginfo=0
+      RUST_BACKTRACE: 1
+      GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: "1.95.0"
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install servo build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
+            libssl-dev libglib2.0-dev libegl1-mesa-dev
+      - name: Build servo-fetch binary
+        run: cargo build -p servo-fetch-cli --profile ci
+      - name: Install
+        working-directory: bindings/node
+        run: pnpm install --no-frozen-lockfile
+      - name: E2E
+        working-directory: bindings/node
+        env:
+          SERVO_FETCH_E2E: "1"
+          SERVO_FETCH_BINARY_PATH: ${{ github.workspace }}/target/ci/servo-fetch
+        run: pnpm run test:e2e
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
+
   ci-passed:
     name: CI Passed
     if: '!cancelled()'
-    needs: [changes, cargo-clippy, cargo-test, cargo-doc, e2e, cargo-fmt, taplo, cargo-deny, cargo-shear, typos, python-lint, python-test]
+    needs: [changes, cargo-clippy, cargo-test, cargo-doc, e2e, cargo-fmt, taplo, cargo-deny, cargo-shear, typos, python-lint, python-test, node-lint, node-test, node-e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

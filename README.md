@@ -70,6 +70,7 @@ Methodology, three-axis breakdown, per-fixture F1, and raw JSON:
 | **CLI** | `curl -fsSL https://raw.githubusercontent.com/konippi/servo-fetch/main/install.sh \| sh` | [CLI docs](crates/servo-fetch-cli/README.md) |
 | **Rust** | `cargo add servo-fetch` | [Library docs](crates/servo-fetch/README.md) |
 | **Python** | `pip install servo-fetch` | [Python docs](bindings/python/README.md) |
+| **Node.js** | `npm install servo-fetch` | [Node docs](bindings/node/README.md) |
 
 <details>
 <summary><b>CLI install alternatives</b></summary>
@@ -183,6 +184,24 @@ print(page.extracted)
 ```
 
 Full API reference → [`bindings/python`](bindings/python/README.md)
+
+### Node.js
+
+```bash
+npm install servo-fetch
+```
+
+```ts
+import { fetch, crawl } from "servo-fetch";
+
+const md = await fetch("https://example.com");
+
+for await (const page of crawl("https://docs.example.com", { limit: 50 })) {
+  if (page.ok) console.log(page.url, page.title);
+}
+```
+
+Full API reference → [`bindings/node`](bindings/node/README.md)
 
 ## MCP Server
 

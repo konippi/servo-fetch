@@ -9,6 +9,8 @@ servo-fetch is a Rust workspace with two crates:
 - **`servo-fetch`** (library): wraps the [Servo](https://servo.org) browser engine to fetch, render, and extract web content. Main entry points: `fetch()`, `crawl()` / `crawl_each()` (streaming), `map()` (sitemap discovery).
 - **`servo-fetch-cli`** (binary): CLI + HTTP API + MCP server. Depends on `servo-fetch`.
 
+Language bindings live outside the cargo workspace in `bindings/python/` (PyO3/maturin) and `bindings/node/` (TypeScript wrapper over the CLI; `bindings/node` is excluded from the workspace).
+
 Toolchain pinned in `rust-toolchain.toml`; MSRV declared as `rust-version` in `Cargo.toml` — do not use features stabilized after the MSRV. Workspace-wide version bumping via `[workspace.package].version`.
 
 The Servo dependency dominates build time (several minutes on first build, ~30-40 minutes for release). Plan long-running commands accordingly.
@@ -117,6 +119,7 @@ Compare whole values with `assert_eq!` over field-by-field checks. Failing diffs
   - `README.md` (CLI + library usage)
   - `crates/servo-fetch-cli/README.md` (CLI flags reference)
   - `skills/servo-fetch/SKILL.md` and `skills/servo-fetch/references/guide.md` if behavior or flags change
+  - `bindings/python/README.md` and `bindings/node/README.md` if the public binding API changes
   - `SECURITY.md` if policy defaults change
 - PR template: `.github/pull_request_template.md`. Keep the Summary concise; explain *why* where non-obvious, not *what* (the diff shows what).
 - Do not submit autonomously-generated PRs. Human-in-the-loop is a hard requirement (see CONTRIBUTING.md § Use of AI).

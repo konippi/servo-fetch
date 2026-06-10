@@ -4,6 +4,7 @@ import {
   classifyError,
   FetchTimeoutError,
   InvalidUrlError,
+  IoError,
   NetworkError,
   SchemaError,
   ServoFetchError,
@@ -15,6 +16,7 @@ describe("classifyError", () => {
     expect(classifyError("error: bad schema", 65)).toBeInstanceOf(SchemaError);
     expect(classifyError("error: cookie file not found", 66)).toBeInstanceOf(CookieError);
     expect(classifyError("error: blocked address", 69)).toBeInstanceOf(NetworkError);
+    expect(classifyError("error: disk write failed", 74)).toBeInstanceOf(IoError);
     expect(classifyError("error: navigation timed out", 75)).toBeInstanceOf(FetchTimeoutError);
   });
 

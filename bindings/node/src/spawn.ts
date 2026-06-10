@@ -4,13 +4,15 @@ import { binaryPath } from "./binary.js";
 import { classifyError, ServoFetchError } from "./errors.js";
 
 const GLOBAL_ARGS = ["--quiet"];
-const MAX_BUFFER = 512 * 1024 * 1024;
+const DEFAULT_MAX_BUFFER = 128 * 1024 * 1024;
 
 export interface RunOptions {
   signal?: AbortSignal;
+  maxBuffer?: number;
 }
 
 export function runBuffer(args: string[], opts: RunOptions = {}): Promise<Buffer> {
+  const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER;
   return new Promise((resolve, reject) => {
     const child = spawn(binaryPath(), [...GLOBAL_ARGS, ...args], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -22,10 +24,10 @@ export function runBuffer(args: string[], opts: RunOptions = {}): Promise<Buffer
     let size = 0;
     child.stdout.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_BUFFER) {
+      if (size > maxBuffer) {
         child.stdout.destroy();
         child.kill("SIGKILL");
-        reject(new ServoFetchError(`output exceeded ${MAX_BUFFER} bytes`, null, ""));
+        reject(new ServoFetchError(`output exceeded ${maxBuffer} bytes`, null, ""));
         return;
       }
       stdout.push(chunk);

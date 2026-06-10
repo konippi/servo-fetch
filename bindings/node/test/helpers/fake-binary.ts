@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,7 +19,6 @@ export function useFakeBinary(): FakeBinary {
   const ctx = { dir: "" };
   beforeAll(() => {
     ctx.dir = mkdtempSync(join(tmpdir(), "servo-fetch-fake-"));
-    chmodSync(FAKE_BIN, 0o755);
     process.env.SERVO_FETCH_BINARY_PATH = FAKE_BIN;
   });
   afterAll(() => {

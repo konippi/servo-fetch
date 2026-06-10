@@ -9,8 +9,8 @@ describe.skipIf(onWindows)("error propagation", () => {
     await expect(fetch("https://failurl.example")).rejects.toBeInstanceOf(InvalidUrlError);
   });
 
-  it("wraps non-JSON output in EngineError", async () => {
-    const { extract, EngineError } = await import("../../src/index.js");
-    await expect(extract("https://badjson.example")).rejects.toBeInstanceOf(EngineError);
+  it("wraps non-JSON output in JsonParseError", async () => {
+    const { extract, JsonParseError } = await import("../../src/index.js");
+    await expect(extract("https://badjson.example")).rejects.toBeInstanceOf(JsonParseError);
   });
 });

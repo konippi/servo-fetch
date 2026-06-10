@@ -42,15 +42,11 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0 # zizmor: ignore[cache-poisoning] no cache: input set, so nothing is cached
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
       - name: Enable corepack
         run: corepack enable
-
-      # Trusted publishing is handled by the npm CLI (pnpm does not support it yet: pnpm/pnpm#9812).
-      - name: Upgrade npm for OIDC trusted publishing
-        run: npm install -g npm@latest
 
       - name: Resolve version
         run: |
@@ -114,6 +110,7 @@ jobs:
           pnpm install --no-frozen-lockfile
           pnpm run build
 
+      # Uses `npm publish` (not pnpm): pnpm lacks OIDC trusted publishing (pnpm/pnpm#9812).
       - name: Publish platform packages
         working-directory: bindings/node
         run: |

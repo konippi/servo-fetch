@@ -23,9 +23,15 @@ afterEach(() => {
 
 describe("binaryPath", () => {
   it("returns the SERVO_FETCH_BINARY_PATH override verbatim", async () => {
-    process.env.SERVO_FETCH_BINARY_PATH = "/custom/path/servo-fetch";
+    process.env.SERVO_FETCH_BINARY_PATH = process.execPath;
     const { binaryPath } = await import("./binary.js");
-    expect(binaryPath()).toBe("/custom/path/servo-fetch");
+    expect(binaryPath()).toBe(process.execPath);
+  });
+
+  it("throws when SERVO_FETCH_BINARY_PATH points to a missing file", async () => {
+    process.env.SERVO_FETCH_BINARY_PATH = "/no/such/servo-fetch";
+    const { binaryPath } = await import("./binary.js");
+    expect(() => binaryPath()).toThrow(/non-existent file/);
   });
 
   it("throws a descriptive error on unsupported platforms", async () => {

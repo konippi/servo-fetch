@@ -43,6 +43,11 @@ export function binaryPath(): string {
 
   const override = process.env.SERVO_FETCH_BINARY_PATH;
   if (override) {
+    if (!existsSync(override)) {
+      throw new Error(
+        `servo-fetch: SERVO_FETCH_BINARY_PATH points to a non-existent file: "${override}".`,
+      );
+    }
     cached = override;
     return override;
   }

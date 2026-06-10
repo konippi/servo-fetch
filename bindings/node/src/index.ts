@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EngineError } from "./errors.js";
+import { JsonParseError } from "./errors.js";
 import { type Schema, schemaToJson } from "./schema.js";
 import { runBuffer, runStream, runText } from "./spawn.js";
 import type {
@@ -20,6 +20,8 @@ export {
   EngineError,
   FetchTimeoutError,
   InvalidUrlError,
+  IoError,
+  JsonParseError,
   NetworkError,
   SchemaError,
   ServoFetchError,
@@ -45,7 +47,7 @@ function parseJson<T>(raw: string): T {
   try {
     return JSON.parse(raw) as T;
   } catch {
-    throw new EngineError("could not parse servo-fetch output as JSON", null, raw.slice(0, 200));
+    throw new JsonParseError("could not parse servo-fetch output as JSON", 0, raw.slice(0, 200));
   }
 }
 
@@ -70,16 +72,18 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<st
 
 /** Fetch a URL and return the rendered HTML (post-JS execution). */
 export async function fetchHtml(url: string, options: FetchOptions = {}): Promise<string> {
-  return runText(["--format", "html", ...commonArgs(options), "--", url], {
-    signal: options.signal,
-  });
+  const args = ["--format", "html", ...commonArgs(options)];
+  if (options.selector != null) args.push("--selector", options.selector);
+  args.push("--", url);
+  return runText(args, { signal: options.signal });
 }
 
 /** Fetch a URL and return `document.body.innerText`. */
 export async function fetchText(url: string, options: FetchOptions = {}): Promise<string> {
-  return runText(["--format", "text", ...commonArgs(options), "--", url], {
-    signal: options.signal,
-  });
+  const args = ["--format", "text", ...commonArgs(options)];
+  if (options.selector != null) args.push("--selector", options.selector);
+  args.push("--", url);
+  return runText(args, { signal: options.signal });
 }
 
 /** Fetch a URL and return structured Readability data. */
@@ -135,7 +139,7 @@ export async function screenshot(
   const args = ["--format", "png", ...commonArgs(options)];
   if (options.fullPage) args.push("--full-page");
   args.push("--", url);
-  return runBuffer(args, { signal: options.signal });
+  return runBuffer(args, { signal: options.signal, maxBuffer: options.maxBuffer });
 }
 
 /** Execute JavaScript in the page and return the result as a string. */
@@ -153,7 +157,7 @@ export async function batchFetch(
   urls: string[],
   options: FetchOptions & { concurrency?: number } = {},
 ): Promise<BatchResult[]> {
-  const concurrency = Math.max(1, options.concurrency ?? 4);
+  const concurrency = Math.max(1, options.concurrency ?? 2);
   const results: BatchResult[] = new Array(urls.length);
   let next = 0;
 

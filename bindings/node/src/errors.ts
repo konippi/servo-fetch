@@ -16,6 +16,8 @@ export class NetworkError extends ServoFetchError {}
 export class EngineError extends ServoFetchError {}
 export class SchemaError extends ServoFetchError {}
 export class CookieError extends ServoFetchError {}
+export class IoError extends ServoFetchError {}
+export class JsonParseError extends ServoFetchError {}
 
 function lastErrorLine(stderr: string): string {
   const lines = stderr
@@ -42,6 +44,7 @@ const BY_EXIT_CODE: ReadonlyMap<number, ServoFetchErrorCtor> = new Map([
   [66, CookieError], // EX_NOINPUT
   [69, NetworkError], // EX_UNAVAILABLE
   [70, EngineError], // EX_SOFTWARE
+  [74, IoError], // EX_IOERR
   [75, FetchTimeoutError], // EX_TEMPFAIL
 ]);
 

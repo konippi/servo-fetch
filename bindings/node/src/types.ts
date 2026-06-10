@@ -19,6 +19,8 @@ export interface FetchOptions {
   allowPrivateAddresses?: boolean;
   /** Abort the underlying process. */
   signal?: AbortSignal;
+  /** Max bytes to buffer from the binary's stdout before aborting. Default: 128 MiB. */
+  maxBuffer?: number;
 }
 
 /** Readability-extracted article (`--format json`). */

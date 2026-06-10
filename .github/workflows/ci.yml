@@ -64,9 +64,6 @@ jobs:
       contents: read
     env:
       CARGO_INCREMENTAL: 0
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
-      CCACHE: sccache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -75,7 +72,7 @@ jobs:
         with:
           toolchain: "1.95.0"
           components: clippy
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: ./.github/actions/sccache
       - name: Install servo build deps
         run: |
           sudo apt-get update
@@ -84,7 +81,7 @@ jobs:
       - run: cargo clippy --workspace --locked --all-targets -- -D warnings
       - name: sccache stats
         if: always()
-        run: sccache --show-stats
+        run: sccache --show-stats || true
 
   cargo-test:
     name: cargo test
@@ -96,9 +93,6 @@ jobs:
       contents: read
     env:
       CARGO_INCREMENTAL: 0
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
-      CCACHE: sccache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -106,7 +100,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: "1.95.0"
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: ./.github/actions/sccache
       - uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cargo-nextest
@@ -127,7 +121,7 @@ jobs:
           retention-days: 14
       - name: sccache stats
         if: always()
-        run: sccache --show-stats
+        run: sccache --show-stats || true
 
   cargo-fmt:
     name: Format
@@ -158,9 +152,6 @@ jobs:
     env:
       CARGO_INCREMENTAL: 0
       RUSTDOCFLAGS: -D warnings
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
-      CCACHE: sccache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -168,7 +159,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: "1.95.0"
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: ./.github/actions/sccache
       - name: Install servo build deps
         run: |
           sudo apt-get update
@@ -177,7 +168,7 @@ jobs:
       - run: cargo doc --workspace --lib --no-deps --locked
       - name: sccache stats
         if: always()
-        run: sccache --show-stats
+        run: sccache --show-stats || true
 
   taplo:
     name: TOML Lint
@@ -251,9 +242,6 @@ jobs:
       contents: read
     env:
       CARGO_INCREMENTAL: 0
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
-      CCACHE: sccache
       RUST_BACKTRACE: 1
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -262,7 +250,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: "1.95.0"
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: ./.github/actions/sccache
       - uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cargo-nextest
@@ -282,7 +270,7 @@ jobs:
           retention-days: 14
       - name: sccache stats
         if: always()
-        run: sccache --show-stats
+        run: sccache --show-stats || true
 
   python-lint:
     name: Python Lint
@@ -317,9 +305,6 @@ jobs:
       contents: read
     env:
       CARGO_INCREMENTAL: 0
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
-      CCACHE: sccache
       RUSTFLAGS: -C debuginfo=0
       RUST_BACKTRACE: 1
       GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
@@ -330,7 +315,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: "1.95.0"
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: ./.github/actions/sccache
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install servo build deps
         run: |
@@ -350,7 +335,7 @@ jobs:
             --allowlist .mypy-stubtest-allowlist
       - name: sccache stats
         if: always()
-        run: sccache --show-stats
+        run: sccache --show-stats || true
 
   node-lint:
     name: Node Lint
@@ -424,9 +409,6 @@ jobs:
       contents: read
     env:
       CARGO_INCREMENTAL: 0
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
-      CCACHE: sccache
       RUSTFLAGS: -C debuginfo=0
       RUST_BACKTRACE: 1
       GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
@@ -438,7 +420,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: "1.95.0"
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - uses: ./.github/actions/sccache
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22"
@@ -462,7 +444,7 @@ jobs:
         run: pnpm run test:e2e
       - name: sccache stats
         if: always()
-        run: sccache --show-stats
+        run: sccache --show-stats || true
 
   ci-passed:
     name: CI Passed

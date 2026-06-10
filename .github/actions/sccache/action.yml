@@ -1,0 +1,23 @@
+name: Setup sccache
+description: Enable sccache as a best-effort compiler cache; transient setup failures fall back to an uncached build instead of failing the job.
+
+runs:
+  using: composite
+  steps:
+    - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      id: sccache
+      continue-on-error: true
+    - name: Enable sccache when available
+      shell: bash
+      env:
+        SCCACHE_OUTCOME: ${{ steps.sccache.outcome }}
+      run: |
+        if [ "$SCCACHE_OUTCOME" = "success" ]; then
+          {
+            echo "SCCACHE_GHA_ENABLED=true"
+            echo "RUSTC_WRAPPER=sccache"
+            echo "CCACHE=sccache"
+          } >> "$GITHUB_ENV"
+        else
+          echo "::warning title=sccache::setup failed; building without compiler cache"
+        fi

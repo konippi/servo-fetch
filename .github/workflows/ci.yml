@@ -18,8 +18,12 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      rust: ${{ steps.filter.outputs.rust }}
+      python: ${{ steps.filter.outputs.python }}
+      node: ${{ steps.filter.outputs.node }}
+      toml: ${{ steps.filter.outputs.toml }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -28,23 +32,32 @@ jobs:
         id: filter
         with:
           filters: |
-            code:
+            rust:
               - 'crates/**'
-              - 'bindings/**'
+              - 'bindings/python/src/**'
+              - 'bindings/python/Cargo.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'deny.toml'
               - 'clippy.toml'
               - '.rustfmt.toml'
               - 'rust-toolchain.toml'
-              - 'taplo.toml'
               - '.config/nextest.toml'
-              - '.github/workflows/ci.yml'
+              - &ci '.github/workflows/ci.yml'
+            python:
+              - 'bindings/python/**'
+              - *ci
+            node:
+              - 'bindings/node/**'
+              - *ci
+            toml:
+              - '**/*.toml'
+              - *ci
 
   cargo-clippy:
     name: cargo clippy
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -76,7 +89,7 @@ jobs:
   cargo-test:
     name: cargo test
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -119,7 +132,7 @@ jobs:
   cargo-fmt:
     name: Format
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -137,7 +150,7 @@ jobs:
   cargo-doc:
     name: Doc
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -169,7 +182,7 @@ jobs:
   taplo:
     name: TOML Lint
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.toml == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -186,7 +199,7 @@ jobs:
   cargo-deny:
     name: Licenses & Advisories
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -200,7 +213,7 @@ jobs:
   cargo-shear:
     name: Unused Dependencies
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -231,7 +244,7 @@ jobs:
   e2e:
     name: E2E
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -274,7 +287,7 @@ jobs:
   python-lint:
     name: Python Lint
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -297,7 +310,7 @@ jobs:
   python-test:
     name: Python Test
     needs: [changes, cargo-test]
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !cancelled() && needs.cargo-test.result != 'failure' && (needs.changes.outputs.python == 'true' || needs.changes.outputs.rust == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -342,7 +355,7 @@ jobs:
   node-lint:
     name: Node Lint
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.node == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -371,7 +384,7 @@ jobs:
   node-test:
     name: Node Test (${{ matrix.node }})
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.node == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -404,7 +417,7 @@ jobs:
   node-e2e:
     name: Node E2E
     needs: [changes, cargo-test]
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !cancelled() && needs.cargo-test.result != 'failure' && (needs.changes.outputs.node == 'true' || needs.changes.outputs.rust == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:

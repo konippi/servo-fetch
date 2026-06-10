@@ -92,7 +92,7 @@ Requires [pnpm](https://pnpm.io/).
 
 ```bash
 pnpm install
-pnpm run build      # tsdown → dist (ESM + CJS + d.ts)
+pnpm run build      # tsdown
 pnpm test           # vitest
 pnpm run typecheck  # tsc --noEmit
 pnpm run lint       # biome (lint + format + import sort)

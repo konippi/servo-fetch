@@ -5,3 +5,5 @@ package-lock.json
 npm/*/servo-fetch
 npm/*/servo-fetch.exe
 npm/*/*.dll
+npm/*/LICENSE-MIT
+npm/*/LICENSE-APACHE

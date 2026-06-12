@@ -21,13 +21,21 @@ git_release_body = """
 name = "servo-fetch-cli"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
-changelog_include = ["servo-fetch", "servo-fetch-python"]
+changelog_include = ["servo-fetch", "servo-fetch-types", "servo-fetch-python"]
 release = true
 git_tag_enable = true
 git_tag_name = "v{{ version }}"
 git_release_enable = true
 git_release_name = "v{{ version }}"
 git_release_draft = true
+
+[[package]]
+name = "servo-fetch"
+release = true
+
+[[package]]
+name = "servo-fetch-types"
+release = true
 
 [changelog]
 protect_breaking_commits = true

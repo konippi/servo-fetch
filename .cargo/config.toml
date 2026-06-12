@@ -7,6 +7,7 @@ rustflags = ["-C", "link-arg=/Brepro"]
 
 [env]
 MACOSX_DEPLOYMENT_TARGET = "13.0"
+TS_RS_EXPORT_DIR = { value = "bindings/node/src/generated/", relative = true }
 
 [alias]
 lint = "clippy --workspace --locked --all-targets -- -D warnings"

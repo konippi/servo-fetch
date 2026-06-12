@@ -1,0 +1,20 @@
+[package]
+name = "servo-fetch-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Wire DTOs shared by the servo-fetch CLI, HTTP/MCP servers, daemon, and language bindings — the single source of truth for the wire format."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+ts-rs = { version = "11", optional = true, features = ["format"] }
+
+[features]
+codegen = ["dep:ts-rs"]
+
+[lints]
+workspace = true

@@ -212,7 +212,7 @@ fn crawl_produces_ndjson() {
         assert!(lines.len() >= 2, "expected page + stats record, got: {lines:?}");
         let page: Value = serde_json::from_str(lines[0]).expect("valid NDJSON");
         assert_eq!(page["type"], "page");
-        assert!(page["fetched_at"].is_string(), "fetched_at must be present");
+        assert!(page["fetchedAt"].is_string(), "fetchedAt must be present");
         let stats: Value = serde_json::from_str(lines.last().unwrap()).expect("valid stats NDJSON");
         assert_eq!(stats["type"], "stats");
         assert!(stats["crawled"].as_u64().is_some_and(|n| n >= 1));

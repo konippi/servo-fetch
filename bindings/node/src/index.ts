@@ -2,17 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JsonParseError } from "./errors.js";
+import type { Article, CrawlEvent, MappedUrl, SchemaExtractResult } from "./generated/index.js";
 import { type Schema, schemaToJson } from "./schema.js";
 import { runBuffer, runStream, runText } from "./spawn.js";
-import type {
-  Article,
-  BatchResult,
-  CrawlOptions,
-  CrawlResult,
-  FetchOptions,
-  MapOptions,
-  MappedUrl,
-} from "./types.js";
+import type { BatchResult, CrawlOptions, CrawlResult, FetchOptions, MapOptions } from "./types.js";
 
 export { binaryPath } from "./binary.js";
 export {
@@ -26,17 +19,9 @@ export {
   SchemaError,
   ServoFetchError,
 } from "./errors.js";
+export type { Article, MappedUrl, Visibility } from "./generated/index.js";
 export type { Field, Schema } from "./schema.js";
-export type {
-  Article,
-  BatchResult,
-  CrawlOptions,
-  CrawlResult,
-  FetchOptions,
-  MapOptions,
-  MappedUrl,
-  Visibility,
-} from "./types.js";
+export type { BatchResult, CrawlOptions, CrawlResult, FetchOptions, MapOptions } from "./types.js";
 
 function asArray(value: string | string[] | undefined): string[] {
   if (value === undefined) return [];
@@ -91,24 +76,7 @@ export async function extract(url: string, options: FetchOptions = {}): Promise<
   const args = ["--format", "json", ...commonArgs(options)];
   if (options.selector != null) args.push("--selector", options.selector);
   args.push("--", url);
-  const raw = parseJson<{
-    title: string;
-    content: string;
-    text_content: string;
-    byline?: string;
-    excerpt?: string;
-    lang?: string;
-    url?: string;
-  }>(await runText(args, { signal: options.signal }));
-  return {
-    title: raw.title,
-    content: raw.content,
-    textContent: raw.text_content,
-    byline: raw.byline,
-    excerpt: raw.excerpt,
-    lang: raw.lang,
-    url: raw.url,
-  };
+  return parseJson<Article>(await runText(args, { signal: options.signal }));
 }
 
 /** Extract structured data using a declarative CSS-selector schema. */
@@ -122,10 +90,8 @@ export async function extractSchema<T = unknown>(
     const file = join(dir, "schema.json");
     await writeFile(file, schemaToJson(schema));
     const args = [...commonArgs(options), "--schema", file, "--", url];
-    const raw = parseJson<{ url: string; extracted: T }>(
-      await runText(args, { signal: options.signal }),
-    );
-    return raw.extracted;
+    const raw = parseJson<SchemaExtractResult>(await runText(args, { signal: options.signal }));
+    return raw.extracted as T;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -203,26 +169,14 @@ function crawlArgs(url: string, o: CrawlOptions): string[] {
 /** Crawl a site, yielding each page as it completes (BFS, respects robots.txt). */
 export async function* crawl(url: string, options: CrawlOptions = {}): AsyncGenerator<CrawlResult> {
   for await (const line of runStream(crawlArgs(url, options), { signal: options.signal })) {
-    const record = parseJson<
-      | {
-          type: "page";
-          url: string;
-          depth: number;
-          fetched_at: string;
-          title?: string;
-          content: string;
-          links_found: number;
-        }
-      | { type: "error"; url: string; depth: number; fetched_at: string; error: string }
-      | { type: "stats" }
-    >(line);
+    const record = parseJson<CrawlEvent>(line);
     if (record.type === "stats") continue;
     if (record.type === "error") {
       yield {
         ok: false,
         url: record.url,
         depth: record.depth,
-        fetchedAt: record.fetched_at,
+        fetchedAt: record.fetchedAt,
         error: record.error,
       };
     } else {
@@ -230,10 +184,10 @@ export async function* crawl(url: string, options: CrawlOptions = {}): AsyncGene
         ok: true,
         url: record.url,
         depth: record.depth,
-        fetchedAt: record.fetched_at,
+        fetchedAt: record.fetchedAt,
         title: record.title ?? null,
         content: record.content,
-        linksFound: record.links_found,
+        linksFound: record.linksFound,
       };
     }
   }

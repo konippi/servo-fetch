@@ -6597,6 +6597,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "futures-util",
+ "humantime",
  "libc",
  "predicates",
  "rmcp",
@@ -6605,6 +6606,7 @@ dependencies = [
  "serde",
  "serde_json",
  "servo-fetch",
+ "servo-fetch-types",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -6634,6 +6636,7 @@ name = "servo-fetch-types"
 version = "0.12.2"
 dependencies = [
  "serde",
+ "serde_json",
  "ts-rs",
 ]
 

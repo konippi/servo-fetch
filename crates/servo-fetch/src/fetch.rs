@@ -70,6 +70,22 @@ impl Page {
         Ok(crate::extract::extract_json(&self.extract_input(url, None))?)
     }
 
+    /// Extract structured article data, using the original URL for link resolution.
+    pub fn article(&self, url: &str) -> crate::error::Result<crate::extract::ArticleData> {
+        Ok(crate::extract::extract_article(&self.extract_input(url, None))?)
+    }
+
+    /// Extract structured article data from the subtree matched by a CSS selector.
+    pub fn article_with_selector(
+        &self,
+        url: &str,
+        selector: &str,
+    ) -> crate::error::Result<crate::extract::ArticleData> {
+        Ok(crate::extract::extract_article(
+            &self.extract_input(url, Some(selector)),
+        )?)
+    }
+
     /// Extract readable Markdown from the subtree matched by a CSS selector.
     pub fn markdown_with_selector(&self, url: &str, selector: &str) -> crate::error::Result<String> {
         Ok(crate::extract::extract_text(&self.extract_input(url, Some(selector)))?)
@@ -573,7 +589,7 @@ mod tests {
             .unwrap();
         let parsed: Value = serde_json::from_str(&json).expect("valid JSON");
         assert_eq!(parsed["url"].as_str(), Some("https://example.com/page"));
-        assert!(parsed["text_content"].as_str().unwrap().contains("scoped"));
+        assert!(parsed["textContent"].as_str().unwrap().contains("scoped"));
     }
 
     #[test]

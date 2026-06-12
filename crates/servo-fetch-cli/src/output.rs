@@ -143,29 +143,20 @@ pub(crate) struct Json<'a> {
 
 impl Json<'_> {
     pub(crate) fn execute(&self, sink: Sink<'_>) -> Result<()> {
-        sink.writeln(self.url, Ext::Json, &self.render()?)
+        sink.writeln(self.url, Ext::Json, &serde_json::to_string_pretty(&self.article()?)?)
     }
 
     /// Emit a single-line NDJSON record for batch output.
     pub(crate) fn execute_compact(&self, sink: Sink<'_>) -> Result<()> {
-        let pretty = self.render()?;
-        let line = serde_json::from_str::<Value>(&pretty)
-            .ok()
-            .and_then(|v| serde_json::to_string(&v).ok())
-            .unwrap_or(pretty);
-        sink.writeln(self.url, Ext::Json, &line)
+        sink.writeln(self.url, Ext::Json, &serde_json::to_string(&self.article()?)?)
     }
 
-    fn render(&self) -> Result<String> {
-        if let Some(selector) = self.selector {
-            let input = servo_fetch::extract::ExtractInput::new(&self.page.html, self.url)
-                .with_layout_json(self.page.layout_json.as_deref())
-                .with_inner_text(Some(&self.page.inner_text))
-                .with_selector(Some(selector));
-            Ok(servo_fetch::extract::extract_json(&input)?)
-        } else {
-            Ok(self.page.extract_json_with_url(self.url)?)
-        }
+    fn article(&self) -> Result<servo_fetch_types::Article> {
+        let data = match self.selector {
+            Some(selector) => self.page.article_with_selector(self.url, selector)?,
+            None => self.page.article(self.url)?,
+        };
+        Ok(crate::wire::article(data))
     }
 }
 
@@ -215,11 +206,9 @@ impl Extracted<'_> {
         sink.writeln(self.url, Ext::Json, &serde_json::to_string(&self.payload())?)
     }
 
-    fn payload(&self) -> Value {
-        serde_json::json!({
-            "url": self.url,
-            "extracted": self.page.extracted.as_ref().unwrap_or(&Value::Null),
-        })
+    fn payload(&self) -> servo_fetch_types::SchemaExtractResult {
+        let extracted = self.page.extracted.clone().unwrap_or(Value::Null);
+        crate::wire::schema_extract(self.url, extracted)
     }
 }
 

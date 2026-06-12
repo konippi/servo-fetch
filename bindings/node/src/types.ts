@@ -1,5 +1,4 @@
-/** Visibility-aware filtering policy. */
-export type Visibility = "moderate" | "strict" | "off";
+import type { Visibility } from "./generated/index.js";
 
 /** Options shared by every single-page operation. */
 export interface FetchOptions {
@@ -21,19 +20,6 @@ export interface FetchOptions {
   signal?: AbortSignal;
   /** Max bytes to buffer from the binary's stdout before aborting. Default: 128 MiB. */
   maxBuffer?: number;
-}
-
-/** Readability-extracted article (`--format json`). */
-export interface Article {
-  title: string;
-  /** Readable article HTML. */
-  content: string;
-  /** Readable content as Markdown. */
-  textContent: string;
-  byline?: string;
-  excerpt?: string;
-  lang?: string;
-  url?: string;
 }
 
 /** Per-URL result from {@link batchFetch}. */
@@ -98,10 +84,4 @@ export interface MapOptions {
   /** Allow requests to loopback/private addresses, relaxing the SSRF guard (for local testing). */
   allowPrivateAddresses?: boolean;
   signal?: AbortSignal;
-}
-
-/** A URL discovered by {@link map}. */
-export interface MappedUrl {
-  url: string;
-  lastmod?: string;
 }

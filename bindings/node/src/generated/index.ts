@@ -34,30 +34,9 @@ lang?: string,
 url?: string, };
 
 /**
- * Per-URL result of a batch fetch.
- */
-export type BatchResult = { 
-/**
- * The fetched URL.
- */
-url: string, 
-/**
- * Whether the fetch succeeded.
- */
-ok: boolean, 
-/**
- * Markdown content when `ok` is true.
- */
-markdown?: string, 
-/**
- * Error message when `ok` is false.
- */
-error?: string, };
-
-/**
  * Severity of a captured console message.
  */
-export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug";
+export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug" | "trace";
 
 /**
  * A console message captured while evaluating JavaScript.
@@ -123,7 +102,20 @@ crawled: number,
 /**
  * Pages that errored.
  */
-errors: number, };
+errors: number, 
+/**
+ * Total wall-clock time in milliseconds.
+ */
+elapsedMs: number, };
+
+/**
+ * Error payload returned by every non-streaming failure.
+ */
+export type ErrorEnvelope = { 
+/**
+ * Human-readable error message.
+ */
+error: string, };
 
 /**
  * Result of evaluating a JavaScript expression on a page.
@@ -143,78 +135,6 @@ result: string,
 console: Array<ConsoleMessage>, };
 
 /**
- * Options shared by every single-page operation.
- */
-export type FetchOptions = { 
-/**
- * Page-load timeout in seconds.
- */
-timeout?: number, 
-/**
- * Extra wait in milliseconds after the `load` event, for SPAs.
- */
-settle?: number, 
-/**
- * Override for the `User-Agent` header.
- */
-userAgent?: string, 
-/**
- * Netscape-format `cookies.txt` contents to inject.
- */
-cookies?: string, 
-/**
- * Visibility filtering policy.
- */
-visibility?: Visibility, 
-/**
- * CSS selector to extract a specific section.
- */
-selector?: string, 
-/**
- * Allow requests to loopback/private addresses, relaxing the SSRF guard.
- */
-allowPrivateAddresses: boolean, };
-
-/**
- * One field within a [`Schema`].
- */
-export type Field = { 
-/**
- * Output key for this field.
- */
-name: string, 
-/**
- * CSS selector relative to the current container.
- */
-selector: string, } & ({ "type": "text" } | { "type": "attribute", 
-/**
- * Attribute name to read (e.g. `href`).
- */
-attribute: string, } | { "type": "html" } | { "type": "innerHtml" } | { "type": "nestedList", 
-/**
- * Nested field definitions.
- */
-fields: Array<Field>, });
-
-/**
- * How a [`Field`] reads its value.
- */
-export type FieldKind = { "type": "text" } | { "type": "attribute", 
-/**
- * Attribute name to read (e.g. `href`).
- */
-attribute: string, } | { "type": "html" } | { "type": "innerHtml" } | { "type": "nestedList", 
-/**
- * Nested field definitions.
- */
-fields: Array<Field>, };
-
-/**
- * Output representation for a single-page fetch.
- */
-export type Format = "markdown" | "json" | "html" | "text" | "accessibilityTree";
-
-/**
  * A URL discovered by sitemap mapping.
  */
 export type MappedUrl = { 
@@ -228,17 +148,17 @@ url: string,
 lastmod?: string, };
 
 /**
- * A declarative CSS-selector extraction schema.
+ * Structured-extraction result for the `--schema` path.
  */
-export type Schema = { 
+export type SchemaExtractResult = { 
 /**
- * Repeated container selector; each match yields one object.
+ * URL the schema ran against.
  */
-baseSelector?: string, 
+url: string, 
 /**
- * Fields read from each container.
+ * Extracted value; shape depends on the schema.
  */
-fields: Array<Field>, };
+extracted: unknown, };
 
 /**
  * Visibility-aware filtering policy applied during extraction.

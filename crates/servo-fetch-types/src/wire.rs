@@ -13,56 +13,6 @@ pub enum Visibility {
     Off,
 }
 
-/// Output representation for a single-page fetch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
-#[serde(rename_all = "camelCase")]
-pub enum Format {
-    /// Readability-extracted Markdown.
-    Markdown,
-    /// Readability-extracted structured data.
-    Json,
-    /// Raw rendered HTML, post-JS execution.
-    Html,
-    /// Plain text (`document.body.innerText`).
-    Text,
-    /// Serialized accessibility tree.
-    AccessibilityTree,
-}
-
-/// Options shared by every single-page operation.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
-#[serde(rename_all = "camelCase", default)]
-pub struct FetchOptions {
-    /// Page-load timeout in seconds.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub timeout: Option<u32>,
-    /// Extra wait in milliseconds after the `load` event, for SPAs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub settle: Option<u32>,
-    /// Override for the `User-Agent` header.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub user_agent: Option<String>,
-    /// Netscape-format `cookies.txt` contents to inject.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub cookies: Option<String>,
-    /// Visibility filtering policy.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub visibility: Option<Visibility>,
-    /// CSS selector to extract a specific section.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub selector: Option<String>,
-    /// Allow requests to loopback/private addresses, relaxing the SSRF guard.
-    pub allow_private_addresses: bool,
-}
-
 /// Readability-extracted article.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
@@ -107,6 +57,8 @@ pub enum ConsoleLevel {
     Error,
     /// `console.debug`.
     Debug,
+    /// `console.trace`.
+    Trace,
 }
 
 /// A console message captured while evaluating JavaScript.
@@ -144,7 +96,8 @@ pub enum CrawlEvent {
         /// URL of the crawled page.
         url: String,
         /// Link depth from the seed URL.
-        depth: u32,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        depth: u64,
         /// RFC 3339 timestamp when the fetch completed.
         fetched_at: String,
         /// Page title, if any.
@@ -154,7 +107,8 @@ pub enum CrawlEvent {
         /// Extracted content (Markdown or JSON per request).
         content: String,
         /// Number of links discovered on the page.
-        links_found: u32,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        links_found: u64,
     },
     /// A page that failed to fetch.
     #[serde(rename_all = "camelCase")]
@@ -162,7 +116,8 @@ pub enum CrawlEvent {
         /// URL that failed.
         url: String,
         /// Link depth from the seed URL.
-        depth: u32,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        depth: u64,
         /// RFC 3339 timestamp when the attempt completed.
         fetched_at: String,
         /// Failure description.
@@ -172,10 +127,36 @@ pub enum CrawlEvent {
     #[serde(rename_all = "camelCase")]
     Stats {
         /// Pages crawled successfully.
-        crawled: u32,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        crawled: u64,
         /// Pages that errored.
-        errors: u32,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        errors: u64,
+        /// Total wall-clock time in milliseconds.
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        elapsed_ms: u64,
     },
+}
+
+/// Structured-extraction result for the `--schema` path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaExtractResult {
+    /// URL the schema ran against.
+    pub url: String,
+    /// Extracted value; shape depends on the schema.
+    #[cfg_attr(feature = "codegen", ts(type = "unknown"))]
+    pub extracted: serde_json::Value,
+}
+
+/// Error payload returned by every non-streaming failure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorEnvelope {
+    /// Human-readable error message.
+    pub error: String,
 }
 
 /// A URL discovered by sitemap mapping.
@@ -189,73 +170,4 @@ pub struct MappedUrl {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub lastmod: Option<String>,
-}
-
-/// Per-URL result of a batch fetch.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
-#[serde(rename_all = "camelCase")]
-pub struct BatchResult {
-    /// The fetched URL.
-    pub url: String,
-    /// Whether the fetch succeeded.
-    pub ok: bool,
-    /// Markdown content when `ok` is true.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub markdown: Option<String>,
-    /// Error message when `ok` is false.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub error: Option<String>,
-}
-
-/// A declarative CSS-selector extraction schema.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
-#[serde(rename_all = "camelCase")]
-pub struct Schema {
-    /// Repeated container selector; each match yields one object.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub base_selector: Option<String>,
-    /// Fields read from each container.
-    pub fields: Vec<Field>,
-}
-
-/// One field within a [`Schema`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
-#[serde(rename_all = "camelCase")]
-pub struct Field {
-    /// Output key for this field.
-    pub name: String,
-    /// CSS selector relative to the current container.
-    pub selector: String,
-    /// How to read the value once the selector matches.
-    #[serde(flatten)]
-    pub kind: FieldKind,
-}
-
-/// How a [`Field`] reads its value.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum FieldKind {
-    /// Descendant text of the first match.
-    Text,
-    /// A named attribute on the first match.
-    Attribute {
-        /// Attribute name to read (e.g. `href`).
-        attribute: String,
-    },
-    /// Outer HTML of the first match.
-    Html,
-    /// Inner HTML of the first match.
-    InnerHtml,
-    /// Repeated sub-object per match, using nested fields.
-    NestedList {
-        /// Nested field definitions.
-        fields: Vec<Field>,
-    },
 }

@@ -44,7 +44,7 @@ impl From<ToolError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = serde_json::json!({ "error": self.message });
+        let body = servo_fetch_types::ErrorEnvelope { error: self.message };
         (self.status, axum::Json(body)).into_response()
     }
 }

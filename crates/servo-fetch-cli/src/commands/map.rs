@@ -24,7 +24,8 @@ pub(crate) fn run(args: &MapArgs) -> anyhow::Result<()> {
 
     let mut out = io::stdout().lock();
     if args.json {
-        let json = serde_json::to_string_pretty(&results)?;
+        let entries: Vec<_> = results.iter().map(crate::wire::mapped_url).collect();
+        let json = serde_json::to_string_pretty(&entries)?;
         writeln!(out, "{json}")?;
     } else {
         for entry in &results {

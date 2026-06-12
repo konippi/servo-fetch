@@ -8,9 +8,8 @@ use axum::response::IntoResponse;
 use super::error::ApiError;
 use super::extract::Json;
 use super::params::{
-    BatchFetchRequest, BatchFetchResponse, BatchFormat, CrawlRequest, CrawlResponse, ExecuteJsRequest,
-    ExecuteJsResponse, FetchRequest, FetchResponse, Format, HealthResponse, MapRequest, MapResponse, ScreenshotRequest,
-    VersionResponse,
+    BatchFetchRequest, BatchFetchResponse, BatchFormat, CrawlRequest, CrawlResponse, ExecuteJsRequest, FetchRequest,
+    FetchResponse, Format, HealthResponse, MapRequest, MapResponse, ScreenshotRequest, VersionResponse,
 };
 use crate::tools;
 
@@ -75,7 +74,9 @@ pub(super) async fn screenshot(Json(req): Json<ScreenshotRequest>) -> Result<imp
     ))
 }
 
-pub(super) async fn execute_js(Json(req): Json<ExecuteJsRequest>) -> Result<AxumJson<ExecuteJsResponse>, ApiError> {
+pub(super) async fn execute_js(
+    Json(req): Json<ExecuteJsRequest>,
+) -> Result<AxumJson<servo_fetch_types::EvaluateResult>, ApiError> {
     if req.expression.len() > MAX_JS_LEN {
         return Err(ApiError::bad_request(format!(
             "expression exceeds {MAX_JS_LEN} character limit"
@@ -91,16 +92,12 @@ pub(super) async fn execute_js(Json(req): Json<ExecuteJsRequest>) -> Result<Axum
         result.truncate(servo_fetch::sanitize::floor_char_boundary(&result, MAX_JS_OUTPUT_LEN));
         result.push_str("\n<output truncated>");
     }
-    let console = page
-        .console_messages
-        .iter()
-        .map(|m| format!("[{:?}] {}", m.level, m.message))
-        .collect();
-    Ok(AxumJson(ExecuteJsResponse {
+    let result = servo_fetch::sanitize::sanitize(&result).into_owned();
+    Ok(AxumJson(crate::wire::evaluate_result(
         url,
-        result: servo_fetch::sanitize::sanitize(&result).into_owned(),
-        console,
-    }))
+        result,
+        &page.console_messages,
+    )))
 }
 
 pub(super) async fn batch_fetch(Json(req): Json<BatchFetchRequest>) -> Result<AxumJson<BatchFetchResponse>, ApiError> {

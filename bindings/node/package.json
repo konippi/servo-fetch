@@ -58,6 +58,8 @@
     "lint:fix": "biome check --write",
     "test": "vitest run",
     "test:e2e": "vitest run test/e2e.test.ts",
+    "generate:types": "cargo test -p servo-fetch-types --features codegen",
+    "check:types": "pnpm run generate:types && git diff --exit-code src/generated",
     "prepublishOnly": "pnpm run build"
   },
   "optionalDependencies": {

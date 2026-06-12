@@ -19,12 +19,12 @@ if (line.includes("badjson")) {
   write("servo-fetch 9.9.9\n");
 } else if (has("crawl")) {
   write(
-    '{"type":"page","url":"https://e.com/","depth":0,"fetched_at":"2024-01-01T00:00:00.000Z","title":"Home","content":"# Home","links_found":2}\n',
+    '{"type":"page","url":"https://e.com/","depth":0,"fetchedAt":"2024-01-01T00:00:00.000Z","title":"Home","content":"# Home","linksFound":2}\n',
   );
   write(
-    '{"type":"error","url":"https://e.com/bad","depth":1,"fetched_at":"2024-01-01T00:00:01.000Z","error":"boom"}\n',
+    '{"type":"error","url":"https://e.com/bad","depth":1,"fetchedAt":"2024-01-01T00:00:01.000Z","error":"boom"}\n',
   );
-  write('{"type":"stats","crawled":2,"errors":1,"elapsed_ms":5}\n');
+  write('{"type":"stats","crawled":2,"errors":1,"elapsedMs":5}\n');
 } else if (has("map")) {
   write('[{"url":"https://e.com/"},{"url":"https://e.com/a","lastmod":"2024-01-01"}]\n');
 } else if (has("--schema")) {
@@ -32,7 +32,7 @@ if (line.includes("badjson")) {
 } else if (has("--js")) {
   write("JS_RESULT\n");
 } else if (has("json")) {
-  write('{"title":"T","content":"<p>c</p>","text_content":"c","byline":"me"}\n');
+  write('{"title":"T","content":"<p>c</p>","textContent":"c","byline":"me"}\n');
 } else if (has("png")) {
   write("PNGDATA");
 } else {

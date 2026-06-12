@@ -29,8 +29,8 @@ pub enum ExtractError {
 }
 
 /// Structured article data for JSON output.
-#[derive(Serialize)]
-#[non_exhaustive]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ArticleData {
     /// Page title.
     pub title: String,
@@ -165,11 +165,11 @@ pub fn extract_text(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
     Ok(clean_markdown(&out))
 }
 
-/// Extract readable content as JSON.
-pub fn extract_json(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
+/// Extract readable content as structured article data.
+pub fn extract_article(input: &ExtractInput<'_>) -> Result<ArticleData, ExtractError> {
     if let Some(selector) = input.selector {
         let text = extract_by_selector(input, selector)?;
-        let data = ArticleData {
+        return Ok(ArticleData {
             title: String::new(),
             content: String::new(),
             text_content: text,
@@ -177,11 +177,10 @@ pub fn extract_json(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
             excerpt: None,
             lang: None,
             url: Some(input.url.to_string()),
-        };
-        return Ok(serde_json::to_string_pretty(&data)?);
+        });
     }
     let article = parse_article(input);
-    let data = ArticleData {
+    Ok(ArticleData {
         title: article.title,
         content: article.content,
         text_content: article.text_content,
@@ -189,8 +188,12 @@ pub fn extract_json(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
         excerpt: article.excerpt,
         lang: article.lang,
         url: Some(input.url.to_string()),
-    };
-    Ok(serde_json::to_string_pretty(&data)?)
+    })
+}
+
+/// Extract readable content as JSON.
+pub fn extract_json(input: &ExtractInput<'_>) -> Result<String, ExtractError> {
+    Ok(serde_json::to_string_pretty(&extract_article(input)?)?)
 }
 
 struct ParsedArticle {

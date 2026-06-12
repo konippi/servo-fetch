@@ -153,6 +153,7 @@ pub struct CrawlPage {
     pub links_found: usize,
 }
 
+/// Mirrors the canonical wire shape `servo_fetch_types::CrawlEvent`; keep both in sync.
 impl serde::Serialize for CrawlResult {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
@@ -163,12 +164,12 @@ impl serde::Serialize for CrawlResult {
                 map.serialize_entry("type", "page")?;
                 map.serialize_entry("url", &self.url)?;
                 map.serialize_entry("depth", &self.depth)?;
-                map.serialize_entry("fetched_at", &fetched_at)?;
+                map.serialize_entry("fetchedAt", &fetched_at)?;
                 if let Some(t) = &page.title {
                     map.serialize_entry("title", t)?;
                 }
                 map.serialize_entry("content", &page.content)?;
-                map.serialize_entry("links_found", &page.links_found)?;
+                map.serialize_entry("linksFound", &page.links_found)?;
                 map.end()
             }
             Err(e) => {
@@ -176,7 +177,7 @@ impl serde::Serialize for CrawlResult {
                 map.serialize_entry("type", "error")?;
                 map.serialize_entry("url", &self.url)?;
                 map.serialize_entry("depth", &self.depth)?;
-                map.serialize_entry("fetched_at", &fetched_at)?;
+                map.serialize_entry("fetchedAt", &fetched_at)?;
                 map.serialize_entry("error", &e.to_string())?;
                 map.end()
             }
@@ -502,7 +503,9 @@ fn process_ok_fetch(
         .with_selector(ctx.opts.selector.as_deref());
 
     let content = if ctx.opts.json {
-        crate::extract::extract_json(&input).ok()
+        crate::extract::extract_article(&input)
+            .ok()
+            .and_then(|a| serde_json::to_string(&a).ok())
     } else {
         crate::extract::extract_text(&input).ok()
     };

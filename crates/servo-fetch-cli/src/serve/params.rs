@@ -96,13 +96,6 @@ pub(super) struct BatchFetchResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub(super) struct ExecuteJsResponse {
-    pub url: String,
-    pub result: String,
-    pub console: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
 pub(super) struct CrawlResponse {
     pub results: Vec<FetchResponse>,
 }

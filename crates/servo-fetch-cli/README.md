@@ -176,7 +176,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | ----- | ---- | ----------- |
 | `title` | string | Page title |
 | `content` | string | Raw HTML extracted by Readability |
-| `text_content` | string | Readable text (Markdown) |
+| `textContent` | string | Readable text (Markdown) |
 | `byline` | string | Author or byline (omitted if not detected) |
 | `excerpt` | string | Short excerpt or description (omitted if not detected) |
 | `lang` | string | Document language (omitted if not detected) |

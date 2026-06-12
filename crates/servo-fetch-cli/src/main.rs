@@ -11,6 +11,7 @@ mod output;
 mod progress;
 mod serve;
 mod tools;
+mod wire;
 
 use clap::Parser;
 

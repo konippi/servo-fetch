@@ -34,6 +34,7 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
 clap = { workspace = true }
+humantime = { workspace = true }
 libc = { workspace = true }
 rmcp = { workspace = true }
 rustls = { workspace = true }
@@ -41,6 +42,7 @@ schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 servo-fetch = { workspace = true }
+servo-fetch-types = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "signal"] }
 tower = { workspace = true }

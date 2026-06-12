@@ -117,7 +117,10 @@ fn fetch_and_render(
         .with_selector(selector);
 
     let full = if json {
-        extract::extract_json(&input).unwrap_or_default()
+        match extract::extract_article(&input) {
+            Ok(data) => serde_json::to_string_pretty(&crate::wire::article(data)).unwrap_or_default(),
+            Err(_) => String::new(),
+        }
     } else {
         extract::extract_text(&input).unwrap_or_default()
     };

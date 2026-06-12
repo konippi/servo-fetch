@@ -35,11 +35,11 @@ pub(crate) fn extract(page: &Page, url: &str, json: bool, selector: Option<&str>
         .with_inner_text(Some(&page.inner_text))
         .with_selector(selector);
     if json {
-        extract::extract_json(&input)
+        let data = extract::extract_article(&input).map_err(|e| ToolError::internal(e.to_string()))?;
+        serde_json::to_string_pretty(&crate::wire::article(data)).map_err(|e| ToolError::internal(e.to_string()))
     } else {
-        extract::extract_text(&input)
+        extract::extract_text(&input).map_err(|e| ToolError::internal(e.to_string()))
     }
-    .map_err(|e| ToolError::internal(e.to_string()))
 }
 
 pub(crate) fn paginate(content: &str, start: usize, max_len: usize) -> String {

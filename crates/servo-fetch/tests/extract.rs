@@ -37,7 +37,7 @@ fn json_output_is_valid() {
     let json = extract::extract_json(&input(&html)).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
     assert!(parsed.get("title").is_some());
-    assert!(parsed.get("text_content").is_some());
+    assert!(parsed.get("textContent").is_some());
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn json_simple_page() {
     let html = fixture("simple.html");
     let json = extract::extract_json(&input(&html)).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
-    assert!(parsed["text_content"].as_str().unwrap().contains("Hello World"));
+    assert!(parsed["textContent"].as_str().unwrap().contains("Hello World"));
 }
 
 #[test]

@@ -4,7 +4,7 @@ import { onWindows, useFakeBinary } from "../helpers/fake-binary.js";
 describe.skipIf(onWindows)("extract", () => {
   useFakeBinary();
 
-  it("maps text_content to textContent", async () => {
+  it("returns the structured article", async () => {
     const { extract } = await import("../../src/index.js");
     expect(await extract("https://e.com")).toEqual({
       title: "T",

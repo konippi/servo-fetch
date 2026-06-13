@@ -81,7 +81,7 @@ jobs:
   build-release:
     name: Build ${{ matrix.target }}
     needs: release-plz-release
-    if: needs.release-plz-release.outputs.releases_created == 'true'
+    if: needs.release-plz-release.outputs.tag != ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     permissions:
@@ -225,7 +225,7 @@ jobs:
   publish-crate:
     name: Publish to crates.io
     needs: [release-plz-release, build-release]
-    if: needs.release-plz-release.outputs.releases_created == 'true'
+    if: needs.release-plz-release.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -252,7 +252,7 @@ jobs:
   publish-docker:
     name: Publish Docker image
     needs: [release-plz-release, build-release]
-    if: needs.release-plz-release.outputs.releases_created == 'true'
+    if: needs.release-plz-release.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -360,7 +360,7 @@ jobs:
   publish-release:
     name: Publish release
     needs: [release-plz-release, build-release, publish-crate, publish-docker, trivy-scan]
-    if: needs.release-plz-release.outputs.releases_created == 'true'
+    if: needs.release-plz-release.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

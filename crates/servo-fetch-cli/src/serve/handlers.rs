@@ -125,7 +125,7 @@ pub(super) async fn batch_fetch(Json(req): Json<BatchFetchRequest>) -> Result<Ax
 
 pub(super) async fn crawl(Json(req): Json<CrawlRequest>) -> Result<AxumJson<CrawlResponse>, ApiError> {
     let url = tools::validated_url(&req.url)?;
-    let limit = req.limit.unwrap_or(20).clamp(1, MAX_CRAWL_PAGES);
+    let limit = req.limit.unwrap_or(50).clamp(1, MAX_CRAWL_PAGES);
     let max_depth = req.max_depth.unwrap_or(3).clamp(1, MAX_CRAWL_DEPTH);
     let timeout = req.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
     let settle_ms = req.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);

@@ -86,7 +86,7 @@ pub(super) struct BatchFetchParams {
 pub(super) struct CrawlParams {
     #[schemars(description = "Starting URL to crawl (http/https only)")]
     pub url: String,
-    #[schemars(description = "Maximum pages to crawl. Default: 20. Max: 500.")]
+    #[schemars(description = "Maximum pages to crawl. Default: 50. Max: 500.")]
     pub limit: Option<usize>,
     #[schemars(description = "Maximum link depth from seed URL. Default: 3. Max: 10.")]
     pub max_depth: Option<usize>,

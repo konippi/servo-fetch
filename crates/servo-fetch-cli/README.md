@@ -309,7 +309,7 @@ Streamable HTTP: `servo-fetch mcp --port 8080`
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | `url` | string | Starting URL (http/https only) |
-| `limit` | number? | Maximum pages to crawl (default 20, max 500) |
+| `limit` | number? | Maximum pages to crawl (default 50, max 500) |
 | `max_depth` | number? | Maximum link depth from seed (default 3, max 10) |
 | `format` | string? | `markdown` (default) or `json` |
 | `include_glob` | string[]? | URL path patterns to include |

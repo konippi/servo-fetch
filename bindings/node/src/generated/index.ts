@@ -109,6 +109,63 @@ errors: number,
 elapsedMs: number, };
 
 /**
+ * Parameters for the `crawl` method.
+ */
+export type CrawlRequest = { 
+/**
+ * Seed URL to crawl (http/https only).
+ */
+url: string, 
+/**
+ * Maximum number of pages to crawl (default: 50).
+ */
+limit?: number, 
+/**
+ * Maximum link depth from the seed URL (default: 3).
+ */
+maxDepth?: number, 
+/**
+ * URL path glob patterns to include.
+ */
+include?: Array<string>, 
+/**
+ * URL path glob patterns to exclude.
+ */
+exclude?: Array<string>, 
+/**
+ * Maximum parallel page fetches (default: 1).
+ */
+concurrency?: number, 
+/**
+ * Minimum dispatch interval in milliseconds (default: 500; 0 disables).
+ */
+delayMs?: number, 
+/**
+ * CSS selector to extract a specific section per page.
+ */
+selector?: string, 
+/**
+ * Per-page load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event, per page (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Override the User-Agent header.
+ */
+userAgent?: string, 
+/**
+ * Path to a Netscape-format cookies.txt file.
+ */
+cookiesFile?: string, 
+/**
+ * Allow loopback/private addresses, relaxing the SSRF guard.
+ */
+allowPrivateAddresses?: boolean, };
+
+/**
  * Error payload returned by every non-streaming failure.
  */
 export type ErrorEnvelope = { 
@@ -116,6 +173,39 @@ export type ErrorEnvelope = {
  * Human-readable error message.
  */
 error: string, };
+
+/**
+ * Parameters for the `evaluate` method.
+ */
+export type EvaluateRequest = { 
+/**
+ * URL to load before evaluating.
+ */
+url: string, 
+/**
+ * JavaScript expression to evaluate.
+ */
+expression: string, 
+/**
+ * Page-load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Override the User-Agent header.
+ */
+userAgent?: string, 
+/**
+ * Path to a Netscape-format cookies.txt file.
+ */
+cookiesFile?: string, 
+/**
+ * Allow loopback/private addresses, relaxing the SSRF guard.
+ */
+allowPrivateAddresses?: boolean, };
 
 /**
  * Result of evaluating a JavaScript expression on a page.
@@ -135,6 +225,89 @@ result: string,
 console: Array<ConsoleMessage>, };
 
 /**
+ * Output format for a single-page fetch.
+ */
+export type FetchFormat = "markdown" | "json" | "html" | "text";
+
+/**
+ * Parameters for the `fetch` method.
+ */
+export type FetchRequest = { 
+/**
+ * URL to fetch (http/https only).
+ */
+url: string, 
+/**
+ * Output format.
+ */
+format: FetchFormat, 
+/**
+ * CSS selector to extract a specific section.
+ */
+selector?: string, 
+/**
+ * Page-load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Override the User-Agent header.
+ */
+userAgent?: string, 
+/**
+ * Path to a Netscape-format cookies.txt file.
+ */
+cookiesFile?: string, 
+/**
+ * Visibility filtering policy (default: moderate).
+ */
+visibility?: Visibility, 
+/**
+ * Allow loopback/private addresses, relaxing the SSRF guard.
+ */
+allowPrivateAddresses?: boolean, };
+
+/**
+ * Parameters for the `map` method.
+ */
+export type MapRequest = { 
+/**
+ * URL to discover links from (http/https only).
+ */
+url: string, 
+/**
+ * Maximum number of URLs to discover (default: 5000).
+ */
+limit?: number, 
+/**
+ * URL path glob patterns to include.
+ */
+include?: Array<string>, 
+/**
+ * URL path glob patterns to exclude.
+ */
+exclude?: Array<string>, 
+/**
+ * Override the User-Agent header.
+ */
+userAgent?: string, 
+/**
+ * Per-request timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Skip the HTML link fallback when no sitemap is found.
+ */
+noFallback?: boolean, 
+/**
+ * Allow loopback/private addresses, relaxing the SSRF guard.
+ */
+allowPrivateAddresses?: boolean, };
+
+/**
  * A URL discovered by sitemap mapping.
  */
 export type MappedUrl = { 
@@ -148,6 +321,43 @@ url: string,
 lastmod?: string, };
 
 /**
+ * Parameters for the `extractSchema` method.
+ */
+export type SchemaExtractRequest = { 
+/**
+ * URL to extract from (http/https only).
+ */
+url: string, 
+/**
+ * CSS-selector extraction schema.
+ */
+schema: unknown, 
+/**
+ * Page-load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Override the User-Agent header.
+ */
+userAgent?: string, 
+/**
+ * Path to a Netscape-format cookies.txt file.
+ */
+cookiesFile?: string, 
+/**
+ * Visibility filtering policy (default: moderate).
+ */
+visibility?: Visibility, 
+/**
+ * Allow loopback/private addresses, relaxing the SSRF guard.
+ */
+allowPrivateAddresses?: boolean, };
+
+/**
  * Structured-extraction result for the `--schema` path.
  */
 export type SchemaExtractResult = { 
@@ -159,6 +369,39 @@ url: string,
  * Extracted value; shape depends on the schema.
  */
 extracted: unknown, };
+
+/**
+ * Parameters for the `screenshot` method.
+ */
+export type ScreenshotRequest = { 
+/**
+ * URL to capture (http/https only).
+ */
+url: string, 
+/**
+ * Capture the full scrollable page instead of just the viewport.
+ */
+fullPage?: boolean, 
+/**
+ * Page-load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Override the User-Agent header.
+ */
+userAgent?: string, 
+/**
+ * Path to a Netscape-format cookies.txt file.
+ */
+cookiesFile?: string, 
+/**
+ * Allow loopback/private addresses, relaxing the SSRF guard.
+ */
+allowPrivateAddresses?: boolean, };
 
 /**
  * Visibility-aware filtering policy applied during extraction.

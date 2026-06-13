@@ -3,6 +3,7 @@
 use base64::Engine as _;
 use rmcp::ErrorData;
 use rmcp::model::{CallToolResult, Content};
+use servo_fetch_types::ErrorKind;
 
 pub(super) use crate::tools::{
     CrawlOptions as CrawlToolOptions, batch_fetch_pages, extract, fetch_js, fetch_page, paginate,
@@ -48,9 +49,11 @@ pub(super) async fn discover_urls(
 impl From<ToolError> for ErrorData {
     fn from(err: ToolError) -> Self {
         let msg = err.to_string();
-        match err {
-            ToolError::InvalidInput(_) => Self::invalid_params(msg, None),
-            ToolError::Fetch(_) | ToolError::Internal(_) => Self::internal_error(msg, None),
+        match err.kind() {
+            ErrorKind::InvalidUrl | ErrorKind::AddressNotAllowed | ErrorKind::InvalidParams => {
+                Self::invalid_params(msg, None)
+            }
+            _ => Self::internal_error(msg, None),
         }
     }
 }

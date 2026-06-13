@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use servo_fetch_types::ErrorKind;
 
 /// JSON-RPC request id.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -28,37 +29,55 @@ pub(crate) struct CancelParams {
 }
 
 /// JSON-RPC error object.
+/// Structured payload for JSON-RPC `error.data`.
+#[derive(Debug, Serialize)]
+pub(crate) struct ErrorData {
+    pub kind: ErrorKind,
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct ResponseError {
     pub code: i32,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
+    pub data: Option<ErrorData>,
 }
 
 impl ResponseError {
-    pub(crate) fn new(code: i32, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: i32, kind: ErrorKind, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
-            data: None,
+            data: Some(ErrorData { kind }),
         }
     }
 
     pub(crate) fn method_not_found(method: &str) -> Self {
-        Self::new(code::METHOD_NOT_FOUND, format!("method not found: {method}"))
+        Self::new(
+            code::METHOD_NOT_FOUND,
+            ErrorKind::MethodNotFound,
+            format!("method not found: {method}"),
+        )
     }
 
     pub(crate) fn invalid_params(message: impl Into<String>) -> Self {
-        Self::new(code::INVALID_PARAMS, message)
+        Self::new(code::INVALID_PARAMS, ErrorKind::InvalidParams, message)
     }
 
     pub(crate) fn cancelled() -> Self {
-        Self::new(code::REQUEST_CANCELLED, "request cancelled")
+        Self::new(
+            code::REQUEST_CANCELLED,
+            ErrorKind::RequestCancelled,
+            "request cancelled",
+        )
     }
 
     pub(crate) fn duplicate_id() -> Self {
-        Self::new(code::INVALID_REQUEST, "duplicate in-flight request id")
+        Self::new(
+            code::INVALID_REQUEST,
+            ErrorKind::DuplicateRequest,
+            "duplicate in-flight request id",
+        )
     }
 }
 

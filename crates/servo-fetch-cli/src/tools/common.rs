@@ -26,7 +26,7 @@ pub(crate) fn fetch_semaphore() -> &'static Semaphore {
 pub(crate) fn validated_url(url: &str) -> ToolResult<String> {
     servo_fetch::validate_url(url)
         .map(|u| u.to_string())
-        .map_err(|e| ToolError::invalid(format!("{e:#}")))
+        .map_err(ToolError::from)
 }
 
 pub(crate) fn extract(page: &Page, url: &str, json: bool, selector: Option<&str>) -> ToolResult<String> {

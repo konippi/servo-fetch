@@ -10,8 +10,9 @@ use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
 use futures_util::{FutureExt as _, StreamExt as _};
-use protocol::{CancelParams, Incoming, RequestId, Response, ResponseError, code};
+use protocol::{CancelParams, ErrorData, Incoming, RequestId, Response, ResponseError, code};
 use serde_json::Value;
+use servo_fetch_types::ErrorKind;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_util::codec::LinesCodecError;
 use tokio_util::sync::CancellationToken;
@@ -30,7 +31,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             Ok(line) => line,
             Err(LinesCodecError::MaxLineLengthExceeded) => {
                 // FramedRead ends the stream after a decode error, so report and stop.
-                let _ = tx.send(error_line(code::INVALID_REQUEST, "frame exceeds maximum length"));
+                let _ = tx.send(error_line(
+                    code::INVALID_REQUEST,
+                    ErrorKind::ParseError,
+                    "frame exceeds maximum length",
+                ));
                 break;
             }
             Err(LinesCodecError::Io(e)) => {
@@ -44,7 +49,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         let incoming: Incoming = match serde_json::from_str(&line) {
             Ok(msg) => msg,
             Err(e) => {
-                let _ = tx.send(error_line(code::PARSE_ERROR, &e.to_string()));
+                let _ = tx.send(error_line(code::PARSE_ERROR, ErrorKind::ParseError, &e.to_string()));
                 continue;
             }
         };
@@ -88,7 +93,7 @@ fn spawn_request(id: RequestId, method: String, params: Value, tx: &UnboundedSen
             () = token.cancelled() => Err(ResponseError::cancelled()),
             result = dispatched => result.unwrap_or_else(|payload| {
                 tracing::error!("rpc handler `{method}` panicked: {}", panic_message(payload.as_ref()));
-                Err(ResponseError::new(code::INTERNAL_ERROR, "handler panicked"))
+                Err(ResponseError::new(code::INTERNAL_ERROR, ErrorKind::Internal, "handler panicked"))
             }),
         };
         // Always deregister and answer exactly once, even on panic/cancel.
@@ -119,11 +124,11 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
         .unwrap_or("unknown panic payload")
 }
 
-fn error_line(code: i32, message: &str) -> String {
+fn error_line(code: i32, kind: ErrorKind, message: &str) -> String {
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": Value::Null,
-        "error": { "code": code, "message": message },
+        "error": { "code": code, "message": message, "data": ErrorData { kind } },
     })
     .to_string()
 }

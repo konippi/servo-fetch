@@ -132,7 +132,7 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
             }
             Err(err) => {
                 failures += 1;
-                tracing::error!(url = %url, "{err:#}");
+                tracing::error!(url = %url, "{err}");
             }
         }
     }

@@ -51,7 +51,7 @@ pub(crate) async fn crawl_pages(opts: CrawlOptions<'_>) -> ToolResult<Vec<(Strin
             };
             results.push((r.url, text));
         })
-        .map_err(|e| ToolError::fetch(format!("{e:#}")))?;
+        .map_err(ToolError::from)?;
         Ok(results)
     })
     .await

@@ -7,8 +7,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use servo_fetch::{FetchOptions, MapOptions, VisibilityPolicy};
 use servo_fetch_types::{
-    CrawlRequest, CrawlStats, EvaluateRequest, ExtractRequest, FetchFormat, FetchRequest, InitializeResult, MapRequest,
-    SchemaExtractRequest, ScreenshotRequest, ServerCapabilities, ServerInfo, Visibility,
+    CrawlRequest, CrawlStats, ErrorKind, EvaluateRequest, ExtractRequest, FetchFormat, FetchRequest, InitializeResult,
+    MapRequest, SchemaExtractRequest, ScreenshotRequest, ServerCapabilities, ServerInfo, Visibility,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -100,7 +100,7 @@ async fn screenshot(params: Value) -> Result<Value, ResponseError> {
 
     let png = page
         .screenshot_png()
-        .ok_or_else(|| ResponseError::new(code::FETCH_ERROR, "screenshot capture failed"))?;
+        .ok_or_else(|| ResponseError::new(code::INTERNAL_ERROR, ErrorKind::Internal, "screenshot capture failed"))?;
     Ok(json!(base64::engine::general_purpose::STANDARD.encode(png)))
 }
 
@@ -223,7 +223,7 @@ async fn crawl(params: Value, id: &RequestId, tx: &UnboundedSender<String>) -> R
             }
         })
         .await
-        .map_err(|e| ResponseError::new(code::FETCH_ERROR, format!("{e:#}")))?;
+        .map_err(ResponseError::from)?;
     }
 
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -264,7 +264,7 @@ fn with_ua_and_cookies(
 }
 
 fn load_cookies(path: &str) -> Result<Vec<servo_fetch::CookieSpec>, ResponseError> {
-    servo_fetch::load_cookies(path).map_err(|e| ResponseError::invalid_params(format!("cookies '{path}': {e:#}")))
+    servo_fetch::load_cookies(path).map_err(|e| ResponseError::invalid_params(format!("cookies '{path}': {e}")))
 }
 
 fn visibility_policy(v: Option<Visibility>) -> VisibilityPolicy {
@@ -302,23 +302,23 @@ fn clamp_usize(value: Option<u64>, default: usize, max: usize) -> usize {
 
 impl From<ToolError> for ResponseError {
     fn from(err: ToolError) -> Self {
-        let code = match &err {
-            ToolError::InvalidInput(_) => code::INVALID_PARAMS,
-            ToolError::Fetch(_) => code::FETCH_ERROR,
-            ToolError::Internal(_) => code::INTERNAL_ERROR,
+        let code = match err.kind() {
+            ErrorKind::InvalidUrl | ErrorKind::AddressNotAllowed | ErrorKind::InvalidParams => code::INVALID_PARAMS,
+            ErrorKind::Internal => code::INTERNAL_ERROR,
+            _ => code::FETCH_ERROR,
         };
-        Self::new(code, err.to_string())
+        Self::new(code, err.kind(), err.to_string())
     }
 }
 
 impl From<servo_fetch::Error> for ResponseError {
     fn from(err: servo_fetch::Error) -> Self {
-        Self::new(code::FETCH_ERROR, err.to_string())
+        Self::from(ToolError::from(err))
     }
 }
 
 impl From<serde_json::Error> for ResponseError {
     fn from(err: serde_json::Error) -> Self {
-        Self::new(code::INTERNAL_ERROR, err.to_string())
+        Self::new(code::INTERNAL_ERROR, ErrorKind::Internal, err.to_string())
     }
 }

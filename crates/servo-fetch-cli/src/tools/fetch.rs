@@ -18,7 +18,7 @@ pub(crate) async fn fetch_with(opts: FetchOptions) -> ToolResult<Page> {
     spawn_blocking(move || servo_fetch::blocking::fetch(&opts))
         .await
         .map_err(|e| ToolError::internal(e.to_string()))?
-        .map_err(|e| ToolError::fetch(format!("{e:#}")))
+        .map_err(ToolError::from)
 }
 
 pub(crate) async fn fetch_page(url: &str, timeout: u64, settle_ms: u64) -> ToolResult<Page> {
@@ -92,7 +92,7 @@ fn fetch_and_render(
             .settle(Duration::from_millis(settle_ms)),
     ) {
         Ok(p) => p,
-        Err(e) => return format!("[error] {e:#}"),
+        Err(e) => return format!("[error] {e}"),
     };
 
     let input = ExtractInput::new(&page.html, url)

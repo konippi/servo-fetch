@@ -55,6 +55,7 @@ fn unknown_method_returns_method_not_found() {
     let out = run_rpc("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"nope\"}\n");
     assert_eq!(out[0]["id"], 2);
     assert_eq!(out[0]["error"]["code"], -32601);
+    assert_eq!(out[0]["error"]["data"]["kind"], "methodNotFound");
 }
 
 #[test]
@@ -62,6 +63,7 @@ fn malformed_line_returns_parse_error_with_null_id() {
     let out = run_rpc("not json\n");
     assert_eq!(out[0]["error"]["code"], -32700);
     assert!(out[0]["id"].is_null());
+    assert_eq!(out[0]["error"]["data"]["kind"], "parseError");
 }
 
 #[test]
@@ -98,6 +100,15 @@ fn cancel_of_unknown_id_is_ignored() {
 fn missing_required_param_is_invalid_params() {
     let out = run_rpc("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"fetch\",\"params\":{}}\n");
     assert_eq!(out[0]["error"]["code"], -32602);
+    assert_eq!(out[0]["error"]["data"]["kind"], "invalidParams");
+}
+
+#[test]
+fn fetch_blocked_address_reports_typed_kind() {
+    let out =
+        run_rpc("{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"fetch\",\"params\":{\"url\":\"http://127.0.0.1/\"}}\n");
+    assert!(out[0].get("error").is_some(), "expected an error, got: {out:?}");
+    assert_eq!(out[0]["error"]["data"]["kind"], "addressNotAllowed", "got: {out:?}");
 }
 
 #[test]

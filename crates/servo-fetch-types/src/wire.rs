@@ -217,3 +217,34 @@ pub struct InitializeResult {
     /// Capabilities the server advertises.
     pub capabilities: ServerCapabilities,
 }
+
+/// Stable, surface-independent error category for programmatic handling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorKind {
+    /// The URL is malformed or uses a disallowed scheme.
+    InvalidUrl,
+    /// The page did not finish loading within the timeout.
+    Timeout,
+    /// The URL resolves to a private or reserved address (SSRF block).
+    AddressNotAllowed,
+    /// The browser engine failed to render the page.
+    Engine,
+    /// JavaScript evaluation failed.
+    Javascript,
+    /// A request parameter was missing, malformed, or out of range.
+    InvalidParams,
+    /// The requested method does not exist.
+    MethodNotFound,
+    /// A frame could not be parsed.
+    ParseError,
+    /// The request was cancelled before completing.
+    RequestCancelled,
+    /// A request reused an in-flight request id.
+    DuplicateRequest,
+    /// An unexpected server-side failure.
+    Internal,
+    /// An error that does not map to a known category.
+    Other,
+}

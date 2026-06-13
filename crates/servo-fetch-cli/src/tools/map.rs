@@ -9,7 +9,7 @@ pub(crate) async fn map_with(opts: MapOptions) -> ToolResult<Vec<MappedUrl>> {
     tokio::task::spawn_blocking(move || servo_fetch::blocking::map(&opts))
         .await
         .map_err(|e| ToolError::internal(e.to_string()))?
-        .map_err(|e| ToolError::fetch(format!("{e:#}")))
+        .map_err(ToolError::from)
 }
 
 pub(crate) async fn discover_urls(

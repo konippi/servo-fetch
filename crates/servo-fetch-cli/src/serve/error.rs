@@ -3,6 +3,7 @@
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use servo_fetch_types::ErrorKind;
 
 use crate::tools::ToolError;
 
@@ -33,10 +34,11 @@ impl From<JsonRejection> for ApiError {
 impl From<ToolError> for ApiError {
     fn from(err: ToolError) -> Self {
         let message = err.to_string();
-        let status = match err {
-            ToolError::InvalidInput(_) => StatusCode::BAD_REQUEST,
-            ToolError::Fetch(_) => StatusCode::BAD_GATEWAY,
-            ToolError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        let status = match err.kind() {
+            ErrorKind::InvalidUrl | ErrorKind::AddressNotAllowed | ErrorKind::InvalidParams => StatusCode::BAD_REQUEST,
+            ErrorKind::Timeout => StatusCode::GATEWAY_TIMEOUT,
+            ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            _ => StatusCode::BAD_GATEWAY,
         };
         Self { status, message }
     }

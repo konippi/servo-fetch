@@ -188,6 +188,11 @@ export type ErrorEnvelope = {
 error: string, };
 
 /**
+ * Stable, surface-independent error category for programmatic handling.
+ */
+export type ErrorKind = "invalidUrl" | "timeout" | "addressNotAllowed" | "engine" | "javascript" | "invalidParams" | "methodNotFound" | "parseError" | "requestCancelled" | "duplicateRequest" | "internal" | "other";
+
+/**
  * Parameters for the `evaluate` method.
  */
 export type EvaluateRequest = { 

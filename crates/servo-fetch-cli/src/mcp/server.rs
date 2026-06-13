@@ -192,7 +192,7 @@ impl ServoFetchMcp {
     )]
     async fn crawl(&self, Parameters(p): Parameters<CrawlParams>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
-        let limit = p.limit.unwrap_or(20).clamp(1, MAX_CRAWL_PAGES);
+        let limit = p.limit.unwrap_or(50).clamp(1, MAX_CRAWL_PAGES);
         let max_depth = p.max_depth.unwrap_or(3).clamp(1, MAX_CRAWL_DEPTH);
         let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
         let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);

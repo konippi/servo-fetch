@@ -4,8 +4,7 @@ use std::time::Duration;
 
 use super::common::paginate;
 use super::error::{ToolError, ToolResult};
-
-pub(crate) const MAX_CRAWL_PAGES: usize = 500;
+use super::limits::MAX_CRAWL_PAGES;
 
 pub(crate) struct CrawlOptions<'a> {
     pub url: &'a str,

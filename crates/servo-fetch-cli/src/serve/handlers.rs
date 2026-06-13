@@ -12,16 +12,10 @@ use super::params::{
     FetchResponse, Format, HealthResponse, MapRequest, MapResponse, ScreenshotRequest, VersionResponse,
 };
 use crate::tools;
-
-const MAX_TIMEOUT_SECS: u64 = 300;
-const MAX_SETTLE_MS: u64 = 10_000;
-const MAX_SELECTOR_LEN: usize = 1_000;
-const MAX_JS_LEN: usize = 10_000;
-const MAX_JS_OUTPUT_LEN: usize = 1_000_000;
-const MAX_BATCH_URLS: usize = 20;
-const MAX_CRAWL_LIMIT: usize = 500;
-const MAX_CRAWL_DEPTH: usize = 10;
-const MAX_MAP_LIMIT: usize = 100_000;
+use crate::tools::limits::{
+    MAX_BATCH_URLS, MAX_CRAWL_DEPTH, MAX_CRAWL_PAGES, MAX_JS_LEN, MAX_JS_OUTPUT_LEN, MAX_MAP_URLS, MAX_SELECTOR_LEN,
+    MAX_SETTLE_MS, MAX_TIMEOUT_SECS,
+};
 
 pub(super) async fn health() -> AxumJson<HealthResponse> {
     AxumJson(HealthResponse { status: "ok" })
@@ -131,7 +125,7 @@ pub(super) async fn batch_fetch(Json(req): Json<BatchFetchRequest>) -> Result<Ax
 
 pub(super) async fn crawl(Json(req): Json<CrawlRequest>) -> Result<AxumJson<CrawlResponse>, ApiError> {
     let url = tools::validated_url(&req.url)?;
-    let limit = req.limit.unwrap_or(20).clamp(1, MAX_CRAWL_LIMIT);
+    let limit = req.limit.unwrap_or(20).clamp(1, MAX_CRAWL_PAGES);
     let max_depth = req.max_depth.unwrap_or(3).clamp(1, MAX_CRAWL_DEPTH);
     let timeout = req.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
     let settle_ms = req.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
@@ -161,7 +155,7 @@ pub(super) async fn crawl(Json(req): Json<CrawlRequest>) -> Result<AxumJson<Craw
 
 pub(super) async fn map(Json(req): Json<MapRequest>) -> Result<AxumJson<MapResponse>, ApiError> {
     let url = tools::validated_url(&req.url)?;
-    let limit = req.limit.unwrap_or(5000).clamp(1, MAX_MAP_LIMIT);
+    let limit = req.limit.unwrap_or(5000).clamp(1, MAX_MAP_URLS);
 
     let urls = tools::discover_urls(
         &url,

@@ -9,59 +9,43 @@ use tokio::task::spawn_blocking;
 use super::common::{fetch_semaphore, paginate};
 use super::error::{ToolError, ToolResult};
 
-pub(crate) async fn fetch_page(url: &str, timeout: u64, settle_ms: u64) -> ToolResult<Page> {
+/// Run a built fetch on the warm engine, bounded by the global fetch semaphore.
+pub(crate) async fn fetch_with(opts: FetchOptions) -> ToolResult<Page> {
     let _permit = fetch_semaphore()
         .acquire()
         .await
         .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
-    let url = url.to_string();
-    spawn_blocking(move || {
-        servo_fetch::blocking::fetch(
-            &FetchOptions::new(&url)
-                .timeout(Duration::from_secs(timeout))
-                .settle(Duration::from_millis(settle_ms)),
-        )
-    })
+    spawn_blocking(move || servo_fetch::blocking::fetch(&opts))
+        .await
+        .map_err(|e| ToolError::internal(e.to_string()))?
+        .map_err(|e| ToolError::fetch(format!("{e:#}")))
+}
+
+pub(crate) async fn fetch_page(url: &str, timeout: u64, settle_ms: u64) -> ToolResult<Page> {
+    fetch_with(
+        FetchOptions::new(url)
+            .timeout(Duration::from_secs(timeout))
+            .settle(Duration::from_millis(settle_ms)),
+    )
     .await
-    .map_err(|e| ToolError::internal(e.to_string()))?
-    .map_err(|e| ToolError::fetch(format!("{e:#}")))
 }
 
 pub(crate) async fn fetch_js(url: &str, expression: &str, timeout: u64, settle_ms: u64) -> ToolResult<Page> {
-    let _permit = fetch_semaphore()
-        .acquire()
-        .await
-        .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
-    let url = url.to_string();
-    let expression = expression.to_string();
-    spawn_blocking(move || {
-        servo_fetch::blocking::fetch(
-            &FetchOptions::javascript(&url, &expression)
-                .timeout(Duration::from_secs(timeout))
-                .settle(Duration::from_millis(settle_ms)),
-        )
-    })
+    fetch_with(
+        FetchOptions::javascript(url, expression)
+            .timeout(Duration::from_secs(timeout))
+            .settle(Duration::from_millis(settle_ms)),
+    )
     .await
-    .map_err(|e| ToolError::internal(e.to_string()))?
-    .map_err(|e| ToolError::fetch(format!("{e:#}")))
 }
 
 pub(crate) async fn fetch_screenshot(url: &str, full_page: bool, timeout: u64, settle_ms: u64) -> ToolResult<Page> {
-    let _permit = fetch_semaphore()
-        .acquire()
-        .await
-        .map_err(|e| ToolError::internal(format!("fetch semaphore closed: {e}")))?;
-    let url = url.to_string();
-    spawn_blocking(move || {
-        servo_fetch::blocking::fetch(
-            &FetchOptions::screenshot(&url, full_page)
-                .timeout(Duration::from_secs(timeout))
-                .settle(Duration::from_millis(settle_ms)),
-        )
-    })
+    fetch_with(
+        FetchOptions::screenshot(url, full_page)
+            .timeout(Duration::from_secs(timeout))
+            .settle(Duration::from_millis(settle_ms)),
+    )
     .await
-    .map_err(|e| ToolError::internal(e.to_string()))?
-    .map_err(|e| ToolError::fetch(format!("{e:#}")))
 }
 
 pub(crate) async fn batch_fetch_pages(

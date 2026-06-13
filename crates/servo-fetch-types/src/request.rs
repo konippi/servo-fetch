@@ -1,10 +1,11 @@
-//! Request DTOs.
+//! Request DTOs — the input counterpart to the output wire types, shared by the
+//! servo-fetch servers and language bindings.
 
 use serde::{Deserialize, Serialize};
 
 use crate::Visibility;
 
-/// Output format for a single-page fetch.
+/// Output format for the `fetch` method (all string-valued).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
 #[serde(rename_all = "lowercase")]
@@ -12,24 +13,56 @@ pub enum FetchFormat {
     /// Readability-extracted Markdown.
     #[default]
     Markdown,
-    /// Readability-extracted structured article JSON.
-    Json,
     /// Raw rendered HTML (post-JS execution).
     Html,
     /// Plain text (`document.body.innerText`).
     Text,
 }
 
-/// Parameters for the `fetch` method.
+/// Parameters for the `fetch` method (Markdown/HTML/text — returns a string).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
 #[serde(rename_all = "camelCase")]
 pub struct FetchRequest {
     /// URL to fetch (http/https only).
     pub url: String,
-    /// Output format.
-    #[serde(default)]
-    pub format: FetchFormat,
+    /// Output format (default: markdown).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub format: Option<FetchFormat>,
+    /// CSS selector to extract a specific section (Markdown only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub selector: Option<String>,
+    /// Page-load timeout in seconds (default: 30).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+    pub timeout: Option<u64>,
+    /// Extra wait in milliseconds after the load event (default: 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+    pub settle_ms: Option<u64>,
+    /// Override the User-Agent header.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub user_agent: Option<String>,
+    /// Path to a Netscape-format cookies.txt file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub cookies_file: Option<String>,
+    /// Visibility filtering policy (default: moderate).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub visibility: Option<Visibility>,
+}
+
+/// Parameters for the `extract` method (Readability article JSON).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractRequest {
+    /// URL to fetch (http/https only).
+    pub url: String,
     /// CSS selector to extract a specific section.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
@@ -54,10 +87,6 @@ pub struct FetchRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub visibility: Option<Visibility>,
-    /// Allow loopback/private addresses, relaxing the SSRF guard.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub allow_private_addresses: Option<bool>,
 }
 
 /// Parameters for the `screenshot` method.
@@ -87,10 +116,6 @@ pub struct ScreenshotRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub cookies_file: Option<String>,
-    /// Allow loopback/private addresses, relaxing the SSRF guard.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub allow_private_addresses: Option<bool>,
 }
 
 /// Parameters for the `evaluate` method.
@@ -118,10 +143,6 @@ pub struct EvaluateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub cookies_file: Option<String>,
-    /// Allow loopback/private addresses, relaxing the SSRF guard.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub allow_private_addresses: Option<bool>,
 }
 
 /// Parameters for the `extractSchema` method.
@@ -154,10 +175,6 @@ pub struct SchemaExtractRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub visibility: Option<Visibility>,
-    /// Allow loopback/private addresses, relaxing the SSRF guard.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub allow_private_addresses: Option<bool>,
 }
 
 /// Parameters for the `crawl` method.
@@ -211,10 +228,6 @@ pub struct CrawlRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub cookies_file: Option<String>,
-    /// Allow loopback/private addresses, relaxing the SSRF guard.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub allow_private_addresses: Option<bool>,
 }
 
 /// Parameters for the `map` method.
@@ -248,8 +261,4 @@ pub struct MapRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub no_fallback: Option<bool>,
-    /// Allow loopback/private addresses, relaxing the SSRF guard.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional))]
-    pub allow_private_addresses: Option<bool>,
 }

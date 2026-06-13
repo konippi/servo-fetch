@@ -145,6 +145,9 @@ pub(crate) enum Command {
     Map(MapArgs),
     /// Probe the local /health endpoint. Exits 0 on 2xx, 1 otherwise.
     Healthcheck(HealthcheckArgs),
+    /// Serve JSON-RPC over stdio for language bindings.
+    #[command(hide = true)]
+    Rpc(RpcArgs),
 }
 
 impl Command {
@@ -269,6 +272,9 @@ pub(crate) struct HealthcheckArgs {
     #[arg(long, value_name = "PORT", default_value_t = 3000)]
     pub port: u16,
 }
+
+#[derive(Args, Debug)]
+pub(crate) struct RpcArgs {}
 
 #[cfg(test)]
 mod tests {

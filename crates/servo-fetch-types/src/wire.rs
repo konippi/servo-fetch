@@ -138,6 +138,22 @@ pub enum CrawlEvent {
     },
 }
 
+/// Terminal summary returned by the `crawl` method once the stream completes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[serde(rename_all = "camelCase")]
+pub struct CrawlStats {
+    /// Pages crawled successfully.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub crawled: u64,
+    /// Pages that errored.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub errors: u64,
+    /// Total wall-clock time in milliseconds.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub elapsed_ms: u64,
+}
+
 /// Structured-extraction result for the `--schema` path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
@@ -170,4 +186,34 @@ pub struct MappedUrl {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub lastmod: Option<String>,
+}
+
+/// Server name and version, reported by `initialize`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerInfo {
+    /// Server name.
+    pub name: String,
+    /// Server version.
+    pub version: String,
+}
+
+/// Capabilities advertised by the server (none yet; reserved for forward compatibility).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[serde(rename_all = "camelCase")]
+pub struct ServerCapabilities {}
+
+/// Result of the `initialize` handshake.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[serde(rename_all = "camelCase")]
+pub struct InitializeResult {
+    /// Wire protocol version the server speaks.
+    pub protocol_version: u32,
+    /// Server name and version.
+    pub server_info: ServerInfo,
+    /// Capabilities the server advertises.
+    pub capabilities: ServerCapabilities,
 }

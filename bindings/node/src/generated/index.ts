@@ -159,11 +159,24 @@ userAgent?: string,
 /**
  * Path to a Netscape-format cookies.txt file.
  */
-cookiesFile?: string, 
+cookiesFile?: string, };
+
 /**
- * Allow loopback/private addresses, relaxing the SSRF guard.
+ * Terminal summary returned by the `crawl` method once the stream completes.
  */
-allowPrivateAddresses?: boolean, };
+export type CrawlStats = { 
+/**
+ * Pages crawled successfully.
+ */
+crawled: number, 
+/**
+ * Pages that errored.
+ */
+errors: number, 
+/**
+ * Total wall-clock time in milliseconds.
+ */
+elapsedMs: number, };
 
 /**
  * Error payload returned by every non-streaming failure.
@@ -201,11 +214,7 @@ userAgent?: string,
 /**
  * Path to a Netscape-format cookies.txt file.
  */
-cookiesFile?: string, 
-/**
- * Allow loopback/private addresses, relaxing the SSRF guard.
- */
-allowPrivateAddresses?: boolean, };
+cookiesFile?: string, };
 
 /**
  * Result of evaluating a JavaScript expression on a page.
@@ -225,22 +234,13 @@ result: string,
 console: Array<ConsoleMessage>, };
 
 /**
- * Output format for a single-page fetch.
+ * Parameters for the `extract` method (Readability article JSON).
  */
-export type FetchFormat = "markdown" | "json" | "html" | "text";
-
-/**
- * Parameters for the `fetch` method.
- */
-export type FetchRequest = { 
+export type ExtractRequest = { 
 /**
  * URL to fetch (http/https only).
  */
 url: string, 
-/**
- * Output format.
- */
-format: FetchFormat, 
 /**
  * CSS selector to extract a specific section.
  */
@@ -264,11 +264,66 @@ cookiesFile?: string,
 /**
  * Visibility filtering policy (default: moderate).
  */
-visibility?: Visibility, 
+visibility?: Visibility, };
+
 /**
- * Allow loopback/private addresses, relaxing the SSRF guard.
+ * Output format for the `fetch` method (all string-valued).
  */
-allowPrivateAddresses?: boolean, };
+export type FetchFormat = "markdown" | "html" | "text";
+
+/**
+ * Parameters for the `fetch` method (Markdown/HTML/text — returns a string).
+ */
+export type FetchRequest = { 
+/**
+ * URL to fetch (http/https only).
+ */
+url: string, 
+/**
+ * Output format (default: markdown).
+ */
+format?: FetchFormat, 
+/**
+ * CSS selector to extract a specific section (Markdown only).
+ */
+selector?: string, 
+/**
+ * Page-load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Override the User-Agent header.
+ */
+userAgent?: string, 
+/**
+ * Path to a Netscape-format cookies.txt file.
+ */
+cookiesFile?: string, 
+/**
+ * Visibility filtering policy (default: moderate).
+ */
+visibility?: Visibility, };
+
+/**
+ * Result of the `initialize` handshake.
+ */
+export type InitializeResult = { 
+/**
+ * Wire protocol version the server speaks.
+ */
+protocolVersion: number, 
+/**
+ * Server name and version.
+ */
+serverInfo: ServerInfo, 
+/**
+ * Capabilities the server advertises.
+ */
+capabilities: ServerCapabilities, };
 
 /**
  * Parameters for the `map` method.
@@ -301,11 +356,7 @@ timeout?: number,
 /**
  * Skip the HTML link fallback when no sitemap is found.
  */
-noFallback?: boolean, 
-/**
- * Allow loopback/private addresses, relaxing the SSRF guard.
- */
-allowPrivateAddresses?: boolean, };
+noFallback?: boolean, };
 
 /**
  * A URL discovered by sitemap mapping.
@@ -351,11 +402,7 @@ cookiesFile?: string,
 /**
  * Visibility filtering policy (default: moderate).
  */
-visibility?: Visibility, 
-/**
- * Allow loopback/private addresses, relaxing the SSRF guard.
- */
-allowPrivateAddresses?: boolean, };
+visibility?: Visibility, };
 
 /**
  * Structured-extraction result for the `--schema` path.
@@ -397,11 +444,25 @@ userAgent?: string,
 /**
  * Path to a Netscape-format cookies.txt file.
  */
-cookiesFile?: string, 
+cookiesFile?: string, };
+
 /**
- * Allow loopback/private addresses, relaxing the SSRF guard.
+ * Capabilities advertised by the server (none yet; reserved for forward compatibility).
  */
-allowPrivateAddresses?: boolean, };
+export type ServerCapabilities = Record<string, never>;
+
+/**
+ * Server name and version, reported by `initialize`.
+ */
+export type ServerInfo = { 
+/**
+ * Server name.
+ */
+name: string, 
+/**
+ * Server version.
+ */
+version: string, };
 
 /**
  * Visibility-aware filtering policy applied during extraction.

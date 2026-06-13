@@ -11,13 +11,10 @@ use super::params::{
     BatchFetchParams, BatchFormat, CrawlParams, ExecuteJsParams, FetchParams, MapParams, OutputFormat, ScreenshotParams,
 };
 use super::tools;
-
-const MAX_JS_LEN: usize = 10_000;
-const MAX_JS_OUTPUT_LEN: usize = 1_000_000;
-const MAX_TIMEOUT_SECS: u64 = 300;
-const MAX_SELECTOR_LEN: usize = 1_000;
-const MAX_SETTLE_MS: u64 = 10_000;
-const MAX_BATCH_URLS: usize = 20;
+use crate::tools::limits::{
+    MAX_BATCH_URLS, MAX_CRAWL_DEPTH, MAX_CRAWL_PAGES, MAX_JS_LEN, MAX_JS_OUTPUT_LEN, MAX_MAP_URLS, MAX_SELECTOR_LEN,
+    MAX_SETTLE_MS, MAX_TIMEOUT_SECS,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ServoFetchMcp {
@@ -195,8 +192,8 @@ impl ServoFetchMcp {
     )]
     async fn crawl(&self, Parameters(p): Parameters<CrawlParams>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
-        let limit = p.limit.unwrap_or(20).clamp(1, 500);
-        let max_depth = p.max_depth.unwrap_or(3).clamp(1, 10);
+        let limit = p.limit.unwrap_or(20).clamp(1, MAX_CRAWL_PAGES);
+        let max_depth = p.max_depth.unwrap_or(3).clamp(1, MAX_CRAWL_DEPTH);
         let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
         let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
         let max_len = p.max_length.unwrap_or(5000);
@@ -238,7 +235,7 @@ impl ServoFetchMcp {
     )]
     async fn map(&self, Parameters(p): Parameters<MapParams>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
-        let limit = p.limit.unwrap_or(5000).clamp(1, 100_000);
+        let limit = p.limit.unwrap_or(5000).clamp(1, MAX_MAP_URLS);
 
         let urls = tools::discover_urls(
             &url,

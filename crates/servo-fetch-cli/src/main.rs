@@ -9,6 +9,7 @@ mod logging;
 mod mcp;
 mod output;
 mod progress;
+mod rpc;
 mod serve;
 mod tools;
 mod wire;
@@ -43,6 +44,7 @@ fn dispatch(args: &Cli) -> anyhow::Result<()> {
         Some(Command::Crawl(crawl)) => commands::crawl::run(crawl),
         Some(Command::Map(map)) => commands::map::run(map),
         Some(Command::Healthcheck(hc)) => commands::healthcheck::run(hc),
+        Some(Command::Rpc(_)) => commands::rpc::run(),
         None => commands::fetch::run(&args.fetch),
     }
 }

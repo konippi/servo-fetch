@@ -27,6 +27,7 @@ async def fetch_async(
     javascript: str | None = None,
     schema: Schema | None = None,
     cookies_file: str | os.PathLike[str] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> Page:
     """Asynchronously fetch a single URL."""
     return await asyncio.to_thread(
@@ -39,6 +40,7 @@ async def fetch_async(
         javascript=javascript,
         schema=schema,
         cookies_file=cookies_file,
+        headers=headers,
     )
 
 
@@ -64,6 +66,7 @@ class AsyncClient:
         javascript: str | None = None,
         schema: Schema | None = None,
         cookies_file: str | os.PathLike[str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> Page:
         return await asyncio.to_thread(
             self._inner.fetch,
@@ -74,6 +77,7 @@ class AsyncClient:
             javascript=javascript,
             schema=schema,
             cookies_file=cookies_file,
+            headers=headers,
         )
 
     async def crawl(
@@ -87,6 +91,7 @@ class AsyncClient:
         concurrency: int = 1,
         delay_ms: int = 0,
         cookies_file: str | os.PathLike[str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> list[CrawlResult]:
         return await asyncio.to_thread(
             self._inner.crawl,
@@ -98,6 +103,7 @@ class AsyncClient:
             concurrency=concurrency,
             delay_ms=delay_ms,
             cookies_file=cookies_file,
+            headers=headers,
         )
 
     async def crawl_stream(
@@ -111,6 +117,7 @@ class AsyncClient:
         concurrency: int = 1,
         delay_ms: int = 0,
         cookies_file: str | os.PathLike[str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> AsyncIterator[CrawlResult]:
         """Crawl a site, yielding each page as it completes."""
         loop = asyncio.get_running_loop()
@@ -134,6 +141,7 @@ class AsyncClient:
                     concurrency=concurrency,
                     delay_ms=delay_ms,
                     cookies_file=cookies_file,
+                    headers=headers,
                 )
             finally:
                 fut = asyncio.run_coroutine_threadsafe(queue.put(_SENTINEL), loop)
@@ -156,6 +164,7 @@ class AsyncClient:
         limit: int = 5000,
         include: str | list[str] | None = None,
         exclude: str | list[str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> list[MappedUrl]:
         return await asyncio.to_thread(
             self._inner.map,
@@ -163,6 +172,7 @@ class AsyncClient:
             limit=limit,
             include=include,
             exclude=exclude,
+            headers=headers,
         )
 
     async def __aenter__(self) -> AsyncClient:

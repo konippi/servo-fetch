@@ -83,7 +83,7 @@ npx servo-fetch "https://example.com" --format png -o page.png
 | `map(url, opts?)` | `Promise<MappedUrl[]>` | `map` |
 | `version()` | `Promise<string>` | `--version` |
 
-Single-page calls accept `{ timeout, settle, userAgent, cookiesFile, selector, visibility, signal }`.
+Single-page calls accept `{ timeout, settle, userAgent, cookiesFile, headers, selector, visibility, signal }`; `crawl` and `map` also accept `headers`.
 `SERVO_FETCH_BINARY_PATH` overrides binary resolution.
 
 ## Develop

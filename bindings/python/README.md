@@ -67,6 +67,21 @@ pages = client.crawl("https://app.example.com", cookies_file="cookies.txt", max_
 A missing or malformed file raises `servo_fetch.CookieError`. Cookies are scoped
 to the target's site, so out-of-scope entries in the file are ignored.
 
+## Custom Headers
+
+Pass a `dict[str, str]` via `headers` to add request headers (e.g. API tokens).
+Accepted by `fetch`, `Client.fetch` / `Client.crawl` / `Client.map`, and their
+async equivalents:
+
+```python
+import servo_fetch
+
+page = servo_fetch.fetch("https://api.example.com", headers={"Authorization": "Bearer TOKEN"})
+```
+
+Framing headers (`Host`, `Content-Length`, …) are rejected, and `User-Agent` /
+`Cookie` have dedicated options; invalid headers raise `ValueError`.
+
 ## Async
 
 ```python

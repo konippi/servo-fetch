@@ -19,6 +19,7 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     if let Some(path) = &args.cookies {
         opts = opts.cookies(servo_fetch::load_cookies(path)?);
     }
+    opts = opts.headers(servo_fetch::headers::parse_lines(&args.headers)?);
 
     let progress = Progress::new();
     let mut completed = 0u64;

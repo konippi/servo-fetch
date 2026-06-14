@@ -70,6 +70,10 @@ pub(crate) struct FetchArgs {
     #[arg(long, value_name = "FILE")]
     pub cookies: Option<PathBuf>,
 
+    /// Custom request header, repeatable (e.g. -H "X-Api-Key: secret")
+    #[arg(short = 'H', long = "header", value_name = "NAME: VALUE")]
+    pub headers: Vec<String>,
+
     /// Path to a CSS-selector schema file for structured JSON extraction
     #[arg(long, value_name = "FILE", conflicts_with_all = ["js", "selector", "format"])]
     pub schema: Option<PathBuf>,
@@ -227,6 +231,10 @@ pub(crate) struct CrawlArgs {
     #[arg(long, value_name = "FILE")]
     pub cookies: Option<PathBuf>,
 
+    /// Custom request header, repeatable (e.g. -H "X-Api-Key: secret")
+    #[arg(short = 'H', long = "header", value_name = "NAME: VALUE")]
+    pub headers: Vec<String>,
+
     /// Write each crawled page's output to a file in this directory.
     #[arg(long, value_name = "DIR")]
     pub output_dir: Option<PathBuf>,
@@ -264,6 +272,10 @@ pub(crate) struct MapArgs {
     /// Timeout in seconds per HTTP request
     #[arg(short = 't', long, default_value_t = 30, value_parser = value_parser!(u64).range(1..), value_name = "SECS")]
     pub timeout: u64,
+
+    /// Custom request header, repeatable (e.g. -H "X-Api-Key: secret")
+    #[arg(short = 'H', long = "header", value_name = "NAME: VALUE")]
+    pub headers: Vec<String>,
 }
 
 #[derive(Args, Debug)]

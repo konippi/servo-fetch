@@ -24,6 +24,7 @@ dpi = { workspace = true }
 euclid = { workspace = true }
 globset = { workspace = true }
 htmd = { workspace = true }
+http = { workspace = true }
 image = { workspace = true }
 pdf-extract = { workspace = true }
 psl = { workspace = true }

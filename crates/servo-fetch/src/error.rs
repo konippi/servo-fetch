@@ -92,6 +92,10 @@ pub enum Error {
     /// A glob pattern is invalid.
     #[error(transparent)]
     InvalidGlob(#[from] globset::Error),
+
+    /// A custom request header is malformed or not permitted.
+    #[error("{0}")]
+    InvalidHeader(String),
 }
 
 impl Error {
@@ -117,6 +121,11 @@ impl Error {
             url,
             source: source.into(),
         }
+    }
+
+    /// Construct an [`Error::InvalidHeader`].
+    pub(crate) fn invalid_header(message: impl Into<String>) -> Self {
+        Self::InvalidHeader(message.into())
     }
 
     /// Returns `true` if this is a timeout error.

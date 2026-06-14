@@ -33,6 +33,7 @@ pub struct MapOptions {
     user_agent: Option<String>,
     timeout: u64,
     no_fallback: bool,
+    headers: http::HeaderMap,
 }
 
 impl MapOptions {
@@ -46,6 +47,7 @@ impl MapOptions {
             user_agent: None,
             timeout: 30,
             no_fallback: false,
+            headers: http::HeaderMap::new(),
         }
     }
 
@@ -82,6 +84,12 @@ impl MapOptions {
     /// Skip HTML link fallback if no sitemap is found.
     pub fn no_fallback(mut self, yes: bool) -> Self {
         self.no_fallback = yes;
+        self
+    }
+
+    /// Custom request headers sent with every discovery request.
+    pub fn headers(mut self, headers: http::HeaderMap) -> Self {
+        self.headers = headers;
         self
     }
 }
@@ -125,6 +133,7 @@ pub async fn map(opts: &MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
         user_agent: opts.user_agent.clone(),
         timeout: Duration::from_secs(opts.timeout),
         no_fallback: opts.no_fallback,
+        headers: opts.headers.clone(),
     };
 
     let mut results = Vec::new();
@@ -147,6 +156,7 @@ pub(crate) struct MapConfig {
     pub user_agent: Option<String>,
     pub timeout: Duration,
     pub no_fallback: bool,
+    pub headers: http::HeaderMap,
 }
 
 /// A discovered URL with optional metadata.
@@ -168,8 +178,9 @@ pub(crate) async fn run(opts: &MapConfig, mut on_url: impl FnMut(&MapEntry)) {
     let robots = {
         let seed = opts.seed.clone();
         let user_agent = opts.user_agent.clone();
+        let headers = opts.headers.clone();
         let timeout = opts.timeout;
-        spawn_blocking(move || RobotsRules::fetch(&seed, user_agent.as_deref(), timeout))
+        spawn_blocking(move || RobotsRules::fetch(&seed, user_agent.as_deref(), &headers, timeout))
             .await
             .unwrap_or(RobotsPolicy::Unreachable)
     };
@@ -200,7 +211,8 @@ pub(crate) async fn run(opts: &MapConfig, mut on_url: impl FnMut(&MapEntry)) {
             let agent = agent.clone();
             spawn_blocking({
                 let seed = opts.seed.clone();
-                move || fetch_sitemap(&agent, &sitemap_url, &seed)
+                let headers = opts.headers.clone();
+                move || fetch_sitemap(&agent, &sitemap_url, &seed, &headers)
             })
             .await
             .ok()
@@ -233,7 +245,11 @@ pub(crate) async fn run(opts: &MapConfig, mut on_url: impl FnMut(&MapEntry)) {
         let html = {
             let agent = agent.clone();
             let seed = opts.seed.clone();
-            spawn_blocking(move || fetch_html(&agent, &seed)).await.ok().flatten()
+            let headers = opts.headers.clone();
+            spawn_blocking(move || fetch_html(&agent, &seed, &headers))
+                .await
+                .ok()
+                .flatten()
         };
         if let Some(html) = html {
             for link in extract_links(&html, &opts.seed) {
@@ -273,10 +289,19 @@ fn build_agent(ua: &str, timeout: Duration) -> ureq::Agent {
     )
 }
 
-fn fetch_following_redirects(agent: &ureq::Agent, url: &Url, seed: &Url) -> Option<ureq::http::Response<ureq::Body>> {
+fn fetch_following_redirects(
+    agent: &ureq::Agent,
+    url: &Url,
+    seed: &Url,
+    headers: &http::HeaderMap,
+) -> Option<http::Response<ureq::Body>> {
     let mut current = url.clone();
     for _ in 0..MAP_MAX_REDIRECTS {
-        let resp = agent.get(current.as_str()).call().ok()?;
+        let mut req = agent.get(current.as_str());
+        for (name, value) in headers {
+            req = req.header(name.clone(), value.clone());
+        }
+        let resp = req.call().ok()?;
         let status = resp.status().as_u16();
         if matches!(status, 301 | 302 | 303 | 307 | 308) {
             let location = resp.headers().get("location")?.to_str().ok()?;
@@ -297,8 +322,8 @@ fn fetch_following_redirects(agent: &ureq::Agent, url: &Url, seed: &Url) -> Opti
     None
 }
 
-fn fetch_sitemap(agent: &ureq::Agent, url: &Url, seed: &Url) -> Option<String> {
-    let resp = fetch_following_redirects(agent, url, seed)?;
+fn fetch_sitemap(agent: &ureq::Agent, url: &Url, seed: &Url, headers: &http::HeaderMap) -> Option<String> {
+    let resp = fetch_following_redirects(agent, url, seed, headers)?;
     let content_type = resp
         .headers()
         .get("content-type")
@@ -369,8 +394,8 @@ fn looks_like_html(bytes: &[u8]) -> bool {
         || prefix.get(..HTML.len()).is_some_and(|p| p.eq_ignore_ascii_case(HTML))
 }
 
-fn fetch_html(agent: &ureq::Agent, url: &Url) -> Option<String> {
-    let resp = fetch_following_redirects(agent, url, url)?;
+fn fetch_html(agent: &ureq::Agent, url: &Url, headers: &http::HeaderMap) -> Option<String> {
+    let resp = fetch_following_redirects(agent, url, url, headers)?;
     resp.into_body()
         .with_config()
         .limit(MAP_HTML_MAX_BYTES)
@@ -564,6 +589,7 @@ mod tests {
             user_agent: None,
             timeout: Duration::from_secs(30),
             no_fallback: false,
+            headers: http::HeaderMap::new(),
         }
     }
 
@@ -784,7 +810,9 @@ mod tests {
 
             let agent = build_agent("test/1.0", Duration::from_secs(5));
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
-            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url)).await.unwrap();
+            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url, &http::HeaderMap::new()))
+                .await
+                .unwrap();
 
             let entries = parse_sitemap(&body.unwrap());
             assert_eq!(entries.len(), 1);
@@ -804,7 +832,9 @@ mod tests {
 
             let agent = build_agent("test/1.0", Duration::from_secs(5));
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
-            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url)).await.unwrap();
+            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url, &http::HeaderMap::new()))
+                .await
+                .unwrap();
 
             assert!(body.is_none());
         }
@@ -820,7 +850,9 @@ mod tests {
 
             let agent = build_agent("test/1.0", Duration::from_secs(5));
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
-            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url)).await.unwrap();
+            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url, &http::HeaderMap::new()))
+                .await
+                .unwrap();
 
             assert!(body.is_none());
         }
@@ -846,7 +878,9 @@ mod tests {
 
             let agent = build_agent("test/1.0", Duration::from_secs(5));
             let url = Url::parse(&format!("{}/sitemap.xml.gz", server.uri())).unwrap();
-            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url)).await.unwrap();
+            let body = spawn_blocking(move || fetch_sitemap(&agent, &url, &url, &http::HeaderMap::new()))
+                .await
+                .unwrap();
 
             let entries = parse_sitemap(&body.unwrap());
             assert_eq!(entries.len(), 1);
@@ -868,7 +902,7 @@ mod tests {
             let seed = Url::parse(&server.uri()).unwrap();
             let html = spawn_blocking({
                 let seed = seed.clone();
-                move || fetch_html(&agent, &seed)
+                move || fetch_html(&agent, &seed, &http::HeaderMap::new())
             })
             .await
             .unwrap()
@@ -887,6 +921,7 @@ mod tests {
                 user_agent: Some("test-bot".into()),
                 timeout: Duration::from_secs(5),
                 no_fallback: false,
+                headers: http::HeaderMap::new(),
             };
             configure(&mut config);
             let mut entries = Vec::new();

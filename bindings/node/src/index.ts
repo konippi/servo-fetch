@@ -28,6 +28,11 @@ function asArray(value: string | string[] | undefined): string[] {
   return Array.isArray(value) ? value : [value];
 }
 
+function headerArgs(headers: Record<string, string> | undefined): string[] {
+  if (headers == null) return [];
+  return Object.entries(headers).flatMap(([name, value]) => ["-H", `${name}: ${value}`]);
+}
+
 function parseJson<T>(raw: string): T {
   try {
     return JSON.parse(raw) as T;
@@ -44,6 +49,7 @@ function commonArgs(o: FetchOptions): string[] {
   if (o.cookiesFile != null) args.push("--cookies", o.cookiesFile);
   if (o.visibility != null) args.push("--visibility", o.visibility);
   if (o.allowPrivateAddresses) args.push("--allow-private-addresses");
+  args.push(...headerArgs(o.headers));
   return args;
 }
 
@@ -162,6 +168,7 @@ function crawlArgs(url: string, o: CrawlOptions): string[] {
   if (o.cookiesFile != null) args.push("--cookies", o.cookiesFile);
   if (o.selector != null) args.push("--selector", o.selector);
   if (o.allowPrivateAddresses) args.push("--allow-private-addresses");
+  args.push(...headerArgs(o.headers));
   args.push("--", url);
   return args;
 }
@@ -210,6 +217,7 @@ export async function map(url: string, options: MapOptions = {}): Promise<Mapped
   if (options.timeout != null) args.push("-t", String(options.timeout));
   if (options.noFallback) args.push("--no-fallback");
   if (options.allowPrivateAddresses) args.push("--allow-private-addresses");
+  args.push(...headerArgs(options.headers));
   args.push("--", url);
   return parseJson<MappedUrl[]>(await runText(args, { signal: options.signal }));
 }

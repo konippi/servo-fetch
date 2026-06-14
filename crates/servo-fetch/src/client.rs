@@ -20,6 +20,7 @@ pub(crate) struct ClientInner {
     pub(crate) settle: Duration,
     pub(crate) user_agent: Option<String>,
     pub(crate) visibility: VisibilityPolicy,
+    pub(crate) headers: http::HeaderMap,
 }
 
 impl ClientInner {
@@ -30,6 +31,9 @@ impl ClientInner {
         opts.visibility.get_or_insert(self.visibility);
         if let Some(ua) = &self.user_agent {
             opts.user_agent.get_or_insert_with(|| ua.clone());
+        }
+        if opts.headers.is_empty() && !self.headers.is_empty() {
+            opts.headers = self.headers.clone();
         }
         opts
     }
@@ -116,6 +120,7 @@ pub struct ClientBuilder {
     settle: Option<Duration>,
     user_agent: Option<String>,
     visibility: Option<VisibilityPolicy>,
+    headers: http::HeaderMap,
 }
 
 impl ClientBuilder {
@@ -143,6 +148,12 @@ impl ClientBuilder {
         self
     }
 
+    /// Default custom request headers sent with every navigation request.
+    pub fn headers(mut self, headers: http::HeaderMap) -> Self {
+        self.headers = headers;
+        self
+    }
+
     /// Build the [`Client`].
     #[must_use]
     pub fn build(self) -> Client {
@@ -157,6 +168,7 @@ impl ClientBuilder {
             settle: self.settle.unwrap_or_default(),
             user_agent: self.user_agent,
             visibility: self.visibility.unwrap_or_default(),
+            headers: self.headers,
         }
     }
 }

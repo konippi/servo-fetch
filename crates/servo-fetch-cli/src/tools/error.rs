@@ -28,7 +28,7 @@ impl From<servo_fetch::Error> for ToolError {
         let kind = match &err {
             E::InvalidUrl { .. } => ErrorKind::InvalidUrl,
             E::AddressNotAllowed { .. } => ErrorKind::AddressNotAllowed,
-            E::Cookies { .. } | E::Schema(_) | E::InvalidGlob(_) => ErrorKind::InvalidParams,
+            E::Cookies { .. } | E::Schema(_) | E::InvalidGlob(_) | E::InvalidHeader(_) => ErrorKind::InvalidParams,
             E::Timeout { .. } => ErrorKind::Timeout,
             E::JavaScript { .. } => ErrorKind::Javascript,
             E::Engine { .. } | E::Screenshot { .. } => ErrorKind::Engine,

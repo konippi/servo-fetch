@@ -159,7 +159,11 @@ userAgent?: string,
 /**
  * Path to a Netscape-format cookies.txt file.
  */
-cookiesFile?: string, };
+cookiesFile?: string, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, };
 
 /**
  * Terminal summary returned by the `crawl` method once the stream completes.
@@ -219,7 +223,11 @@ userAgent?: string,
 /**
  * Path to a Netscape-format cookies.txt file.
  */
-cookiesFile?: string, };
+cookiesFile?: string, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, };
 
 /**
  * Result of evaluating a JavaScript expression on a page.
@@ -267,6 +275,10 @@ userAgent?: string,
  */
 cookiesFile?: string, 
 /**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, 
+/**
  * Visibility filtering policy (default: moderate).
  */
 visibility?: Visibility, };
@@ -308,6 +320,10 @@ userAgent?: string,
  * Path to a Netscape-format cookies.txt file.
  */
 cookiesFile?: string, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, 
 /**
  * Visibility filtering policy (default: moderate).
  */
@@ -361,7 +377,11 @@ timeout?: number,
 /**
  * Skip the HTML link fallback when no sitemap is found.
  */
-noFallback?: boolean, };
+noFallback?: boolean, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, };
 
 /**
  * A URL discovered by sitemap mapping.
@@ -404,6 +424,10 @@ userAgent?: string,
  * Path to a Netscape-format cookies.txt file.
  */
 cookiesFile?: string, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, 
 /**
  * Visibility filtering policy (default: moderate).
  */
@@ -449,7 +473,11 @@ userAgent?: string,
 /**
  * Path to a Netscape-format cookies.txt file.
  */
-cookiesFile?: string, };
+cookiesFile?: string, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, };
 
 /**
  * Capabilities advertised by the server (none yet; reserved for forward compatibility).

@@ -1,6 +1,8 @@
 //! Request DTOs — the input counterpart to the output wire types, shared by the
 //! servo-fetch servers and language bindings.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::Visibility;
@@ -50,6 +52,10 @@ pub struct FetchRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub cookies_file: Option<String>,
+    /// Custom request headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub headers: Option<BTreeMap<String, String>>,
     /// Visibility filtering policy (default: moderate).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
@@ -83,6 +89,10 @@ pub struct ExtractRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub cookies_file: Option<String>,
+    /// Custom request headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub headers: Option<BTreeMap<String, String>>,
     /// Visibility filtering policy (default: moderate).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
@@ -116,6 +126,10 @@ pub struct ScreenshotRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub cookies_file: Option<String>,
+    /// Custom request headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub headers: Option<BTreeMap<String, String>>,
 }
 
 /// Parameters for the `evaluate` method.
@@ -143,6 +157,10 @@ pub struct EvaluateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub cookies_file: Option<String>,
+    /// Custom request headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub headers: Option<BTreeMap<String, String>>,
 }
 
 /// Parameters for the `extractSchema` method.
@@ -171,6 +189,10 @@ pub struct SchemaExtractRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub cookies_file: Option<String>,
+    /// Custom request headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub headers: Option<BTreeMap<String, String>>,
     /// Visibility filtering policy (default: moderate).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
@@ -228,6 +250,10 @@ pub struct CrawlRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub cookies_file: Option<String>,
+    /// Custom request headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub headers: Option<BTreeMap<String, String>>,
 }
 
 /// Parameters for the `map` method.
@@ -261,4 +287,8 @@ pub struct MapRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub no_fallback: Option<bool>,
+    /// Custom request headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub headers: Option<BTreeMap<String, String>>,
 }

@@ -1,11 +1,12 @@
 //! JSON-RPC method handlers — request DTO in, typed wire result out.
 
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use servo_fetch::{FetchOptions, MapOptions, VisibilityPolicy};
+use servo_fetch::{FetchOptions, HeaderMap, MapOptions, VisibilityPolicy};
 use servo_fetch_types::{
     CrawlRequest, CrawlStats, ErrorKind, EvaluateRequest, ExtractRequest, FetchFormat, FetchRequest, InitializeResult,
     MapRequest, SchemaExtractRequest, ScreenshotRequest, ServerCapabilities, ServerInfo, Visibility,
@@ -59,7 +60,7 @@ async fn fetch(params: Value) -> Result<Value, ResponseError> {
     let opts = FetchOptions::new(&url)
         .timed(req.timeout, req.settle_ms)
         .visibility(visibility_policy(req.visibility));
-    let page = tools::fetch_with(with_ua_and_cookies(opts, req.user_agent, req.cookies_file)?).await?;
+    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
 
     match req.format.unwrap_or_default() {
         FetchFormat::Html => Ok(json!(page.html)),
@@ -82,7 +83,7 @@ async fn extract(params: Value) -> Result<Value, ResponseError> {
     let opts = FetchOptions::new(&url)
         .timed(req.timeout, req.settle_ms)
         .visibility(visibility_policy(req.visibility));
-    let page = tools::fetch_with(with_ua_and_cookies(opts, req.user_agent, req.cookies_file)?).await?;
+    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
 
     let data = match req.selector.as_deref() {
         Some(s) => page.article_with_selector(&url, s),
@@ -96,7 +97,7 @@ async fn screenshot(params: Value) -> Result<Value, ResponseError> {
     let url = tools::validated_url(&req.url)?;
 
     let opts = FetchOptions::screenshot(&url, req.full_page.unwrap_or(false)).timed(req.timeout, req.settle_ms);
-    let page = tools::fetch_with(with_ua_and_cookies(opts, req.user_agent, req.cookies_file)?).await?;
+    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
 
     let png = page
         .screenshot_png()
@@ -114,7 +115,7 @@ async fn evaluate(params: Value) -> Result<Value, ResponseError> {
     let url = tools::validated_url(&req.url)?;
 
     let opts = FetchOptions::javascript(&url, &req.expression).timed(req.timeout, req.settle_ms);
-    let page = tools::fetch_with(with_ua_and_cookies(opts, req.user_agent, req.cookies_file)?).await?;
+    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
 
     let result = page.js_result.unwrap_or_default();
     Ok(serde_json::to_value(crate::wire::evaluate_result(
@@ -134,7 +135,7 @@ async fn extract_schema(params: Value) -> Result<Value, ResponseError> {
         .timed(req.timeout, req.settle_ms)
         .visibility(visibility_policy(req.visibility))
         .schema(schema);
-    let page = tools::fetch_with(with_ua_and_cookies(opts, req.user_agent, req.cookies_file)?).await?;
+    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
 
     let extracted = page.extracted.unwrap_or(Value::Null);
     Ok(serde_json::to_value(crate::wire::schema_extract(&url, extracted))?)
@@ -161,6 +162,7 @@ async fn map(params: Value) -> Result<Value, ResponseError> {
     if req.no_fallback.unwrap_or(false) {
         opts = opts.no_fallback(true);
     }
+    opts = opts.headers(wire_headers(req.headers)?);
     let entries = tools::map_with(opts).await?;
 
     let mapped: Vec<_> = entries.iter().map(crate::wire::mapped_url).collect();
@@ -198,6 +200,7 @@ async fn crawl(params: Value, id: &RequestId, tx: &UnboundedSender<String>) -> R
     if let Some(path) = req.cookies_file {
         opts = opts.cookies(load_cookies(&path)?);
     }
+    opts = opts.headers(wire_headers(req.headers)?);
 
     // Stream each page as a `$/progress` notification. Buffering is bounded by
     // the crawl `limit`; the run loop cancels by dropping this future.
@@ -249,10 +252,11 @@ fn glob_refs(globs: &[String]) -> Vec<&str> {
     globs.iter().map(String::as_str).collect()
 }
 
-fn with_ua_and_cookies(
+fn with_overrides(
     mut opts: FetchOptions,
     user_agent: Option<String>,
     cookies_file: Option<String>,
+    headers: Option<BTreeMap<String, String>>,
 ) -> Result<FetchOptions, ResponseError> {
     if let Some(ua) = user_agent {
         opts = opts.user_agent(ua);
@@ -260,7 +264,14 @@ fn with_ua_and_cookies(
     if let Some(path) = cookies_file {
         opts = opts.cookies(load_cookies(&path)?);
     }
-    Ok(opts)
+    Ok(opts.headers(wire_headers(headers)?))
+}
+
+fn wire_headers(headers: Option<BTreeMap<String, String>>) -> Result<HeaderMap, ResponseError> {
+    match headers {
+        Some(map) => servo_fetch::headers::from_pairs(&map).map_err(|e| ResponseError::invalid_params(e.to_string())),
+        None => Ok(HeaderMap::new()),
+    }
 }
 
 fn load_cookies(path: &str) -> Result<Vec<servo_fetch::CookieSpec>, ResponseError> {

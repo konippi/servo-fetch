@@ -61,6 +61,7 @@ pub(crate) fn map_error(err: servo_fetch::Error) -> PyErr {
         servo_fetch::Error::Engine { source, .. } => EngineError::new_err(source.to_string()),
         servo_fetch::Error::Schema(e) => SchemaError::new_err(e.to_string()),
         servo_fetch::Error::Cookies { .. } => CookieError::new_err(err.to_string()),
+        servo_fetch::Error::InvalidHeader(msg) => pyo3::exceptions::PyValueError::new_err(msg.clone()),
         _ => ServoFetchError::new_err(err.to_string()),
     }
 }

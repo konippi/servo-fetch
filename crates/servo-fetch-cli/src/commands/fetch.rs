@@ -85,6 +85,7 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
 
     let schema = args.schema.as_ref().map(|p| load_schema(p)).transpose()?;
     let cookies = args.cookies.as_ref().map(servo_fetch::load_cookies).transpose()?;
+    let headers = servo_fetch::headers::parse_lines(&args.headers)?;
 
     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, std::result::Result<Page, servo_fetch::Error>)>(total);
@@ -99,6 +100,7 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
         let schema = schema.clone();
         let visibility = args.visibility.to_policy();
         let cookies = cookies.clone();
+        let headers = headers.clone();
         tokio::task::spawn_blocking(move || {
             let mut opts = FetchOptions::new(&url_str)
                 .timeout(Duration::from_secs(timeout))
@@ -113,6 +115,7 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
             if let Some(c) = cookies {
                 opts = opts.cookies(c);
             }
+            opts = opts.headers(headers);
             let result = servo_fetch::blocking::fetch(&opts);
             let _ = tx.blocking_send((url_str, result));
             drop(permit);
@@ -207,6 +210,7 @@ fn build_fetch_options(args: &FetchArgs, url: &str) -> Result<FetchOptions> {
         Some(ref path) => opts.cookies(servo_fetch::load_cookies(path)?),
         None => opts,
     };
+    let opts = opts.headers(servo_fetch::headers::parse_lines(&args.headers)?);
     Ok(opts)
 }
 

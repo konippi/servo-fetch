@@ -6307,6 +6307,7 @@ dependencies = [
  "flate2",
  "globset",
  "htmd",
+ "http 1.4.0",
  "humantime",
  "image",
  "libc",

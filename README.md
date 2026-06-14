@@ -106,6 +106,7 @@ servo-fetch "https://example.com" --format png -o page.png # PNG screenshot
 servo-fetch "https://example.com" --js "document.title"    # Run JavaScript
 servo-fetch "https://example.com" --schema schema.json     # Schema-driven JSON
 servo-fetch "https://example.com" --cookies cookies.txt    # Send session cookies
+servo-fetch "https://example.com" -H "Authorization: Bearer TOKEN" # Custom request header
 servo-fetch URL1 URL2 URL3                                 # Parallel batch
 servo-fetch "https://example.com" --output page.md         # Save to a single file
 servo-fetch URL1 URL2 --output-dir ./out/                  # Save each URL to its own file

@@ -454,7 +454,7 @@ cookiesFile?: string, };
 /**
  * Capabilities advertised by the server (none yet; reserved for forward compatibility).
  */
-export type ServerCapabilities = Record<string, never>;
+export type ServerCapabilities = Record<symbol, never>;
 
 /**
  * Server name and version, reported by `initialize`.

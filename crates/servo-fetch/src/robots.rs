@@ -33,7 +33,12 @@ pub(crate) struct RobotsRules {
 }
 
 impl RobotsRules {
-    pub(crate) fn fetch(seed: &Url, user_agent: Option<&str>, timeout: Duration) -> RobotsPolicy {
+    pub(crate) fn fetch(
+        seed: &Url,
+        user_agent: Option<&str>,
+        headers: &http::HeaderMap,
+        timeout: Duration,
+    ) -> RobotsPolicy {
         let Some(url) = robots_url(seed) else {
             return RobotsPolicy::Unreachable;
         };
@@ -45,7 +50,11 @@ impl RobotsRules {
                 .user_agent(ua)
                 .build(),
         );
-        match agent.get(url.as_str()).call() {
+        let mut req = agent.get(url.as_str());
+        for (name, value) in headers {
+            req = req.header(name.clone(), value.clone());
+        }
+        match req.call() {
             Ok(resp) => resp
                 .into_body()
                 .with_config()
@@ -309,9 +318,11 @@ mod tests {
         }
 
         async fn call(seed: Url, user_agent: Option<&'static str>) -> RobotsPolicy {
-            tokio::task::spawn_blocking(move || RobotsRules::fetch(&seed, user_agent, Duration::from_secs(5)))
-                .await
-                .unwrap()
+            tokio::task::spawn_blocking(move || {
+                RobotsRules::fetch(&seed, user_agent, &http::HeaderMap::new(), Duration::from_secs(5))
+            })
+            .await
+            .unwrap()
         }
 
         #[tokio::test]

@@ -20,6 +20,7 @@
 
 pub mod blocking;
 pub mod extract;
+pub mod headers;
 pub mod sanitize;
 pub mod schema;
 pub mod visibility;
@@ -45,6 +46,7 @@ pub use cookies::{CookieSpec, load_cookies};
 pub use crawl::{CrawlOptions, CrawlPage, CrawlResult, crawl, crawl_each};
 pub use error::{Error, Result};
 pub use fetch::{ConsoleLevel, ConsoleMessage, FetchOptions, Page, extract_json, fetch, markdown, text};
+pub use http::HeaderMap;
 pub use map::{MapOptions, MappedUrl, map};
 pub use net::{NetworkPolicy, validate_url};
 pub use visibility::{VisibilityFlags, VisibilityPolicy};

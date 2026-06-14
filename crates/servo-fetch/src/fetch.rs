@@ -235,6 +235,7 @@ pub struct FetchOptions {
     pub(crate) extract_schema: Option<crate::schema::ExtractSchema>,
     pub(crate) visibility: Option<crate::visibility::VisibilityPolicy>,
     pub(crate) cookies: Vec<crate::cookies::CookieSpec>,
+    pub(crate) headers: http::HeaderMap,
 }
 
 impl FetchOptions {
@@ -257,6 +258,7 @@ impl FetchOptions {
             extract_schema: None,
             visibility: None,
             cookies: Vec::new(),
+            headers: http::HeaderMap::new(),
         }
     }
 
@@ -309,6 +311,12 @@ impl FetchOptions {
     /// Seed session cookies before navigation, scoped to the target's site.
     pub fn cookies(mut self, cookies: Vec<crate::cookies::CookieSpec>) -> Self {
         self.cookies = cookies;
+        self
+    }
+
+    /// Custom request headers sent with the navigation request.
+    pub fn headers(mut self, headers: http::HeaderMap) -> Self {
+        self.headers = headers;
         self
     }
 
@@ -427,6 +435,7 @@ fn build_bridge_options(opts: &FetchOptions) -> crate::bridge::FetchOptions<'_> 
         settle_ms: u64::try_from(opts.effective_settle().as_millis()).unwrap_or(u64::MAX),
         user_agent: opts.user_agent.as_deref(),
         cookies: &opts.cookies,
+        headers: &opts.headers,
         mode: match opts.mode {
             FetchMode::Content => crate::bridge::FetchMode::Content { include_a11y: false },
             FetchMode::Screenshot { full_page } => crate::bridge::FetchMode::Screenshot { full_page },

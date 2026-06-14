@@ -29,6 +29,7 @@ flate2 = "1"
 futures-util = "0.3"
 globset = "0.4"
 htmd = "0.5"
+http = "1"
 humantime = "2"
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"

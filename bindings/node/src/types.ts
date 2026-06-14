@@ -14,6 +14,8 @@ export interface FetchOptions {
   selector?: string;
   /** Visibility filtering policy. Default: "moderate". */
   visibility?: Visibility;
+  /** Custom request headers sent with the navigation request. */
+  headers?: Record<string, string>;
   /** Allow requests to loopback/private addresses, relaxing the SSRF guard. */
   allowPrivateAddresses?: boolean;
   /** Abort the underlying process. */
@@ -52,6 +54,8 @@ export interface CrawlOptions {
   selector?: string;
   /** Allow requests to loopback/private addresses, relaxing the SSRF guard (for local testing). */
   allowPrivateAddresses?: boolean;
+  /** Custom request headers sent with each page's navigation request. */
+  headers?: Record<string, string>;
   signal?: AbortSignal;
 }
 
@@ -83,5 +87,7 @@ export interface MapOptions {
   noFallback?: boolean;
   /** Allow requests to loopback/private addresses, relaxing the SSRF guard (for local testing). */
   allowPrivateAddresses?: boolean;
+  /** Custom request headers sent with each discovery request. */
+  headers?: Record<string, string>;
   signal?: AbortSignal;
 }

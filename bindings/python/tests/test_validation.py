@@ -18,6 +18,9 @@ import servo_fetch
         ({"settle": -1.0}, "settle"),
         ({"settle": 61.0}, "settle"),
         ({"javascript": "a" * 1_000_001}, "javascript source length"),
+        ({"headers": {"Host": "evil"}}, "managed by the engine"),
+        ({"headers": {"User-Agent": "x"}}, "custom header"),
+        ({"headers": {"X-A": "a\r\nb"}}, "invalid value"),
     ],
     ids=[
         "timeout_negative",
@@ -28,6 +31,9 @@ import servo_fetch
         "settle_negative",
         "settle_above_max",
         "js_too_long",
+        "header_reserved",
+        "header_user_agent",
+        "header_crlf",
     ],
 )
 def test_fetch_rejects_invalid_kwargs(kwargs: dict, match: str) -> None:

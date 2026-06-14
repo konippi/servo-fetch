@@ -43,6 +43,7 @@ let page = fetch(
         .timeout(Duration::from_secs(60))
         .settle(Duration::from_millis(3000))
         .user_agent("MyBot/1.0")
+        .headers(servo_fetch::headers::from_pairs([("Authorization", "Bearer TOKEN")])?)
         .cookies(load_cookies("cookies.txt")?),
 ).await?;
 println!("{}", page.html);

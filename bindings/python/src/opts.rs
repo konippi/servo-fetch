@@ -1,5 +1,6 @@
 //! Build [`servo_fetch::FetchOptions`] from Python kwargs.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use pyo3::prelude::*;
@@ -16,6 +17,7 @@ pub(crate) struct BuildOpts<'py> {
     pub javascript: Option<String>,
     pub schema: Option<Bound<'py, Schema>>,
     pub cookies_file: Option<PathBuf>,
+    pub headers: Option<HashMap<String, String>>,
 }
 
 pub(crate) struct Prepared {
@@ -60,6 +62,9 @@ pub(crate) fn prepare(args: BuildOpts<'_>) -> PyResult<Prepared> {
         if !cookies.is_empty() {
             opts = opts.cookies(cookies);
         }
+    }
+    if let Some(map) = &args.headers {
+        opts = opts.headers(servo_fetch::headers::from_pairs(map).map_err(crate::errors::map_error)?);
     }
 
     Ok(Prepared {

@@ -13,7 +13,8 @@ use image::RgbaImage;
 use serde_json::Value;
 use servo::{
     ConsoleLogLevel, EventLoopWaker, JSValue, LoadStatus, NavigationRequest, Preferences, RenderingContext,
-    ServoBuilder, SoftwareRenderingContext, UserContentManager, WebView, WebViewBuilder, WebViewDelegate, WebViewId,
+    ServoBuilder, SoftwareRenderingContext, UrlRequest, UserContentManager, WebView, WebViewBuilder, WebViewDelegate,
+    WebViewId,
 };
 use tokio::sync::{mpsc, oneshot};
 use url::Url;
@@ -22,6 +23,9 @@ use crate::cookies::CookieSpec;
 use crate::{layout, visibility};
 
 const EXTRACTION_BUDGET: Duration = Duration::from_secs(10);
+
+/// Servo's builder default for a webview created without an initial URL.
+const SHELL_URL: &str = "about:blank";
 
 pub(crate) fn default_user_agent() -> &'static str {
     static UA: OnceLock<String> = OnceLock::new();
@@ -100,6 +104,7 @@ pub(crate) fn wait_for_wake(timeout: Duration) {
 #[derive(Default)]
 struct WebViewState {
     loaded_at: Cell<Option<Instant>>,
+    deferred_load: RefCell<Option<UrlRequest>>,
     a11y_truncated: Cell<bool>,
     a11y_nodes: RefCell<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>,
     console_messages: RefCell<Vec<ConsoleMessage>>,
@@ -111,8 +116,11 @@ struct SharedDelegate {
 }
 
 impl SharedDelegate {
-    fn register(&self, id: WebViewId) -> Rc<WebViewState> {
-        let state = Rc::new(WebViewState::default());
+    fn register(&self, id: WebViewId, deferred_load: Option<UrlRequest>) -> Rc<WebViewState> {
+        let state = Rc::new(WebViewState {
+            deferred_load: RefCell::new(deferred_load),
+            ..Default::default()
+        });
         self.states.borrow_mut().insert(id, state.clone());
         state
     }
@@ -174,10 +182,15 @@ impl From<ConsoleLogLevel> for ConsoleLevel {
 
 impl WebViewDelegate for SharedDelegate {
     fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
-        if status == LoadStatus::Complete {
-            self.with_state(webview.id(), |s| {
-                s.loaded_at.set(Some(Instant::now()));
-            });
+        if webview.url().is_some_and(|u| u.as_str() == SHELL_URL) {
+            if let Some(request) = self
+                .with_state(webview.id(), |s| s.deferred_load.borrow_mut().take())
+                .flatten()
+            {
+                webview.load_request(request);
+            }
+        } else if status == LoadStatus::Complete {
+            self.with_state(webview.id(), |s| s.loaded_at.set(Some(Instant::now())));
         }
     }
 
@@ -256,6 +269,7 @@ pub(crate) struct FetchOptions<'a> {
     pub mode: FetchMode,
     pub user_agent: Option<&'a str>,
     pub cookies: &'a [CookieSpec],
+    pub headers: &'a http::HeaderMap,
 }
 
 /// What to do once the page has loaded. Variants are mutually exclusive.
@@ -283,6 +297,7 @@ struct FetchRequest {
     mode: FetchMode,
     user_agent: Option<String>,
     cookies: Vec<CookieSpec>,
+    headers: http::HeaderMap,
     reply: ReplyFn,
 }
 
@@ -366,6 +381,7 @@ fn build_request(opts: FetchOptions<'_>, reply: ReplyFn) -> FetchRequest {
         mode: opts.mode,
         user_agent: opts.user_agent.map(String::from),
         cookies: opts.cookies.to_vec(),
+        headers: opts.headers.clone(),
         reply,
     }
 }
@@ -565,17 +581,23 @@ fn start_fetch(
     };
 
     let delegate_dyn: Rc<dyn WebViewDelegate> = delegate.clone();
-    let webview = WebViewBuilder::new(servo, rc_dyn)
-        .url(parsed_url)
+    let builder = WebViewBuilder::new(servo, rc_dyn)
         .delegate(delegate_dyn)
-        .user_content_manager(ucm.clone())
-        .build();
+        .user_content_manager(ucm.clone());
+    let (webview, deferred) = if req.headers.is_empty() {
+        (builder.url(parsed_url).build(), None)
+    } else {
+        (
+            builder.build(),
+            Some(UrlRequest::new(parsed_url).headers(req.headers.clone())),
+        )
+    };
 
     if matches!(req.mode, FetchMode::Content { include_a11y: true }) {
         webview.set_accessibility_active(true);
     }
 
-    let state = delegate.register(webview.id());
+    let state = delegate.register(webview.id(), deferred);
     let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
     Some(PendingFetch {
         webview,
@@ -948,6 +970,7 @@ mod tests {
             mode: FetchMode::Content { include_a11y: false },
             user_agent: None,
             cookies: Vec::new(),
+            headers: http::HeaderMap::new(),
             reply,
         }
     }
@@ -961,6 +984,7 @@ mod tests {
             mode: FetchMode::Content { include_a11y: false },
             user_agent: Some("test-ua"),
             cookies: &[],
+            headers: &http::HeaderMap::new(),
         };
         let req = build_request(opts, Box::new(|_| {}));
         assert_eq!(req.url, "test://example");

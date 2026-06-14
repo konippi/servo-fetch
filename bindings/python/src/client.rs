@@ -1,5 +1,6 @@
 //! `Client` pyclass: shared defaults + per-call overrides.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,7 +36,7 @@ impl Client {
     }
 
     /// Fetch a single URL, merging client defaults with per-call overrides.
-    #[pyo3(signature = (url, *, timeout=None, settle=None, screenshot=false, javascript=None, schema=None, cookies_file=None))]
+    #[pyo3(signature = (url, *, timeout=None, settle=None, screenshot=false, javascript=None, schema=None, cookies_file=None, headers=None))]
     #[allow(clippy::too_many_arguments)]
     fn fetch(
         &self,
@@ -47,6 +48,7 @@ impl Client {
         javascript: Option<String>,
         schema: Option<Bound<'_, Schema>>,
         cookies_file: Option<PathBuf>,
+        headers: Option<HashMap<String, String>>,
     ) -> PyResult<Page> {
         let timeout = timeout.or(Some(self.timeout.as_secs_f64()));
         let settle = settle.or(Some(self.settle.as_secs_f64()));
@@ -59,6 +61,7 @@ impl Client {
             javascript,
             schema,
             cookies_file,
+            headers,
         })?;
         let page = py
             .detach(|| servo_fetch::blocking::fetch(&prepared.opts))
@@ -82,6 +85,7 @@ impl Client {
         concurrency=1,
         delay_ms=0,
         cookies_file=None,
+        headers=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn crawl(
@@ -95,6 +99,7 @@ impl Client {
         concurrency: usize,
         delay_ms: u64,
         cookies_file: Option<PathBuf>,
+        headers: Option<HashMap<String, String>>,
     ) -> PyResult<Vec<CrawlResult>> {
         let opts = build_crawl_opts(
             &url,
@@ -108,13 +113,14 @@ impl Client {
             concurrency,
             delay_ms,
             cookies_file,
+            headers,
         )?;
         let results = py.detach(|| servo_fetch::blocking::crawl(&opts)).map_err(map_error)?;
         Ok(results.into_iter().map(CrawlResult::from_core).collect())
     }
 
     /// Crawl a site, invoking `callback(CrawlResult)` as each page completes.
-    #[pyo3(signature = (url, callback, *, max_pages=50, max_depth=3, include=None, exclude=None, concurrency=1, delay_ms=0, abort=None, cookies_file=None))]
+    #[pyo3(signature = (url, callback, *, max_pages=50, max_depth=3, include=None, exclude=None, concurrency=1, delay_ms=0, abort=None, cookies_file=None, headers=None))]
     #[allow(clippy::too_many_arguments)]
     fn crawl_each(
         &self,
@@ -129,6 +135,7 @@ impl Client {
         delay_ms: u64,
         abort: Option<Py<PyAny>>,
         cookies_file: Option<PathBuf>,
+        headers: Option<HashMap<String, String>>,
     ) -> PyResult<()> {
         let opts = build_crawl_opts(
             &url,
@@ -142,6 +149,7 @@ impl Client {
             concurrency,
             delay_ms,
             cookies_file,
+            headers,
         )?;
 
         let stop = AtomicBool::new(false);
@@ -186,7 +194,8 @@ impl Client {
     }
 
     /// Discover URLs on a site via sitemap and link extraction (no rendering).
-    #[pyo3(signature = (url, *, limit=5000, include=None, exclude=None))]
+    #[pyo3(signature = (url, *, limit=5000, include=None, exclude=None, headers=None))]
+    #[allow(clippy::too_many_arguments)]
     fn map(
         &self,
         py: Python<'_>,
@@ -194,6 +203,7 @@ impl Client {
         limit: usize,
         include: Option<&Bound<'_, PyAny>>,
         exclude: Option<&Bound<'_, PyAny>>,
+        headers: Option<HashMap<String, String>>,
     ) -> PyResult<Vec<MappedUrl>> {
         validate::url(&url)?;
         let include = strings_from_any(include)?;
@@ -207,6 +217,9 @@ impl Client {
             .exclude(&exclude_refs);
         if let Some(ua) = self.user_agent.as_deref() {
             opts = opts.user_agent(ua);
+        }
+        if let Some(map) = &headers {
+            opts = opts.headers(servo_fetch::headers::from_pairs(map).map_err(map_error)?);
         }
         let urls = py.detach(|| servo_fetch::blocking::map(&opts)).map_err(map_error)?;
         Ok(urls.into_iter().map(MappedUrl::from_core).collect())
@@ -237,6 +250,7 @@ fn build_crawl_opts(
     concurrency: usize,
     delay_ms: u64,
     cookies_file: Option<PathBuf>,
+    headers: Option<HashMap<String, String>>,
 ) -> PyResult<servo_fetch::CrawlOptions> {
     validate::url(url)?;
     let include = strings_from_any(include)?;
@@ -264,6 +278,9 @@ fn build_crawl_opts(
         if !cookies.is_empty() {
             opts = opts.cookies(cookies);
         }
+    }
+    if let Some(map) = &headers {
+        opts = opts.headers(servo_fetch::headers::from_pairs(map).map_err(map_error)?);
     }
     Ok(opts)
 }

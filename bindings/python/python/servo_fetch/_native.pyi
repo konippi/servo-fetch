@@ -117,6 +117,7 @@ class Client:
         javascript: str | None = None,
         schema: Schema | None = None,
         cookies_file: str | os.PathLike[str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> Page: ...
     def crawl(
         self,
@@ -129,6 +130,7 @@ class Client:
         concurrency: int = 1,
         delay_ms: int = 0,
         cookies_file: str | os.PathLike[str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> list[CrawlResult]: ...
     def crawl_each(
         self,
@@ -143,6 +145,7 @@ class Client:
         delay_ms: int = 0,
         abort: threading.Event | None = None,
         cookies_file: str | os.PathLike[str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None: ...
     def map(
         self,
@@ -151,6 +154,7 @@ class Client:
         limit: int = 5000,
         include: str | list[str] | None = None,
         exclude: str | list[str] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> list[MappedUrl]: ...
 
 class ServoFetchError(Exception): ...
@@ -171,4 +175,5 @@ def fetch(
     javascript: str | None = None,
     schema: Schema | None = None,
     cookies_file: str | os.PathLike[str] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> Page: ...

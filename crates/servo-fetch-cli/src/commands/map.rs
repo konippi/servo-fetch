@@ -19,6 +19,7 @@ pub(crate) fn run(args: &MapArgs) -> anyhow::Result<()> {
     if let Some(ref ua) = args.user_agent {
         opts = opts.user_agent(ua);
     }
+    opts = opts.headers(servo_fetch::headers::parse_lines(&args.headers)?);
 
     let results = servo_fetch::blocking::map(&opts)?;
 

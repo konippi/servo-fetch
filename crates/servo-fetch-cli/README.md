@@ -165,6 +165,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `--settle <MS>` | Extra wait after load event in ms (default: 0, max: 10000) |
 | `--user-agent <UA>` | Override the User-Agent string |
 | `--cookies <FILE>` | Load session cookies from a Netscape/Mozilla cookies.txt file |
+| `-H, --header <NAME: VALUE>` | Custom request header, repeatable (e.g. `-H "X-Api-Key: secret"`) |
 | `-v, --verbose` | Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
 | `-q, --quiet` | Suppress all logs except errors |
 
@@ -198,6 +199,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `--delay-ms <MS>` | Minimum dispatch interval in ms (default: 500; 0 disables rate limiting) |
 | `--user-agent <UA>` | Override the User-Agent string |
 | `--cookies <FILE>` | Load session cookies from a Netscape/Mozilla cookies.txt file |
+| `-H, --header <NAME: VALUE>` | Custom request header, repeatable (e.g. `-H "X-Api-Key: secret"`) |
 | `-t, --timeout <SECS>` | Page load timeout in seconds per page (default: 30) |
 | `--settle <MS>` | Extra wait after load event in ms per page (default: 0, max: 10000) |
 
@@ -212,8 +214,13 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `--exclude <GLOB>` | URL path patterns to exclude |
 | `--format json` | Output as JSON array with lastmod metadata |
 | `--user-agent <UA>` | Override the User-Agent string |
+| `-H, --header <NAME: VALUE>` | Custom request header, repeatable (e.g. `-H "X-Api-Key: secret"`) |
 | `-t, --timeout <SECS>` | HTTP request timeout in seconds (default: 30) |
 | `--no-fallback` | Skip HTML link extraction fallback |
+
+### Custom headers
+
+`-H, --header "Name: Value"` is repeatable and applies to the navigation request (curl-compatible; `Name;` sends an empty value), on `fetch`, `crawl`, and `map`. Framing headers (`Host`, `Content-Length`, `Connection`, `Transfer-Encoding`, …) are rejected; set `User-Agent` via `--user-agent` and cookies via `--cookies`. Avoid sending credentials to URLs that may redirect across origins.
 
 ## Logging
 

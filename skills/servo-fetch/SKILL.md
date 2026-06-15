@@ -33,10 +33,10 @@ Parameters:
 - `url` (required): URL to fetch (http/https only)
 - `format`: `"markdown"` (default), `"json"`, `"html"`, `"text"`, or `"accessibility_tree"`
 - `selector`: CSS selector to extract a specific section instead of full-page extraction
-- `max_length`: max characters to return (default 5000)
-- `start_index`: character offset for pagination
-- `timeout`: page load timeout in seconds (default 30)
-- `settle_ms`: extra wait in ms after load event for SPAs (default 0, max 10000)
+- `maxLength`: max characters to return (default 5000)
+- `startIndex`: character offset for pagination
+- `visibility`: `"moderate"` (default), `"strict"`, or `"off"`
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
 
 ```text
 fetch(url: "https://docs.rs/tokio", format: "markdown")
@@ -53,11 +53,11 @@ Fetch multiple URLs in parallel. Results are returned as separate content entrie
 Parameters:
 
 - `urls` (required): array of URLs to fetch (http/https only, max 20)
-- `format`: `"markdown"` (default) or `"json"`
+- `format`: `"markdown"` (default), `"json"`, `"html"`, `"text"`, or `"accessibility_tree"`
 - `selector`: CSS selector to extract a specific section
-- `max_length`: max characters per URL result (default 5000)
-- `timeout`: page load timeout in seconds per URL (default 30)
-- `settle_ms`: extra wait in ms after load event (default 0, max 10000)
+- `maxLength`: max characters per URL result (default 5000)
+- `visibility`: `"moderate"` (default), `"strict"`, or `"off"`
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
 
 ```text
 batch_fetch(urls: ["https://a.com", "https://b.com"], format: "markdown")
@@ -71,19 +71,18 @@ Crawl a website starting from a URL, following same-site links via BFS. JavaScri
 Parameters:
 
 - `url` (required): starting URL to crawl (http/https only)
-- `limit`: max pages to crawl (default 20, max 500)
-- `max_depth`: max link depth from seed (default 3, max 10)
+- `limit`: max pages to crawl (default 50, max 500)
+- `maxDepth`: max link depth from seed (default 3, max 10)
 - `format`: `"markdown"` (default) or `"json"`
-- `include_glob`: URL path patterns to include (e.g. `["/docs/**"]`)
-- `exclude_glob`: URL path patterns to exclude
-- `max_length`: max characters per page result (default 5000)
-- `timeout`: page load timeout in seconds per page (default 30)
-- `settle_ms`: extra wait in ms after load event (default 0, max 10000)
+- `include`: URL path patterns to include (e.g. `["/docs/**"]`)
+- `exclude`: URL path patterns to exclude
+- `maxLength`: max characters per page result (default 5000)
 - `selector`: CSS selector to extract a specific section per page
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
 
 ```text
-crawl(url: "https://docs.example.com", limit: 20, max_depth: 3)
-crawl(url: "https://docs.example.com", include_glob: ["/guide/**"], limit: 50)
+crawl(url: "https://docs.example.com", limit: 20, maxDepth: 3)
+crawl(url: "https://docs.example.com", include: ["/guide/**"], limit: 50)
 ```
 
 ### screenshot
@@ -93,13 +92,12 @@ Capture a PNG screenshot. Uses Servo's software renderer — works without GPU.
 Parameters:
 
 - `url` (required): URL to capture
-- `full_page`: capture the full scrollable page (default false)
-- `timeout`: page load timeout in seconds (default 30)
-- `settle_ms`: extra wait in ms after load event (default 0, max 10000)
+- `fullPage`: capture the full scrollable page (default false)
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
 
 ```text
 screenshot(url: "https://example.com")
-screenshot(url: "https://example.com", full_page: true)
+screenshot(url: "https://example.com", fullPage: true)
 ```
 
 ### execute_js
@@ -110,8 +108,7 @@ Parameters:
 
 - `url` (required): URL to load
 - `expression` (required): JavaScript expression to evaluate
-- `timeout`: page load timeout in seconds (default 30)
-- `settle_ms`: extra wait in ms after load event (default 0, max 10000)
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
 
 ```text
 execute_js(url: "https://example.com", expression: "document.title")

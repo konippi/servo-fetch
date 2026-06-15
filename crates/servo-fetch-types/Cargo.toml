@@ -11,10 +11,12 @@ description = "Wire DTOs shared by the servo-fetch CLI, HTTP/MCP servers, daemon
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+schemars = { version = "1", optional = true }
 ts-rs = { version = "12", optional = true }
 
 [features]
 codegen = ["dep:ts-rs"]
+schema = ["dep:schemars"]
 
 [lints]
 workspace = true

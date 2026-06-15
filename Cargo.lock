@@ -6343,7 +6343,6 @@ dependencies = [
  "predicates",
  "rmcp",
  "rustls",
- "schemars",
  "serde",
  "serde_json",
  "servo-fetch",
@@ -6377,6 +6376,7 @@ dependencies = [
 name = "servo-fetch-types"
 version = "0.12.2"
 dependencies = [
+ "schemars",
  "serde",
  "serde_json",
  "ts-rs",

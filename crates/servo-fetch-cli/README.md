@@ -281,6 +281,16 @@ Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server over 
 
 Streamable HTTP: `servo-fetch mcp --port 8080`
 
+All page-fetching tools (`fetch`, `batch_fetch`, `crawl`, `screenshot`, `execute_js`) accept these **common options**:
+
+| Option | Type | Description |
+| ------ | ---- | ----------- |
+| `timeout` | number? | Page load timeout in seconds (default 30, max 300) |
+| `settleMs` | number? | Extra wait in ms after load event (default 0, max 10000) |
+| `userAgent` | string? | Override the User-Agent header |
+| `cookiesFile` | string? | Path to a Netscape-format cookies.txt file |
+| `headers` | object? | Custom request headers (name → value) |
+
 <details>
 <summary><b>fetch</b> — extract readable content from a URL</summary>
 
@@ -288,11 +298,12 @@ Streamable HTTP: `servo-fetch mcp --port 8080`
 | --------- | ---- | ----------- |
 | `url` | string | URL to fetch (http/https only) |
 | `format` | string? | `markdown` (default), `json`, `html`, `text`, or `accessibility_tree` |
-| `max_length` | number? | Max characters to return (default 5000) |
-| `start_index` | number? | Character offset for pagination (default 0) |
-| `timeout` | number? | Page load timeout in seconds (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
+| `maxLength` | number? | Max characters to return (default 5000) |
+| `startIndex` | number? | Character offset for pagination (default 0) |
 | `selector` | string? | CSS selector to extract a specific section |
+| `visibility` | string? | `moderate` (default), `strict`, or `off` |
+
+Plus the common options above.
 
 </details>
 
@@ -302,11 +313,12 @@ Streamable HTTP: `servo-fetch mcp --port 8080`
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | `urls` | string[] | URLs to fetch (http/https only, max 20) |
-| `format` | string? | `markdown` (default) or `json` |
-| `max_length` | number? | Max characters per URL result (default 5000) |
-| `timeout` | number? | Page load timeout in seconds per URL (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
+| `format` | string? | `markdown` (default), `json`, `html`, `text`, or `accessibility_tree` |
+| `maxLength` | number? | Max characters per URL result (default 5000) |
 | `selector` | string? | CSS selector to extract a specific section |
+| `visibility` | string? | `moderate` (default), `strict`, or `off` |
+
+Plus the common options above.
 
 </details>
 
@@ -317,14 +329,14 @@ Streamable HTTP: `servo-fetch mcp --port 8080`
 | --------- | ---- | ----------- |
 | `url` | string | Starting URL (http/https only) |
 | `limit` | number? | Maximum pages to crawl (default 50, max 500) |
-| `max_depth` | number? | Maximum link depth from seed (default 3, max 10) |
+| `maxDepth` | number? | Maximum link depth from seed (default 3, max 10) |
 | `format` | string? | `markdown` (default) or `json` |
-| `include_glob` | string[]? | URL path patterns to include |
-| `exclude_glob` | string[]? | URL path patterns to exclude |
-| `max_length` | number? | Max characters per page result (default 5000) |
-| `timeout` | number? | Page load timeout in seconds per page (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
+| `include` | string[]? | URL path patterns to include |
+| `exclude` | string[]? | URL path patterns to exclude |
+| `maxLength` | number? | Max characters per page result (default 5000) |
 | `selector` | string? | CSS selector to extract a specific section per page |
+
+Plus the common options above.
 
 </details>
 
@@ -335,8 +347,12 @@ Streamable HTTP: `servo-fetch mcp --port 8080`
 | --------- | ---- | ----------- |
 | `url` | string | Site URL to discover pages for (http/https only) |
 | `limit` | number? | Maximum URLs to return (default 5000) |
-| `include_glob` | string[]? | URL path patterns to include |
-| `exclude_glob` | string[]? | URL path patterns to exclude |
+| `include` | string[]? | URL path patterns to include |
+| `exclude` | string[]? | URL path patterns to exclude |
+| `noFallback` | boolean? | Skip the HTML link fallback when no sitemap is found |
+| `userAgent` | string? | Override the User-Agent header |
+| `timeout` | number? | Per-request timeout in seconds (default 30) |
+| `headers` | object? | Custom request headers (name → value) |
 
 </details>
 
@@ -346,9 +362,9 @@ Streamable HTTP: `servo-fetch mcp --port 8080`
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | `url` | string | URL to capture (http/https only) |
-| `full_page` | boolean? | Capture the full scrollable page (default false) |
-| `timeout` | number? | Page load timeout in seconds (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
+| `fullPage` | boolean? | Capture the full scrollable page (default false) |
+
+Plus the common options above.
 
 </details>
 
@@ -359,8 +375,8 @@ Streamable HTTP: `servo-fetch mcp --port 8080`
 | --------- | ---- | ----------- |
 | `url` | string | URL to load before executing JS |
 | `expression` | string | JavaScript expression to evaluate |
-| `timeout` | number? | Page load timeout in seconds (default 30) |
-| `settle_ms` | number? | Extra wait in ms after load event (default 0, max 10000) |
+
+Plus the common options above.
 
 </details>
 
@@ -401,7 +417,7 @@ curl -X POST http://127.0.0.1:3000/v1/fetch \
 # Screenshot → PNG
 curl -X POST http://127.0.0.1:3000/v1/screenshot \
   -H 'content-type: application/json' \
-  -d '{"url":"https://example.com","full_page":true}' \
+  -d '{"url":"https://example.com","fullPage":true}' \
   -o page.png
 ```
 

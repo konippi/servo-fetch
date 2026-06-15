@@ -17,6 +17,13 @@ impl ToolError {
         }
     }
 
+    pub(crate) fn invalid_params(message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::InvalidParams,
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn kind(&self) -> ErrorKind {
         self.kind
     }

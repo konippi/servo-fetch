@@ -2,16 +2,16 @@
 
 ## Pagination
 
-Large pages are truncated at `max_length` (default 5000 characters). The response includes a hint:
+Large pages are truncated at `maxLength` (default 5000 characters). The response includes a hint:
 
 ```text
-<content truncated. total_length=42000, next start_index=5000>
+<content truncated. total_length=42000, next startIndex=5000>
 ```
 
 Fetch the next chunk:
 
 ```text
-fetch(url: "https://...", start_index: 5000)
+fetch(url: "https://...", startIndex: 5000)
 ```
 
 ## Batch fetching
@@ -39,7 +39,7 @@ Use `crawl` to follow links within a site and extract content from multiple page
 
 ```text
 crawl(url: "https://docs.example.com", limit: 20, max_depth: 3)
-crawl(url: "https://docs.example.com", include_glob: ["/guide/**"])
+crawl(url: "https://docs.example.com", include: ["/guide/**"])
 ```
 
 Crawl follows same-site links only (eTLD+1), respects `robots.txt`, and applies a 500ms interval between requests by default (CLI: `--delay-ms`, library: `CrawlOptions::delay()`). Output is one content entry per page.

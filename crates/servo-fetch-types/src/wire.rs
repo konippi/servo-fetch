@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 /// Visibility-aware filtering policy applied during extraction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Visibility {
     /// Strip CSS-, ARIA-, and geometry-hidden content.

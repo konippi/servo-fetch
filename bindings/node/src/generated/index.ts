@@ -34,6 +34,51 @@ lang?: string,
 url?: string, };
 
 /**
+ * Parameters for the `batchFetch` method.
+ */
+export type BatchFetchRequest = { 
+/**
+ * URLs to fetch (http/https only).
+ */
+urls: Array<string>, 
+/**
+ * Output format (default: markdown).
+ */
+format?: FetchFormat, 
+/**
+ * CSS selector to extract a specific section per page.
+ */
+selector?: string, 
+/**
+ * Truncate each result to this many characters (default: 5000).
+ */
+maxLength?: number, 
+/**
+ * Visibility filtering policy (default: moderate).
+ */
+visibility?: Visibility, 
+/**
+ * Page-load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Override the User-Agent header.
+ */
+userAgent?: string, 
+/**
+ * Path to a Netscape-format cookies.txt file.
+ */
+cookiesFile?: string, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, };
+
+/**
  * Severity of a captured console message.
  */
 export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug" | "trace";
@@ -145,11 +190,19 @@ delayMs?: number,
  */
 selector?: string, 
 /**
- * Per-page load timeout in seconds (default: 30).
+ * Output format for each crawled page: `markdown` (default) or `json`.
+ */
+format?: FetchFormat, 
+/**
+ * Truncate each page result to this many characters (default: 5000).
+ */
+maxLength?: number, 
+/**
+ * Page-load timeout in seconds (default: 30).
  */
 timeout?: number, 
 /**
- * Extra wait in milliseconds after the load event, per page (default: 0).
+ * Extra wait in milliseconds after the load event (default: 0).
  */
 settleMs?: number, 
 /**
@@ -259,6 +312,10 @@ url: string,
  */
 selector?: string, 
 /**
+ * Visibility filtering policy (default: moderate).
+ */
+visibility?: Visibility, 
+/**
  * Page-load timeout in seconds (default: 30).
  */
 timeout?: number, 
@@ -277,19 +334,15 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, 
-/**
- * Visibility filtering policy (default: moderate).
- */
-visibility?: Visibility, };
+headers?: { [key in string]: string }, };
 
 /**
  * Output format for the `fetch` method (all string-valued).
  */
-export type FetchFormat = "markdown" | "html" | "text";
+export type FetchFormat = "markdown" | "json" | "html" | "text" | "accessibility_tree";
 
 /**
- * Parameters for the `fetch` method (Markdown/HTML/text — returns a string).
+ * Parameters for the `fetch` method (returns the formatted page as a string).
  */
 export type FetchRequest = { 
 /**
@@ -305,6 +358,18 @@ format?: FetchFormat,
  */
 selector?: string, 
 /**
+ * Truncate the result to this many characters (default: 5000).
+ */
+maxLength?: number, 
+/**
+ * Character offset to start the result from, for pagination (default: 0).
+ */
+startIndex?: number, 
+/**
+ * Visibility filtering policy (default: moderate).
+ */
+visibility?: Visibility, 
+/**
  * Page-load timeout in seconds (default: 30).
  */
 timeout?: number, 
@@ -323,11 +388,7 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, 
-/**
- * Visibility filtering policy (default: moderate).
- */
-visibility?: Visibility, };
+headers?: { [key in string]: string }, };
 
 /**
  * Result of the `initialize` handshake.
@@ -367,6 +428,10 @@ include?: Array<string>,
  */
 exclude?: Array<string>, 
 /**
+ * Skip the HTML link fallback when no sitemap is found.
+ */
+noFallback?: boolean, 
+/**
  * Override the User-Agent header.
  */
 userAgent?: string, 
@@ -374,10 +439,6 @@ userAgent?: string,
  * Per-request timeout in seconds (default: 30).
  */
 timeout?: number, 
-/**
- * Skip the HTML link fallback when no sitemap is found.
- */
-noFallback?: boolean, 
 /**
  * Custom request headers.
  */
@@ -397,17 +458,9 @@ url: string,
 lastmod?: string, };
 
 /**
- * Parameters for the `extractSchema` method.
+ * Request options common to every page-fetching method (flattened into each request).
  */
-export type SchemaExtractRequest = { 
-/**
- * URL to extract from (http/https only).
- */
-url: string, 
-/**
- * CSS-selector extraction schema.
- */
-schema: unknown, 
+export type RequestOptions = { 
 /**
  * Page-load timeout in seconds (default: 30).
  */
@@ -427,11 +480,44 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, 
+headers?: { [key in string]: string }, };
+
+/**
+ * Parameters for the `extractSchema` method.
+ */
+export type SchemaExtractRequest = { 
+/**
+ * URL to extract from (http/https only).
+ */
+url: string, 
+/**
+ * CSS-selector extraction schema.
+ */
+schema: unknown, 
 /**
  * Visibility filtering policy (default: moderate).
  */
-visibility?: Visibility, };
+visibility?: Visibility, 
+/**
+ * Page-load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Override the User-Agent header.
+ */
+userAgent?: string, 
+/**
+ * Path to a Netscape-format cookies.txt file.
+ */
+cookiesFile?: string, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, };
 
 /**
  * Structured-extraction result for the `--schema` path.

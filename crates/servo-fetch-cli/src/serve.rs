@@ -3,7 +3,7 @@
 mod error;
 mod extract;
 mod handlers;
-mod params;
+mod response;
 
 use std::net::SocketAddr;
 

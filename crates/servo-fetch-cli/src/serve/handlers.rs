@@ -4,18 +4,16 @@
 use axum::Json as AxumJson;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::IntoResponse;
+use servo_fetch::FetchOptions;
+use servo_fetch_types::{
+    BatchFetchRequest, CrawlRequest, EvaluateRequest, FetchRequest, MapRequest, ScreenshotRequest,
+};
 
 use super::error::ApiError;
 use super::extract::Json;
-use super::params::{
-    BatchFetchRequest, BatchFetchResponse, BatchFormat, CrawlRequest, CrawlResponse, ExecuteJsRequest, FetchRequest,
-    FetchResponse, Format, HealthResponse, MapRequest, MapResponse, ScreenshotRequest, VersionResponse,
-};
-use crate::tools;
-use crate::tools::limits::{
-    MAX_BATCH_URLS, MAX_CRAWL_DEPTH, MAX_CRAWL_PAGES, MAX_JS_LEN, MAX_JS_OUTPUT_LEN, MAX_MAP_URLS, MAX_SELECTOR_LEN,
-    MAX_SETTLE_MS, MAX_TIMEOUT_SECS,
-};
+use super::response::{BatchFetchResponse, CrawlResponse, FetchResponse, HealthResponse, MapResponse, VersionResponse};
+use crate::tools::limits::{DEFAULT_MAX_LENGTH, MAX_BATCH_URLS, MAX_JS_LEN, to_len};
+use crate::tools::{self, BatchSpec, CrawlSpec, ToolError};
 
 pub(super) async fn health() -> AxumJson<HealthResponse> {
     AxumJson(HealthResponse { status: "ok" })
@@ -30,31 +28,28 @@ pub(super) async fn version() -> AxumJson<VersionResponse> {
 
 pub(super) async fn fetch(Json(req): Json<FetchRequest>) -> Result<AxumJson<FetchResponse>, ApiError> {
     let url = tools::validated_url(&req.url)?;
-    let timeout = req.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-    let settle_ms = req.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
-    let max_len = req.max_length.unwrap_or(5000);
-    let start = req.start_index.unwrap_or(0);
-    validate_selector(req.selector.as_deref())?;
+    tools::validate_selector(req.selector.as_deref())?;
 
-    let page = tools::fetch_page(&url, timeout, settle_ms).await?;
-    let full = match req.format {
-        Format::Html => page.html,
-        Format::Text => page.inner_text,
-        Format::Json => tools::extract(&page, &url, true, req.selector.as_deref())?,
-        Format::Markdown => tools::extract(&page, &url, false, req.selector.as_deref())?,
-        Format::AccessibilityTree => page.accessibility_tree.unwrap_or_default(),
-    };
-    let content = tools::paginate(&servo_fetch::sanitize::sanitize(&full), start, max_len);
+    let opts = FetchOptions::new(&url).visibility(tools::visibility_policy(req.visibility));
+    let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
+    let full = tools::render_page(&page, &url, req.format.unwrap_or_default(), req.selector.as_deref())?;
+    let content = tools::paginate(
+        &servo_fetch::sanitize::sanitize(&full),
+        to_len(req.start_index, 0),
+        to_len(req.max_length, DEFAULT_MAX_LENGTH),
+    );
     Ok(AxumJson(FetchResponse { url, content }))
 }
 
 pub(super) async fn screenshot(Json(req): Json<ScreenshotRequest>) -> Result<impl IntoResponse, ApiError> {
     let url = tools::validated_url(&req.url)?;
-    let timeout = req.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-    let settle_ms = req.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
-    let full_page = req.full_page.unwrap_or(false);
 
-    let png = tools::take_screenshot(&url, timeout, settle_ms, full_page).await?;
+    let opts = FetchOptions::screenshot(&url, req.full_page.unwrap_or(false));
+    let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
+    let png = page
+        .screenshot_png()
+        .map(<[u8]>::to_vec)
+        .ok_or_else(|| ToolError::internal("screenshot capture failed"))?;
     Ok((
         StatusCode::OK,
         [
@@ -69,7 +64,7 @@ pub(super) async fn screenshot(Json(req): Json<ScreenshotRequest>) -> Result<imp
 }
 
 pub(super) async fn execute_js(
-    Json(req): Json<ExecuteJsRequest>,
+    Json(req): Json<EvaluateRequest>,
 ) -> Result<AxumJson<servo_fetch_types::EvaluateResult>, ApiError> {
     if req.expression.len() > MAX_JS_LEN {
         return Err(ApiError::bad_request(format!(
@@ -77,15 +72,10 @@ pub(super) async fn execute_js(
         )));
     }
     let url = tools::validated_url(&req.url)?;
-    let timeout = req.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-    let settle_ms = req.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
 
-    let page = tools::fetch_js(&url, &req.expression, timeout, settle_ms).await?;
-    let mut result = page.js_result.unwrap_or_default();
-    if result.len() > MAX_JS_OUTPUT_LEN {
-        result.truncate(servo_fetch::sanitize::floor_char_boundary(&result, MAX_JS_OUTPUT_LEN));
-        result.push_str("\n<output truncated>");
-    }
+    let opts = FetchOptions::javascript(&url, &req.expression);
+    let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
+    let result = tools::clamp_js_output(page.js_result.unwrap_or_default());
     let result = servo_fetch::sanitize::sanitize(&result).into_owned();
     Ok(AxumJson(crate::wire::evaluate_result(
         url,
@@ -103,19 +93,22 @@ pub(super) async fn batch_fetch(Json(req): Json<BatchFetchRequest>) -> Result<Ax
             "urls exceeds {MAX_BATCH_URLS} URL limit"
         )));
     }
-    validate_selector(req.selector.as_deref())?;
-
-    let timeout = req.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-    let settle_ms = req.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
-    let max_len = req.max_length.unwrap_or(5000);
-    let json = matches!(req.format, BatchFormat::Json);
+    tools::validate_selector(req.selector.as_deref())?;
 
     let validated: Vec<String> = req
         .urls
         .iter()
         .map(|u| tools::validated_url(u))
         .collect::<Result<_, _>>()?;
-    let raw = tools::batch_fetch_pages(&validated, timeout, settle_ms, json, req.selector.as_deref(), max_len).await;
+    let raw = tools::batch_fetch_pages(BatchSpec {
+        urls: &validated,
+        format: req.format.unwrap_or_default(),
+        selector: req.selector.as_deref(),
+        max_len: to_len(req.max_length, DEFAULT_MAX_LENGTH),
+        visibility: tools::visibility_policy(req.visibility),
+        options: req.options,
+    })
+    .await;
     let results = raw
         .into_iter()
         .map(|(url, content)| FetchResponse { url, content })
@@ -125,26 +118,23 @@ pub(super) async fn batch_fetch(Json(req): Json<BatchFetchRequest>) -> Result<Ax
 
 pub(super) async fn crawl(Json(req): Json<CrawlRequest>) -> Result<AxumJson<CrawlResponse>, ApiError> {
     let url = tools::validated_url(&req.url)?;
-    let limit = req.limit.unwrap_or(50).clamp(1, MAX_CRAWL_PAGES);
-    let max_depth = req.max_depth.unwrap_or(3).clamp(1, MAX_CRAWL_DEPTH);
-    let timeout = req.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-    let settle_ms = req.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
-    let max_len = req.max_length.unwrap_or(5000);
-    let json = matches!(req.format, BatchFormat::Json);
-    validate_selector(req.selector.as_deref())?;
+    tools::validate_selector(req.selector.as_deref())?;
 
-    let pages = tools::crawl_pages(tools::CrawlOptions {
-        url: &url,
-        limit,
-        max_depth,
-        json,
-        selector: req.selector.as_deref(),
-        max_len,
-        timeout,
-        settle_ms,
-        include_glob: req.include_glob.as_deref(),
-        exclude_glob: req.exclude_glob.as_deref(),
-    })
+    let pages = tools::crawl_pages(
+        CrawlSpec {
+            url: &url,
+            limit: req.limit,
+            max_depth: req.max_depth,
+            format: req.format.unwrap_or_default(),
+            selector: req.selector.as_deref(),
+            include: req.include.as_deref(),
+            exclude: req.exclude.as_deref(),
+            concurrency: req.concurrency,
+            delay_ms: req.delay_ms,
+            options: req.options,
+        },
+        to_len(req.max_length, DEFAULT_MAX_LENGTH),
+    )
     .await?;
     let results = pages
         .into_iter()
@@ -155,23 +145,21 @@ pub(super) async fn crawl(Json(req): Json<CrawlRequest>) -> Result<AxumJson<Craw
 
 pub(super) async fn map(Json(req): Json<MapRequest>) -> Result<AxumJson<MapResponse>, ApiError> {
     let url = tools::validated_url(&req.url)?;
-    let limit = req.limit.unwrap_or(5000).clamp(1, MAX_MAP_URLS);
 
-    let urls = tools::discover_urls(
-        &url,
-        limit,
-        req.include_glob.as_deref().unwrap_or_default(),
-        req.exclude_glob.as_deref().unwrap_or_default(),
-    )
-    .await?;
+    let opts = tools::build_map_options(tools::MapSpec {
+        url: &url,
+        limit: req.limit,
+        include: req.include.as_deref(),
+        exclude: req.exclude.as_deref(),
+        no_fallback: req.no_fallback.unwrap_or(false),
+        user_agent: req.user_agent.as_deref(),
+        timeout: req.timeout,
+        headers: req.headers,
+    })?;
+    let urls = tools::map_with(opts)
+        .await?
+        .into_iter()
+        .map(|entry| entry.url)
+        .collect();
     Ok(AxumJson(MapResponse { urls }))
-}
-
-fn validate_selector(selector: Option<&str>) -> Result<(), ApiError> {
-    if selector.is_some_and(|s| s.len() > MAX_SELECTOR_LEN) {
-        return Err(ApiError::bad_request(format!(
-            "selector exceeds {MAX_SELECTOR_LEN} character limit"
-        )));
-    }
-    Ok(())
 }

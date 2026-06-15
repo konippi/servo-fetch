@@ -2,19 +2,18 @@
 
 use std::fmt::Write as _;
 
+use base64::Engine as _;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, ProtocolVersion, ServerCapabilities, ServerInfo};
 use rmcp::{ErrorData, ServerHandler, tool, tool_handler, tool_router};
+use servo_fetch::FetchOptions;
+use servo_fetch_types::{
+    BatchFetchRequest, CrawlRequest, EvaluateRequest, FetchRequest, MapRequest, ScreenshotRequest,
+};
 
-use super::params::{
-    BatchFetchParams, BatchFormat, CrawlParams, ExecuteJsParams, FetchParams, MapParams, OutputFormat, ScreenshotParams,
-};
 use super::tools;
-use crate::tools::limits::{
-    MAX_BATCH_URLS, MAX_CRAWL_DEPTH, MAX_CRAWL_PAGES, MAX_JS_LEN, MAX_JS_OUTPUT_LEN, MAX_MAP_URLS, MAX_SELECTOR_LEN,
-    MAX_SETTLE_MS, MAX_TIMEOUT_SECS,
-};
+use crate::tools::limits::{DEFAULT_MAX_LENGTH, MAX_BATCH_URLS, MAX_JS_LEN, to_len};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ServoFetchMcp {
@@ -31,7 +30,7 @@ impl ServoFetchMcp {
     }
 
     #[tool(
-        description = "Fetch a URL and extract readable content using the Servo browser engine (JS execution + CSS layout). Navbars, sidebars, and footers are stripped automatically. Use `selector` to extract a specific CSS-selected section instead of full-page Readability extraction. Set format to `accessibility_tree` to get the page's accessibility tree with bounding boxes. Long content is truncated at max_length; use start_index to paginate.",
+        description = "Fetch a URL and extract readable content using the Servo browser engine (JS execution + CSS layout). Navbars, sidebars, and footers are stripped automatically. Use `selector` to extract a specific CSS-selected section instead of full-page Readability extraction. Set format to `accessibility_tree` to get the page's accessibility tree with bounding boxes. Long content is truncated at maxLength; use startIndex to paginate.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -39,36 +38,21 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn fetch(&self, Parameters(p): Parameters<FetchParams>) -> Result<CallToolResult, ErrorData> {
+    async fn fetch(&self, Parameters(p): Parameters<FetchRequest>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
-        let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
-        let max_len = p.max_length.unwrap_or(5000);
-        let start = p.start_index.unwrap_or(0);
+        tools::validate_selector(p.selector.as_deref())?;
+        let format = p.format.unwrap_or_default();
+        let start = to_len(p.start_index, 0);
+        let max_len = to_len(p.max_length, DEFAULT_MAX_LENGTH);
 
-        if p.selector.as_ref().is_some_and(|s| s.len() > MAX_SELECTOR_LEN) {
-            return Err(ErrorData::invalid_params(
-                format!("selector exceeds {MAX_SELECTOR_LEN} character limit"),
-                None,
-            ));
-        }
-
-        let page = match tools::fetch_page(&url, timeout, settle_ms).await {
-            Ok(p) => p,
+        let opts = FetchOptions::new(&url).visibility(tools::visibility_policy(p.visibility));
+        let page = match tools::fetch_with(tools::apply_options(opts, p.options)?).await {
+            Ok(page) => page,
             Err(e) => return Ok(tools::tool_error(e)),
         };
-        let full = match p.format.unwrap_or_default() {
-            OutputFormat::Html => page.html,
-            OutputFormat::Text => page.inner_text,
-            OutputFormat::Json => match tools::extract(&page, &url, true, p.selector.as_deref()) {
-                Ok(s) => s,
-                Err(e) => return Ok(tools::tool_error(e)),
-            },
-            OutputFormat::Markdown => match tools::extract(&page, &url, false, p.selector.as_deref()) {
-                Ok(s) => s,
-                Err(e) => return Ok(tools::tool_error(e)),
-            },
-            OutputFormat::AccessibilityTree => page.accessibility_tree.unwrap_or_default(),
+        let full = match tools::render_page(&page, &url, format, p.selector.as_deref()) {
+            Ok(full) => full,
+            Err(e) => return Ok(tools::tool_error(e)),
         };
         Ok(CallToolResult::success(vec![Content::text(tools::paginate(
             &servo_fetch::sanitize::sanitize(&full),
@@ -86,15 +70,21 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn screenshot(&self, Parameters(p): Parameters<ScreenshotParams>) -> Result<CallToolResult, ErrorData> {
+    async fn screenshot(&self, Parameters(p): Parameters<ScreenshotRequest>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
-        let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
-        Ok(
-            tools::take_screenshot(&url, timeout, settle_ms, p.full_page.unwrap_or(false))
-                .await
-                .unwrap_or_else(tools::tool_error),
-        )
+
+        let opts = FetchOptions::screenshot(&url, p.full_page.unwrap_or(false));
+        let page = match tools::fetch_with(tools::apply_options(opts, p.options)?).await {
+            Ok(page) => page,
+            Err(e) => return Ok(tools::tool_error(e)),
+        };
+        match page.screenshot_png() {
+            Some(png) => Ok(CallToolResult::success(vec![Content::image(
+                base64::engine::general_purpose::STANDARD.encode(png),
+                "image/png",
+            )])),
+            None => Ok(tools::tool_error("screenshot capture failed")),
+        }
     }
 
     #[tool(
@@ -106,7 +96,7 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn execute_js(&self, Parameters(p): Parameters<ExecuteJsParams>) -> Result<CallToolResult, ErrorData> {
+    async fn execute_js(&self, Parameters(p): Parameters<EvaluateRequest>) -> Result<CallToolResult, ErrorData> {
         if p.expression.len() > MAX_JS_LEN {
             return Err(ErrorData::invalid_params(
                 format!("expression exceeds {MAX_JS_LEN} character limit"),
@@ -114,18 +104,13 @@ impl ServoFetchMcp {
             ));
         }
         let url = tools::validated_url(&p.url)?;
-        let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
 
-        let page = match tools::fetch_js(&url, &p.expression, timeout, settle_ms).await {
-            Ok(p) => p,
+        let opts = FetchOptions::javascript(&url, &p.expression);
+        let page = match tools::fetch_with(tools::apply_options(opts, p.options)?).await {
+            Ok(page) => page,
             Err(e) => return Ok(tools::tool_error(e)),
         };
-        let mut result = page.js_result.unwrap_or_default();
-        if result.len() > MAX_JS_OUTPUT_LEN {
-            result.truncate(servo_fetch::sanitize::floor_char_boundary(&result, MAX_JS_OUTPUT_LEN));
-            result.push_str("\n<output truncated>");
-        }
+        let mut result = tools::clamp_js_output(page.js_result.unwrap_or_default());
         if !page.console_messages.is_empty() {
             result.push_str("\n\n--- console output ---\n");
             for msg in &page.console_messages {
@@ -146,7 +131,7 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn batch_fetch(&self, Parameters(p): Parameters<BatchFetchParams>) -> Result<CallToolResult, ErrorData> {
+    async fn batch_fetch(&self, Parameters(p): Parameters<BatchFetchRequest>) -> Result<CallToolResult, ErrorData> {
         if p.urls.is_empty() {
             return Err(ErrorData::invalid_params("urls must not be empty", None));
         }
@@ -156,26 +141,22 @@ impl ServoFetchMcp {
                 None,
             ));
         }
-        if p.selector.as_ref().is_some_and(|s| s.len() > MAX_SELECTOR_LEN) {
-            return Err(ErrorData::invalid_params(
-                format!("selector exceeds {MAX_SELECTOR_LEN} character limit"),
-                None,
-            ));
-        }
-
-        let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
-        let max_len = p.max_length.unwrap_or(5000);
-        let json = matches!(p.format, Some(BatchFormat::Json));
+        tools::validate_selector(p.selector.as_deref())?;
 
         let validated: Vec<String> = p
             .urls
             .iter()
             .map(|u| tools::validated_url(u))
             .collect::<Result<Vec<_>, _>>()?;
-
-        let results =
-            tools::batch_fetch_pages(&validated, timeout, settle_ms, json, p.selector.as_deref(), max_len).await;
+        let results = tools::batch_fetch_pages(tools::BatchSpec {
+            urls: &validated,
+            format: p.format.unwrap_or_default(),
+            selector: p.selector.as_deref(),
+            max_len: to_len(p.max_length, DEFAULT_MAX_LENGTH),
+            visibility: tools::visibility_policy(p.visibility),
+            options: p.options,
+        })
+        .await;
 
         let contents: Vec<Content> = results.into_iter().map(|(_url, text)| Content::text(text)).collect();
         Ok(CallToolResult::success(contents))
@@ -190,34 +171,25 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn crawl(&self, Parameters(p): Parameters<CrawlParams>) -> Result<CallToolResult, ErrorData> {
+    async fn crawl(&self, Parameters(p): Parameters<CrawlRequest>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
-        let limit = p.limit.unwrap_or(50).clamp(1, MAX_CRAWL_PAGES);
-        let max_depth = p.max_depth.unwrap_or(3).clamp(1, MAX_CRAWL_DEPTH);
-        let timeout = p.timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS);
-        let settle_ms = p.settle_ms.unwrap_or(0).min(MAX_SETTLE_MS);
-        let max_len = p.max_length.unwrap_or(5000);
-        let json = matches!(p.format, Some(BatchFormat::Json));
+        tools::validate_selector(p.selector.as_deref())?;
 
-        if p.selector.as_ref().is_some_and(|s| s.len() > MAX_SELECTOR_LEN) {
-            return Err(ErrorData::invalid_params(
-                format!("selector exceeds {MAX_SELECTOR_LEN} character limit"),
-                None,
-            ));
-        }
-
-        let results = tools::crawl_pages(tools::CrawlToolOptions {
-            url: &url,
-            limit,
-            max_depth,
-            json,
-            selector: p.selector.as_deref(),
-            max_len,
-            timeout,
-            settle_ms,
-            include_glob: p.include_glob.as_deref(),
-            exclude_glob: p.exclude_glob.as_deref(),
-        })
+        let results = tools::crawl_pages(
+            tools::CrawlSpec {
+                url: &url,
+                limit: p.limit,
+                max_depth: p.max_depth,
+                format: p.format.unwrap_or_default(),
+                selector: p.selector.as_deref(),
+                include: p.include.as_deref(),
+                exclude: p.exclude.as_deref(),
+                concurrency: p.concurrency,
+                delay_ms: p.delay_ms,
+                options: p.options,
+            },
+            to_len(p.max_length, DEFAULT_MAX_LENGTH),
+        )
         .await?;
 
         let contents: Vec<Content> = results.into_iter().map(|(_url, text)| Content::text(text)).collect();
@@ -233,20 +205,25 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn map(&self, Parameters(p): Parameters<MapParams>) -> Result<CallToolResult, ErrorData> {
+    async fn map(&self, Parameters(p): Parameters<MapRequest>) -> Result<CallToolResult, ErrorData> {
         let url = tools::validated_url(&p.url)?;
-        let limit = p.limit.unwrap_or(5000).clamp(1, MAX_MAP_URLS);
 
-        let urls = tools::discover_urls(
-            &url,
-            limit,
-            p.include_glob.as_deref().unwrap_or_default(),
-            p.exclude_glob.as_deref().unwrap_or_default(),
-        )
-        .await?;
-
-        let text = urls.join("\n");
-
+        let opts = tools::build_map_options(tools::MapSpec {
+            url: &url,
+            limit: p.limit,
+            include: p.include.as_deref(),
+            exclude: p.exclude.as_deref(),
+            no_fallback: p.no_fallback.unwrap_or(false),
+            user_agent: p.user_agent.as_deref(),
+            timeout: p.timeout,
+            headers: p.headers,
+        })?;
+        let text = tools::map_with(opts)
+            .await?
+            .into_iter()
+            .map(|entry| entry.url)
+            .collect::<Vec<_>>()
+            .join("\n");
         Ok(CallToolResult::success(vec![Content::text(text)]))
     }
 }

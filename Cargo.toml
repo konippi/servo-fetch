@@ -39,7 +39,6 @@ psl = "2"
 quick-xml = "0.40"
 rmcp = { version = "1", features = ["server", "transport-io", "transport-streamable-http-server", "macros"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
-schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 servo = { version = "0.2.0", default-features = false, features = ["baked-in-resources", "js_jit"] }

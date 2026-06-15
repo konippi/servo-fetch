@@ -2,46 +2,65 @@
 
 use std::time::Duration;
 
-use super::common::paginate;
-use super::error::{ToolError, ToolResult};
-use super::limits::MAX_CRAWL_PAGES;
+use servo_fetch_types::{FetchFormat, RequestOptions};
 
-pub(crate) struct CrawlOptions<'a> {
+use super::error::{ToolError, ToolResult};
+use super::limits::{CRAWL_CONCURRENCY, CRAWL_DEPTH, CRAWL_LIMIT, clamp_count};
+use super::options::{build_headers, glob_refs, load_cookies, resolve_settle, resolve_timeout};
+use super::render::paginate;
+
+pub(crate) struct CrawlSpec<'a> {
     pub url: &'a str,
-    pub limit: usize,
-    pub max_depth: usize,
-    pub json: bool,
+    pub limit: Option<u64>,
+    pub max_depth: Option<u64>,
+    pub format: FetchFormat,
     pub selector: Option<&'a str>,
-    pub max_len: usize,
-    pub timeout: u64,
-    pub settle_ms: u64,
-    pub include_glob: Option<&'a [String]>,
-    pub exclude_glob: Option<&'a [String]>,
+    pub include: Option<&'a [String]>,
+    pub exclude: Option<&'a [String]>,
+    pub concurrency: Option<u64>,
+    pub delay_ms: Option<u64>,
+    pub options: RequestOptions,
 }
 
-pub(crate) async fn crawl_pages(opts: CrawlOptions<'_>) -> ToolResult<Vec<(String, String)>> {
-    let limit = opts.limit.min(MAX_CRAWL_PAGES);
-
-    let mut builder = servo_fetch::CrawlOptions::new(opts.url)
-        .limit(limit)
-        .max_depth(opts.max_depth)
-        .timeout(Duration::from_secs(opts.timeout))
-        .settle(Duration::from_millis(opts.settle_ms))
-        .json(opts.json);
-    if let Some(selector) = opts.selector {
+/// Build the engine crawl options shared by the streaming and collecting paths.
+pub(crate) fn build_crawl_options(spec: &CrawlSpec<'_>) -> ToolResult<servo_fetch::CrawlOptions> {
+    let mut builder = servo_fetch::CrawlOptions::new(spec.url)
+        .limit(clamp_count(spec.limit, CRAWL_LIMIT))
+        .max_depth(clamp_count(spec.max_depth, CRAWL_DEPTH))
+        .timeout(resolve_timeout(spec.options.timeout))
+        .settle(resolve_settle(spec.options.settle_ms))
+        .concurrency(clamp_count(spec.concurrency, CRAWL_CONCURRENCY))
+        .delay(resolve_delay(spec.delay_ms))
+        .json(matches!(spec.format, FetchFormat::Json));
+    if let Some(selector) = spec.selector {
         builder = builder.selector(selector);
     }
-
-    if let Some(globs) = opts.include_glob.filter(|g| !g.is_empty()) {
-        let refs: Vec<&str> = globs.iter().map(String::as_str).collect();
-        builder = builder.include(&refs);
+    if let Some(globs) = spec.include.filter(|g| !g.is_empty()) {
+        builder = builder.include(&glob_refs(globs));
     }
-    if let Some(globs) = opts.exclude_glob.filter(|g| !g.is_empty()) {
-        let refs: Vec<&str> = globs.iter().map(String::as_str).collect();
-        builder = builder.exclude(&refs);
+    if let Some(globs) = spec.exclude.filter(|g| !g.is_empty()) {
+        builder = builder.exclude(&glob_refs(globs));
     }
+    if let Some(ua) = spec.options.user_agent.as_deref() {
+        builder = builder.user_agent(ua);
+    }
+    if let Some(path) = spec.options.cookies_file.as_deref() {
+        builder = builder.cookies(load_cookies(path)?);
+    }
+    Ok(builder.headers(build_headers(spec.options.headers.clone())?))
+}
 
-    let max_len = opts.max_len;
+/// Resolve the dispatch interval: `Some(0)` disables it, `None` uses the 500ms default.
+fn resolve_delay(delay_ms: Option<u64>) -> Option<Duration> {
+    match delay_ms {
+        Some(0) => None,
+        Some(ms) => Some(Duration::from_millis(ms)),
+        None => Some(Duration::from_millis(500)),
+    }
+}
+
+pub(crate) async fn crawl_pages(spec: CrawlSpec<'_>, max_len: usize) -> ToolResult<Vec<(String, String)>> {
+    let builder = build_crawl_options(&spec)?;
     tokio::task::spawn_blocking(move || {
         let mut results = Vec::new();
         servo_fetch::blocking::crawl_each(&builder, |r| {

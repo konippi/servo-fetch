@@ -1,23 +1,19 @@
 //! JSON-RPC method handlers — request DTO in, typed wire result out.
 
-use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use base64::Engine as _;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use servo_fetch::{FetchOptions, HeaderMap, MapOptions, VisibilityPolicy};
+use servo_fetch::FetchOptions;
 use servo_fetch_types::{
-    CrawlRequest, CrawlStats, ErrorKind, EvaluateRequest, ExtractRequest, FetchFormat, FetchRequest, InitializeResult,
-    MapRequest, SchemaExtractRequest, ScreenshotRequest, ServerCapabilities, ServerInfo, Visibility,
+    CrawlRequest, CrawlStats, ErrorKind, EvaluateRequest, ExtractRequest, FetchRequest, InitializeResult, MapRequest,
+    SchemaExtractRequest, ScreenshotRequest, ServerCapabilities, ServerInfo,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::protocol::{Notification, PROTOCOL_VERSION, RequestId, ResponseError, code};
-use crate::tools::limits::{
-    MAX_CRAWL_CONCURRENCY, MAX_CRAWL_DEPTH, MAX_CRAWL_PAGES, MAX_JS_LEN, MAX_MAP_URLS, MAX_SELECTOR_LEN, MAX_SETTLE_MS,
-    MAX_TIMEOUT_SECS,
-};
+use crate::tools::limits::{DEFAULT_MAX_LENGTH, MAX_JS_LEN, to_len};
 use crate::tools::{self, ToolError};
 
 /// Route a request to its handler (`id`/`tx` drive `crawl` progress streaming).
@@ -55,35 +51,27 @@ fn initialize() -> Value {
 async fn fetch(params: Value) -> Result<Value, ResponseError> {
     let req: FetchRequest = parse(params)?;
     let url = tools::validated_url(&req.url)?;
-    validate_selector(req.selector.as_deref())?;
+    tools::validate_selector(req.selector.as_deref())?;
 
-    let opts = FetchOptions::new(&url)
-        .timed(req.timeout, req.settle_ms)
-        .visibility(visibility_policy(req.visibility));
-    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
+    let opts = FetchOptions::new(&url).visibility(tools::visibility_policy(req.visibility));
+    let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
-    match req.format.unwrap_or_default() {
-        FetchFormat::Html => Ok(json!(page.html)),
-        FetchFormat::Text => Ok(json!(page.inner_text)),
-        FetchFormat::Markdown => {
-            let md = match req.selector.as_deref() {
-                Some(s) => page.markdown_with_selector(&url, s),
-                None => page.markdown_with_url(&url),
-            }?;
-            Ok(json!(md))
-        }
-    }
+    let full = tools::render_page(&page, &url, req.format.unwrap_or_default(), req.selector.as_deref())?;
+    let content = tools::paginate(
+        &servo_fetch::sanitize::sanitize(&full),
+        to_len(req.start_index, 0),
+        to_len(req.max_length, DEFAULT_MAX_LENGTH),
+    );
+    Ok(json!(content))
 }
 
 async fn extract(params: Value) -> Result<Value, ResponseError> {
     let req: ExtractRequest = parse(params)?;
     let url = tools::validated_url(&req.url)?;
-    validate_selector(req.selector.as_deref())?;
+    tools::validate_selector(req.selector.as_deref())?;
 
-    let opts = FetchOptions::new(&url)
-        .timed(req.timeout, req.settle_ms)
-        .visibility(visibility_policy(req.visibility));
-    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
+    let opts = FetchOptions::new(&url).visibility(tools::visibility_policy(req.visibility));
+    let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
     let data = match req.selector.as_deref() {
         Some(s) => page.article_with_selector(&url, s),
@@ -96,8 +84,8 @@ async fn screenshot(params: Value) -> Result<Value, ResponseError> {
     let req: ScreenshotRequest = parse(params)?;
     let url = tools::validated_url(&req.url)?;
 
-    let opts = FetchOptions::screenshot(&url, req.full_page.unwrap_or(false)).timed(req.timeout, req.settle_ms);
-    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
+    let opts = FetchOptions::screenshot(&url, req.full_page.unwrap_or(false));
+    let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
     let png = page
         .screenshot_png()
@@ -114,8 +102,8 @@ async fn evaluate(params: Value) -> Result<Value, ResponseError> {
     }
     let url = tools::validated_url(&req.url)?;
 
-    let opts = FetchOptions::javascript(&url, &req.expression).timed(req.timeout, req.settle_ms);
-    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
+    let opts = FetchOptions::javascript(&url, &req.expression);
+    let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
     let result = page.js_result.unwrap_or_default();
     Ok(serde_json::to_value(crate::wire::evaluate_result(
@@ -132,10 +120,9 @@ async fn extract_schema(params: Value) -> Result<Value, ResponseError> {
         .map_err(|e| ResponseError::invalid_params(format!("schema: {e}")))?;
 
     let opts = FetchOptions::new(&url)
-        .timed(req.timeout, req.settle_ms)
-        .visibility(visibility_policy(req.visibility))
+        .visibility(tools::visibility_policy(req.visibility))
         .schema(schema);
-    let page = tools::fetch_with(with_overrides(opts, req.user_agent, req.cookies_file, req.headers)?).await?;
+    let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
     let extracted = page.extracted.unwrap_or(Value::Null);
     Ok(serde_json::to_value(crate::wire::schema_extract(&url, extracted))?)
@@ -144,25 +131,16 @@ async fn extract_schema(params: Value) -> Result<Value, ResponseError> {
 async fn map(params: Value) -> Result<Value, ResponseError> {
     let req: MapRequest = parse(params)?;
     let url = tools::validated_url(&req.url)?;
-    let limit = clamp_usize(req.limit, 5000, MAX_MAP_URLS);
-
-    let mut opts = MapOptions::new(&url).limit(limit);
-    if let Some(include) = req.include.as_deref().filter(|v| !v.is_empty()) {
-        opts = opts.include(&glob_refs(include));
-    }
-    if let Some(exclude) = req.exclude.as_deref().filter(|v| !v.is_empty()) {
-        opts = opts.exclude(&glob_refs(exclude));
-    }
-    if let Some(ua) = req.user_agent.as_deref() {
-        opts = opts.user_agent(ua);
-    }
-    if let Some(secs) = req.timeout {
-        opts = opts.timeout(secs);
-    }
-    if req.no_fallback.unwrap_or(false) {
-        opts = opts.no_fallback(true);
-    }
-    opts = opts.headers(wire_headers(req.headers)?);
+    let opts = tools::build_map_options(tools::MapSpec {
+        url: &url,
+        limit: req.limit,
+        include: req.include.as_deref(),
+        exclude: req.exclude.as_deref(),
+        no_fallback: req.no_fallback.unwrap_or(false),
+        user_agent: req.user_agent.as_deref(),
+        timeout: req.timeout,
+        headers: req.headers,
+    })?;
     let entries = tools::map_with(opts).await?;
 
     let mapped: Vec<_> = entries.iter().map(crate::wire::mapped_url).collect();
@@ -172,35 +150,20 @@ async fn map(params: Value) -> Result<Value, ResponseError> {
 async fn crawl(params: Value, id: &RequestId, tx: &UnboundedSender<String>) -> Result<Value, ResponseError> {
     let req: CrawlRequest = parse(params)?;
     let url = tools::validated_url(&req.url)?;
-    validate_selector(req.selector.as_deref())?;
+    tools::validate_selector(req.selector.as_deref())?;
 
-    let mut opts = servo_fetch::CrawlOptions::new(&url)
-        .limit(clamp_usize(req.limit, 50, MAX_CRAWL_PAGES))
-        .max_depth(clamp_usize(req.max_depth, 3, MAX_CRAWL_DEPTH))
-        .timeout(Duration::from_secs(timeout_secs(req.timeout)))
-        .settle(Duration::from_millis(settle_ms(req.settle_ms)))
-        .concurrency(clamp_usize(req.concurrency, 1, MAX_CRAWL_CONCURRENCY))
-        .delay(match req.delay_ms {
-            Some(0) => None,
-            Some(ms) => Some(Duration::from_millis(ms)),
-            None => Some(Duration::from_millis(500)),
-        });
-    if let Some(s) = req.selector.as_deref() {
-        opts = opts.selector(s);
-    }
-    if let Some(globs) = req.include.as_deref().filter(|g| !g.is_empty()) {
-        opts = opts.include(&glob_refs(globs));
-    }
-    if let Some(globs) = req.exclude.as_deref().filter(|g| !g.is_empty()) {
-        opts = opts.exclude(&glob_refs(globs));
-    }
-    if let Some(ua) = req.user_agent {
-        opts = opts.user_agent(ua);
-    }
-    if let Some(path) = req.cookies_file {
-        opts = opts.cookies(load_cookies(&path)?);
-    }
-    opts = opts.headers(wire_headers(req.headers)?);
+    let opts = tools::build_crawl_options(&tools::CrawlSpec {
+        url: &url,
+        limit: req.limit,
+        max_depth: req.max_depth,
+        format: req.format.unwrap_or_default(),
+        selector: req.selector.as_deref(),
+        include: req.include.as_deref(),
+        exclude: req.exclude.as_deref(),
+        concurrency: req.concurrency,
+        delay_ms: req.delay_ms,
+        options: req.options,
+    })?;
 
     // Stream each page as a `$/progress` notification. Buffering is bounded by
     // the crawl `limit`; the run loop cancels by dropping this future.
@@ -237,78 +200,8 @@ async fn crawl(params: Value, id: &RequestId, tx: &UnboundedSender<String>) -> R
     })?)
 }
 
-trait FetchOptionsExt {
-    fn timed(self, timeout: Option<u64>, settle: Option<u64>) -> Self;
-}
-
-impl FetchOptionsExt for FetchOptions {
-    fn timed(self, timeout: Option<u64>, settle: Option<u64>) -> Self {
-        self.timeout(Duration::from_secs(timeout_secs(timeout)))
-            .settle(Duration::from_millis(settle_ms(settle)))
-    }
-}
-
-fn glob_refs(globs: &[String]) -> Vec<&str> {
-    globs.iter().map(String::as_str).collect()
-}
-
-fn with_overrides(
-    mut opts: FetchOptions,
-    user_agent: Option<String>,
-    cookies_file: Option<String>,
-    headers: Option<BTreeMap<String, String>>,
-) -> Result<FetchOptions, ResponseError> {
-    if let Some(ua) = user_agent {
-        opts = opts.user_agent(ua);
-    }
-    if let Some(path) = cookies_file {
-        opts = opts.cookies(load_cookies(&path)?);
-    }
-    Ok(opts.headers(wire_headers(headers)?))
-}
-
-fn wire_headers(headers: Option<BTreeMap<String, String>>) -> Result<HeaderMap, ResponseError> {
-    match headers {
-        Some(map) => servo_fetch::headers::from_pairs(&map).map_err(|e| ResponseError::invalid_params(e.to_string())),
-        None => Ok(HeaderMap::new()),
-    }
-}
-
-fn load_cookies(path: &str) -> Result<Vec<servo_fetch::CookieSpec>, ResponseError> {
-    servo_fetch::load_cookies(path).map_err(|e| ResponseError::invalid_params(format!("cookies '{path}': {e}")))
-}
-
-fn visibility_policy(v: Option<Visibility>) -> VisibilityPolicy {
-    match v {
-        Some(Visibility::Strict) => VisibilityPolicy::strict(),
-        Some(Visibility::Off) => VisibilityPolicy::off(),
-        Some(Visibility::Moderate) | None => VisibilityPolicy::moderate(),
-    }
-}
-
-fn validate_selector(selector: Option<&str>) -> Result<(), ResponseError> {
-    if selector.is_some_and(|s| s.len() > MAX_SELECTOR_LEN) {
-        return Err(ResponseError::invalid_params(format!(
-            "selector exceeds {MAX_SELECTOR_LEN} character limit"
-        )));
-    }
-    Ok(())
-}
-
 fn parse<T: DeserializeOwned>(params: Value) -> Result<T, ResponseError> {
     serde_json::from_value(params).map_err(|e| ResponseError::invalid_params(e.to_string()))
-}
-
-fn timeout_secs(timeout: Option<u64>) -> u64 {
-    timeout.unwrap_or(30).clamp(1, MAX_TIMEOUT_SECS)
-}
-
-fn settle_ms(settle: Option<u64>) -> u64 {
-    settle.unwrap_or(0).min(MAX_SETTLE_MS)
-}
-
-fn clamp_usize(value: Option<u64>, default: usize, max: usize) -> usize {
-    value.map_or(default, |n| usize::try_from(n).unwrap_or(max).clamp(1, max))
 }
 
 impl From<ToolError> for ResponseError {

@@ -43,11 +43,10 @@ humantime = { workspace = true }
 libc = { workspace = true }
 rmcp = { workspace = true }
 rustls = { workspace = true }
-schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 servo-fetch = { workspace = true }
-servo-fetch-types = { workspace = true }
+servo-fetch-types = { workspace = true, features = ["schema"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "signal", "io-std", "io-util", "sync"] }
 tokio-util = { workspace = true }

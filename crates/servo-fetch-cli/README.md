@@ -404,7 +404,7 @@ Responses include `x-request-id` (auto-generated if the request does not supply 
 | `POST` | `/v1/crawl` | BFS crawl starting from a URL |
 | `POST` | `/v1/map` | Discover URLs via sitemaps (no rendering) |
 
-Request and response shapes mirror the MCP tool parameters documented above.
+Request and response shapes mirror the MCP tool parameters above, except `fetch` returns the full document by default (pass `maxLength`/`startIndex` to paginate).
 
 ### Examples
 

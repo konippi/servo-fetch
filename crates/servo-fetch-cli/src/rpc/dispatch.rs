@@ -13,7 +13,7 @@ use servo_fetch_types::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::protocol::{Notification, PROTOCOL_VERSION, RequestId, ResponseError, code};
-use crate::tools::limits::{DEFAULT_MAX_LENGTH, MAX_JS_LEN, to_len};
+use crate::tools::limits::MAX_JS_LEN;
 use crate::tools::{self, ToolError};
 
 /// Route a request to its handler (`id`/`tx` drive `crawl` progress streaming).
@@ -57,11 +57,8 @@ async fn fetch(params: Value) -> Result<Value, ResponseError> {
     let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
     let full = tools::render_page(&page, &url, req.format.unwrap_or_default(), req.selector.as_deref())?;
-    let content = tools::paginate(
-        &servo_fetch::sanitize::sanitize(&full),
-        to_len(req.start_index, 0),
-        to_len(req.max_length, DEFAULT_MAX_LENGTH),
-    );
+    let sanitized = servo_fetch::sanitize::sanitize(&full);
+    let content = tools::paginate_opt(&sanitized, req.start_index, req.max_length);
     Ok(json!(content))
 }
 

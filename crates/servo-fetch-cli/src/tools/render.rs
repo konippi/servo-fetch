@@ -6,7 +6,7 @@ use servo_fetch::Page;
 use servo_fetch_types::FetchFormat;
 
 use super::error::{ToolError, ToolResult};
-use super::limits::MAX_JS_OUTPUT_LEN;
+use super::limits::{DEFAULT_MAX_LENGTH, MAX_JS_OUTPUT_LEN, to_len};
 
 /// Render a fetched page to its pre-pagination string for the requested format.
 pub(crate) fn render_page<'a>(
@@ -54,6 +54,15 @@ pub(crate) fn paginate(content: &str, start: usize, max_len: usize) -> String {
         format!("{chunk}\n\n<content truncated. total_length={total}, next startIndex={end}>")
     } else {
         chunk.to_string()
+    }
+}
+
+/// Full content unless the caller opts into pagination via `startIndex`/`maxLength`.
+pub(crate) fn paginate_opt(content: &str, start: Option<u64>, max_len: Option<u64>) -> String {
+    if start.is_none() && max_len.is_none() {
+        content.to_string()
+    } else {
+        paginate(content, to_len(start, 0), to_len(max_len, DEFAULT_MAX_LENGTH))
     }
 }
 

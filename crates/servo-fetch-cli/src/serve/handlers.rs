@@ -33,11 +33,8 @@ pub(super) async fn fetch(Json(req): Json<FetchRequest>) -> Result<AxumJson<Fetc
     let opts = FetchOptions::new(&url).visibility(tools::visibility_policy(req.visibility));
     let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
     let full = tools::render_page(&page, &url, req.format.unwrap_or_default(), req.selector.as_deref())?;
-    let content = tools::paginate(
-        &servo_fetch::sanitize::sanitize(&full),
-        to_len(req.start_index, 0),
-        to_len(req.max_length, DEFAULT_MAX_LENGTH),
-    );
+    let sanitized = servo_fetch::sanitize::sanitize(&full);
+    let content = tools::paginate_opt(&sanitized, req.start_index, req.max_length);
     Ok(AxumJson(FetchResponse { url, content }))
 }
 

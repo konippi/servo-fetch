@@ -84,7 +84,10 @@ npx servo-fetch "https://example.com" --format png -o page.png
 | `version()` | `Promise<string>` | `--version` |
 
 Single-page calls accept `{ timeout, settle, userAgent, cookiesFile, headers, selector, visibility, signal }`; `crawl` and `map` also accept `headers`.
-`SERVO_FETCH_BINARY_PATH` overrides binary resolution.
+
+Calls share one persistent `servo-fetch` process (warm engine), spawned on first use; `shutdown()` stops it.
+
+Env: `SERVO_FETCH_BINARY_PATH` overrides binary resolution; `SERVO_FETCH_ALLOW_PRIVATE=1` relaxes the SSRF guard for loopback/private addresses (trusted environments only).
 
 ## Develop
 

@@ -1,12 +1,17 @@
-export class ServoFetchError extends Error {
-  readonly exitCode: number | null;
-  readonly stderr: string;
+import type { ErrorKind } from "./generated/index.js";
 
-  constructor(message: string, exitCode: number | null, stderr: string) {
+/** Base error for every failure surfaced by the servo-fetch RPC server. */
+export class ServoFetchError extends Error {
+  /** Stable, surface-independent error category, when known. */
+  readonly kind: ErrorKind | null;
+  /** JSON-RPC error code, when the failure came from the server. */
+  readonly code: number | null;
+
+  constructor(message: string, kind: ErrorKind | null = null, code: number | null = null) {
     super(message);
     this.name = new.target.name;
-    this.exitCode = exitCode;
-    this.stderr = stderr;
+    this.kind = kind;
+    this.code = code;
   }
 }
 
@@ -14,42 +19,25 @@ export class InvalidUrlError extends ServoFetchError {}
 export class FetchTimeoutError extends ServoFetchError {}
 export class NetworkError extends ServoFetchError {}
 export class EngineError extends ServoFetchError {}
-export class SchemaError extends ServoFetchError {}
-export class CookieError extends ServoFetchError {}
-export class IoError extends ServoFetchError {}
-export class JsonParseError extends ServoFetchError {}
 
-function lastErrorLine(stderr: string): string {
-  const lines = stderr
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (line?.startsWith("error:")) return line.slice("error:".length).trim();
-  }
-  return lines.at(-1) ?? "";
+const BY_KIND: Partial<Record<ErrorKind, typeof ServoFetchError>> = {
+  invalidUrl: InvalidUrlError,
+  timeout: FetchTimeoutError,
+  addressNotAllowed: NetworkError,
+  engine: EngineError,
+  javascript: EngineError,
+};
+
+/** JSON-RPC `error` object as returned by the servo-fetch server. */
+export interface RpcErrorBody {
+  code: number;
+  message: string;
+  data?: { kind?: ErrorKind };
 }
 
-type ServoFetchErrorCtor = new (
-  message: string,
-  exitCode: number | null,
-  stderr: string,
-) => ServoFetchError;
-
-// Maps the CLI's sysexits.h exit codes to error types.
-const BY_EXIT_CODE: ReadonlyMap<number, ServoFetchErrorCtor> = new Map([
-  [64, InvalidUrlError], // EX_USAGE
-  [65, SchemaError], // EX_DATAERR
-  [66, CookieError], // EX_NOINPUT
-  [69, NetworkError], // EX_UNAVAILABLE
-  [70, EngineError], // EX_SOFTWARE
-  [74, IoError], // EX_IOERR
-  [75, FetchTimeoutError], // EX_TEMPFAIL
-]);
-
-export function classifyError(stderr: string, exitCode: number | null): ServoFetchError {
-  const message = lastErrorLine(stderr);
-  const Ctor = (exitCode !== null && BY_EXIT_CODE.get(exitCode)) || ServoFetchError;
-  return new Ctor(message || `servo-fetch exited with code ${exitCode}`, exitCode, stderr);
+/** Convert a JSON-RPC error object into the matching typed error. */
+export function rpcError(body: RpcErrorBody): ServoFetchError {
+  const kind = body.data?.kind ?? null;
+  const Ctor = (kind && BY_KIND[kind]) || ServoFetchError;
+  return new Ctor(body.message || "servo-fetch request failed", kind, body.code);
 }

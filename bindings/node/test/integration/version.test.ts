@@ -8,4 +8,11 @@ describe.skipIf(onWindows)("version", () => {
     const { version } = await import("../../src/index.js");
     expect(await version()).toBe("9.9.9");
   });
+
+  it("shutdown stops the process and the next call respawns", async () => {
+    const { version, shutdown } = await import("../../src/index.js");
+    expect(await version()).toBe("9.9.9");
+    shutdown();
+    expect(await version()).toBe("9.9.9");
+  });
 });

@@ -1,88 +1,112 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { JsonParseError } from "./errors.js";
-import type { Article, CrawlEvent, MappedUrl, SchemaExtractResult } from "./generated/index.js";
-import { type Schema, schemaToJson } from "./schema.js";
-import { runBuffer, runStream, runText } from "./spawn.js";
+import type {
+  Article,
+  CrawlEvent,
+  CrawlRequest,
+  EvaluateRequest,
+  EvaluateResult,
+  ExtractRequest,
+  FetchRequest,
+  InitializeResult,
+  MappedUrl,
+  MapRequest,
+  RequestOptions,
+  SchemaExtractRequest,
+  SchemaExtractResult,
+  ScreenshotRequest,
+} from "./generated/index.js";
+import { request, stream } from "./rpc-client.js";
+import { type Schema, schemaToValue } from "./schema.js";
 import type { BatchResult, CrawlOptions, CrawlResult, FetchOptions, MapOptions } from "./types.js";
 
 export { binaryPath } from "./binary.js";
 export {
-  CookieError,
   EngineError,
   FetchTimeoutError,
   InvalidUrlError,
-  IoError,
-  JsonParseError,
   NetworkError,
-  SchemaError,
   ServoFetchError,
 } from "./errors.js";
 export type { Article, MappedUrl, Visibility } from "./generated/index.js";
+export { shutdown } from "./rpc-client.js";
 export type { Field, Schema } from "./schema.js";
 export type { BatchResult, CrawlOptions, CrawlResult, FetchOptions, MapOptions } from "./types.js";
 
-function asArray(value: string | string[] | undefined): string[] {
-  if (value === undefined) return [];
+type CommonOptions = Pick<
+  FetchOptions,
+  "timeout" | "settle" | "userAgent" | "cookiesFile" | "headers"
+>;
+
+function common(o: CommonOptions): RequestOptions {
+  return {
+    timeout: o.timeout,
+    settleMs: o.settle,
+    userAgent: o.userAgent,
+    cookiesFile: o.cookiesFile,
+    headers: o.headers,
+  };
+}
+
+function asArray(value: string | string[] | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
   return Array.isArray(value) ? value : [value];
 }
 
-function headerArgs(headers: Record<string, string> | undefined): string[] {
-  if (headers == null) return [];
-  return Object.entries(headers).flatMap(([name, value]) => ["-H", `${name}: ${value}`]);
-}
-
-function parseJson<T>(raw: string): T {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    throw new JsonParseError("could not parse servo-fetch output as JSON", 0, raw.slice(0, 200));
-  }
-}
-
-function commonArgs(o: FetchOptions): string[] {
-  const args: string[] = [];
-  if (o.timeout != null) args.push("-t", String(o.timeout));
-  if (o.settle != null) args.push("--settle", String(o.settle));
-  if (o.userAgent != null) args.push("--user-agent", o.userAgent);
-  if (o.cookiesFile != null) args.push("--cookies", o.cookiesFile);
-  if (o.visibility != null) args.push("--visibility", o.visibility);
-  if (o.allowPrivateAddresses) args.push("--allow-private-addresses");
-  args.push(...headerArgs(o.headers));
-  return args;
-}
-
 /** Fetch a URL and return readable Markdown. */
-export async function fetch(url: string, options: FetchOptions = {}): Promise<string> {
-  const args = ["--format", "markdown", ...commonArgs(options)];
-  if (options.selector != null) args.push("--selector", options.selector);
-  args.push("--", url);
-  return runText(args, { signal: options.signal });
+export function fetch(url: string, options: FetchOptions = {}): Promise<string> {
+  return request(
+    "fetch",
+    {
+      url,
+      format: "markdown",
+      selector: options.selector,
+      visibility: options.visibility,
+      ...common(options),
+    } satisfies FetchRequest,
+    options.signal,
+  );
 }
 
 /** Fetch a URL and return the rendered HTML (post-JS execution). */
-export async function fetchHtml(url: string, options: FetchOptions = {}): Promise<string> {
-  const args = ["--format", "html", ...commonArgs(options)];
-  if (options.selector != null) args.push("--selector", options.selector);
-  args.push("--", url);
-  return runText(args, { signal: options.signal });
+export function fetchHtml(url: string, options: FetchOptions = {}): Promise<string> {
+  return request(
+    "fetch",
+    {
+      url,
+      format: "html",
+      selector: options.selector,
+      visibility: options.visibility,
+      ...common(options),
+    } satisfies FetchRequest,
+    options.signal,
+  );
 }
 
 /** Fetch a URL and return `document.body.innerText`. */
-export async function fetchText(url: string, options: FetchOptions = {}): Promise<string> {
-  const args = ["--format", "text", ...commonArgs(options)];
-  if (options.selector != null) args.push("--selector", options.selector);
-  args.push("--", url);
-  return runText(args, { signal: options.signal });
+export function fetchText(url: string, options: FetchOptions = {}): Promise<string> {
+  return request(
+    "fetch",
+    {
+      url,
+      format: "text",
+      visibility: options.visibility,
+      ...common(options),
+    } satisfies FetchRequest,
+    options.signal,
+  );
 }
 
 /** Fetch a URL and return structured Readability data. */
-export async function extract(url: string, options: FetchOptions = {}): Promise<Article> {
-  const args = ["--format", "json", ...commonArgs(options)];
-  if (options.selector != null) args.push("--selector", options.selector);
-  args.push("--", url);
-  return parseJson<Article>(await runText(args, { signal: options.signal }));
+export function extract(url: string, options: FetchOptions = {}): Promise<Article> {
+  return request(
+    "extract",
+    {
+      url,
+      selector: options.selector,
+      visibility: options.visibility,
+      ...common(options),
+    } satisfies ExtractRequest,
+    options.signal,
+  );
 }
 
 /** Extract structured data using a declarative CSS-selector schema. */
@@ -91,16 +115,17 @@ export async function extractSchema<T = unknown>(
   schema: Schema,
   options: FetchOptions = {},
 ): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), "servo-fetch-"));
-  try {
-    const file = join(dir, "schema.json");
-    await writeFile(file, schemaToJson(schema));
-    const args = [...commonArgs(options), "--schema", file, "--", url];
-    const raw = parseJson<SchemaExtractResult>(await runText(args, { signal: options.signal }));
-    return raw.extracted as T;
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  const result = await request<SchemaExtractResult>(
+    "extractSchema",
+    {
+      url,
+      schema: schemaToValue(schema),
+      visibility: options.visibility,
+      ...common(options),
+    } satisfies SchemaExtractRequest,
+    options.signal,
+  );
+  return result.extracted as T;
 }
 
 /** Capture a PNG screenshot of the rendered page. */
@@ -108,10 +133,12 @@ export async function screenshot(
   url: string,
   options: FetchOptions & { fullPage?: boolean } = {},
 ): Promise<Buffer> {
-  const args = ["--format", "png", ...commonArgs(options)];
-  if (options.fullPage) args.push("--full-page");
-  args.push("--", url);
-  return runBuffer(args, { signal: options.signal, maxBuffer: options.maxBuffer });
+  const png = await request<string>(
+    "screenshot",
+    { url, fullPage: options.fullPage, ...common(options) } satisfies ScreenshotRequest,
+    options.signal,
+  );
+  return Buffer.from(png, "base64");
 }
 
 /** Execute JavaScript in the page and return the result as a string. */
@@ -120,8 +147,12 @@ export async function evaluate(
   expression: string,
   options: FetchOptions = {},
 ): Promise<string> {
-  const args = ["--js", expression, ...commonArgs(options), "--", url];
-  return (await runText(args, { signal: options.signal })).replace(/\n$/, "");
+  const result = await request<EvaluateResult>(
+    "evaluate",
+    { url, expression, ...common(options) } satisfies EvaluateRequest,
+    options.signal,
+  );
+  return result.result;
 }
 
 /** Fetch many URLs concurrently, returning per-URL Markdown or error. */
@@ -154,47 +185,38 @@ export async function batchFetch(
   return results;
 }
 
-function crawlArgs(url: string, o: CrawlOptions): string[] {
-  const args = ["crawl", "--format", "json"];
-  if (o.limit != null) args.push("--limit", String(o.limit));
-  if (o.maxDepth != null) args.push("--max-depth", String(o.maxDepth));
-  for (const glob of asArray(o.include)) args.push("--include", glob);
-  for (const glob of asArray(o.exclude)) args.push("--exclude", glob);
-  if (o.concurrency != null) args.push("--concurrency", String(o.concurrency));
-  if (o.delayMs != null) args.push("--delay-ms", String(o.delayMs));
-  if (o.timeout != null) args.push("-t", String(o.timeout));
-  if (o.settle != null) args.push("--settle", String(o.settle));
-  if (o.userAgent != null) args.push("--user-agent", o.userAgent);
-  if (o.cookiesFile != null) args.push("--cookies", o.cookiesFile);
-  if (o.selector != null) args.push("--selector", o.selector);
-  if (o.allowPrivateAddresses) args.push("--allow-private-addresses");
-  args.push(...headerArgs(o.headers));
-  args.push("--", url);
-  return args;
-}
-
 /** Crawl a site, yielding each page as it completes (BFS, respects robots.txt). */
 export async function* crawl(url: string, options: CrawlOptions = {}): AsyncGenerator<CrawlResult> {
-  for await (const line of runStream(crawlArgs(url, options), { signal: options.signal })) {
-    const record = parseJson<CrawlEvent>(line);
-    if (record.type === "stats") continue;
-    if (record.type === "error") {
+  const params = {
+    url,
+    limit: options.limit,
+    maxDepth: options.maxDepth,
+    include: asArray(options.include),
+    exclude: asArray(options.exclude),
+    concurrency: options.concurrency,
+    delayMs: options.delayMs,
+    selector: options.selector,
+    ...common(options),
+  } satisfies CrawlRequest;
+  for await (const event of stream<CrawlEvent>("crawl", params, options.signal)) {
+    if (event.type === "stats") continue;
+    if (event.type === "error") {
       yield {
         ok: false,
-        url: record.url,
-        depth: record.depth,
-        fetchedAt: record.fetchedAt,
-        error: record.error,
+        url: event.url,
+        depth: event.depth,
+        fetchedAt: event.fetchedAt,
+        error: event.error,
       };
     } else {
       yield {
         ok: true,
-        url: record.url,
-        depth: record.depth,
-        fetchedAt: record.fetchedAt,
-        title: record.title ?? null,
-        content: record.content,
-        linksFound: record.linksFound,
+        url: event.url,
+        depth: event.depth,
+        fetchedAt: event.fetchedAt,
+        title: event.title ?? null,
+        content: event.content,
+        linksFound: event.linksFound,
       };
     }
   }
@@ -208,21 +230,25 @@ export async function crawlAll(url: string, options: CrawlOptions = {}): Promise
 }
 
 /** Discover URLs on a site via sitemaps (no rendering). */
-export async function map(url: string, options: MapOptions = {}): Promise<MappedUrl[]> {
-  const args = ["map", "--json"];
-  if (options.limit != null) args.push("--limit", String(options.limit));
-  for (const glob of asArray(options.include)) args.push("--include", glob);
-  for (const glob of asArray(options.exclude)) args.push("--exclude", glob);
-  if (options.userAgent != null) args.push("--user-agent", options.userAgent);
-  if (options.timeout != null) args.push("-t", String(options.timeout));
-  if (options.noFallback) args.push("--no-fallback");
-  if (options.allowPrivateAddresses) args.push("--allow-private-addresses");
-  args.push(...headerArgs(options.headers));
-  args.push("--", url);
-  return parseJson<MappedUrl[]>(await runText(args, { signal: options.signal }));
+export function map(url: string, options: MapOptions = {}): Promise<MappedUrl[]> {
+  return request(
+    "map",
+    {
+      url,
+      limit: options.limit,
+      include: asArray(options.include),
+      exclude: asArray(options.exclude),
+      noFallback: options.noFallback,
+      userAgent: options.userAgent,
+      timeout: options.timeout,
+      headers: options.headers,
+    } satisfies MapRequest,
+    options.signal,
+  );
 }
 
 /** The version of the underlying servo-fetch binary. */
 export async function version(): Promise<string> {
-  return (await runText(["--version"])).trim().replace(/^servo-fetch\s+/, "");
+  const info = await request<InitializeResult>("initialize", {});
+  return info.serverInfo.version;
 }

@@ -11,6 +11,6 @@ export interface Schema {
   fields: Field[];
 }
 
-export function schemaToJson(schema: Schema): string {
-  return JSON.stringify({ base_selector: schema.baseSelector, fields: schema.fields });
+export function schemaToValue(schema: Schema): { base_selector?: string; fields: Field[] } {
+  return { base_selector: schema.baseSelector, fields: schema.fields };
 }

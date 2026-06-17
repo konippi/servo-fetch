@@ -1,34 +1,37 @@
 import { describe, expect, it } from "vitest";
 import {
-  CookieError,
-  classifyError,
+  EngineError,
   FetchTimeoutError,
   InvalidUrlError,
-  IoError,
   NetworkError,
-  SchemaError,
+  rpcError,
   ServoFetchError,
 } from "./errors.js";
 
-describe("classifyError", () => {
-  it("maps sysexits exit codes to typed errors", () => {
-    expect(classifyError("error: invalid URL 'x'", 64)).toBeInstanceOf(InvalidUrlError);
-    expect(classifyError("error: bad schema", 65)).toBeInstanceOf(SchemaError);
-    expect(classifyError("error: cookie file not found", 66)).toBeInstanceOf(CookieError);
-    expect(classifyError("error: blocked address", 69)).toBeInstanceOf(NetworkError);
-    expect(classifyError("error: disk write failed", 74)).toBeInstanceOf(IoError);
-    expect(classifyError("error: navigation timed out", 75)).toBeInstanceOf(FetchTimeoutError);
+describe("rpcError", () => {
+  it("maps error kinds to typed errors", () => {
+    expect(rpcError({ code: -32602, message: "x", data: { kind: "invalidUrl" } })).toBeInstanceOf(
+      InvalidUrlError,
+    );
+    expect(rpcError({ code: -32000, message: "x", data: { kind: "timeout" } })).toBeInstanceOf(
+      FetchTimeoutError,
+    );
+    expect(
+      rpcError({ code: -32602, message: "x", data: { kind: "addressNotAllowed" } }),
+    ).toBeInstanceOf(NetworkError);
+    expect(rpcError({ code: -32000, message: "x", data: { kind: "engine" } })).toBeInstanceOf(
+      EngineError,
+    );
+    expect(rpcError({ code: -32000, message: "x", data: { kind: "javascript" } })).toBeInstanceOf(
+      EngineError,
+    );
   });
 
-  it("falls back to the base error for unmapped codes", () => {
-    const err = classifyError("error: something exploded", 1);
-    expect(err).toBeInstanceOf(ServoFetchError);
+  it("falls back to the base error for unmapped kinds", () => {
+    const err = rpcError({ code: -32603, message: "boom", data: { kind: "internal" } });
     expect(err.constructor).toBe(ServoFetchError);
-  });
-
-  it("uses the last error: line as the message", () => {
-    const err = classifyError("warming up\nerror: boom\n", 70);
     expect(err.message).toBe("boom");
-    expect(err.exitCode).toBe(70);
+    expect(err.kind).toBe("internal");
+    expect(err.code).toBe(-32603);
   });
 });

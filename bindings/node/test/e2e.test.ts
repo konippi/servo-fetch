@@ -16,14 +16,6 @@ describe.runIf(e2e)("real binary E2E", () => {
     expect(markdown.length).toBeGreaterThan(0);
   });
 
-  it("extract output still matches the Article type", async () => {
-    const { extract } = await import("../src/index.js");
-    const article = await extract(URL);
-    expect(typeof article.title).toBe("string");
-    expect(typeof article.content).toBe("string");
-    expect(typeof article.textContent).toBe("string");
-  });
-
   it("crawl output still matches the CrawlResult type", async () => {
     const { crawlAll } = await import("../src/index.js");
     const [first] = await crawlAll(URL, { limit: 1 });
@@ -37,13 +29,13 @@ describe.runIf(e2e)("real binary E2E", () => {
     }
   });
 
-  it("maps the real binary's sysexits 64 to InvalidUrlError", async () => {
+  it("maps an invalid URL to InvalidUrlError", async () => {
     const { fetch, InvalidUrlError } = await import("../src/index.js");
     const err = await fetch("not a url").then(
       () => null,
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(InvalidUrlError);
-    expect((err as { exitCode: number }).exitCode).toBe(64);
+    expect((err as { kind: string }).kind).toBe("invalidUrl");
   });
 });

@@ -4,10 +4,17 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use servo_fetch::{CookieSpec, FetchOptions, HeaderMap, VisibilityPolicy};
-use servo_fetch_types::{RequestOptions, Visibility};
+use servo_fetch_types::{FetchFormat, RequestOptions, Visibility};
 
 use super::error::{ToolError, ToolResult};
 use super::limits::{MAX_SELECTOR_LEN, MAX_SETTLE_MS, MAX_TIMEOUT_SECS};
+
+/// Base options for a content fetch; captures the accessibility tree only when the format needs it.
+pub(crate) fn content_options(url: &str, format: FetchFormat, visibility: VisibilityPolicy) -> FetchOptions {
+    FetchOptions::new(url)
+        .visibility(visibility)
+        .accessibility(matches!(format, FetchFormat::AccessibilityTree))
+}
 
 /// Map the wire visibility policy onto the engine policy (default: moderate).
 pub(crate) fn visibility_policy(v: Option<Visibility>) -> VisibilityPolicy {

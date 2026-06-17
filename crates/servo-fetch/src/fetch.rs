@@ -213,13 +213,10 @@ impl From<crate::bridge::ConsoleMessage> for ConsoleMessage {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) enum FetchMode {
-    #[default]
-    Content,
-    Screenshot {
-        full_page: bool,
-    },
+    Content { include_a11y: bool },
+    Screenshot { full_page: bool },
     JavaScript(String),
 }
 
@@ -253,7 +250,7 @@ impl FetchOptions {
             url: url.into(),
             timeout: None,
             settle: None,
-            mode: FetchMode::Content,
+            mode: FetchMode::Content { include_a11y: false },
             user_agent: None,
             extract_schema: None,
             visibility: None,
@@ -317,6 +314,14 @@ impl FetchOptions {
     /// Custom request headers sent with the navigation request.
     pub fn headers(mut self, headers: http::HeaderMap) -> Self {
         self.headers = headers;
+        self
+    }
+
+    /// Capture the page's accessibility tree (read via [`Page::accessibility_tree`]).
+    pub fn accessibility(mut self, on: bool) -> Self {
+        if let FetchMode::Content { include_a11y } = &mut self.mode {
+            *include_a11y = on;
+        }
         self
     }
 
@@ -392,7 +397,7 @@ fn pre_fetch(opts: &FetchOptions) -> crate::error::Result<Option<Page>> {
     crate::net::ensure_crypto_provider();
     crate::net::validate_url(&opts.url)?;
 
-    if matches!(opts.mode, FetchMode::Content)
+    if matches!(opts.mode, FetchMode::Content { .. })
         && let Some(bytes) = crate::pdf::probe(&opts.url, opts.effective_timeout().as_secs().max(1))
     {
         return Ok(Some(pdf_page(&bytes)));
@@ -405,7 +410,7 @@ async fn pre_fetch_async(opts: &FetchOptions) -> crate::error::Result<Option<Pag
     crate::net::ensure_crypto_provider();
     crate::net::validate_url(&opts.url)?;
 
-    if matches!(opts.mode, FetchMode::Content) {
+    if matches!(opts.mode, FetchMode::Content { .. }) {
         let url = opts.url.clone();
         let timeout_secs = opts.effective_timeout().as_secs().max(1);
         let probe = tokio::task::spawn_blocking(move || crate::pdf::probe(&url, timeout_secs))
@@ -437,7 +442,7 @@ fn build_bridge_options(opts: &FetchOptions) -> crate::bridge::FetchOptions<'_> 
         cookies: &opts.cookies,
         headers: &opts.headers,
         mode: match opts.mode {
-            FetchMode::Content => crate::bridge::FetchMode::Content { include_a11y: false },
+            FetchMode::Content { include_a11y } => crate::bridge::FetchMode::Content { include_a11y },
             FetchMode::Screenshot { full_page } => crate::bridge::FetchMode::Screenshot { full_page },
             FetchMode::JavaScript(ref expr) => crate::bridge::FetchMode::ExecuteJs {
                 expression: expr.clone(),
@@ -476,7 +481,21 @@ mod tests {
         assert_eq!(opts.timeout, None);
         assert_eq!(opts.settle, None);
         assert_eq!(opts.visibility, None);
-        assert!(matches!(opts.mode, FetchMode::Content));
+        assert!(matches!(opts.mode, FetchMode::Content { .. }));
+    }
+
+    #[test]
+    fn accessibility_flag_threads_into_content_mode() {
+        let off = FetchOptions::new("https://example.com");
+        assert!(matches!(
+            build_bridge_options(&off).mode,
+            crate::bridge::FetchMode::Content { include_a11y: false }
+        ));
+        let on = FetchOptions::new("https://example.com").accessibility(true);
+        assert!(matches!(
+            build_bridge_options(&on).mode,
+            crate::bridge::FetchMode::Content { include_a11y: true }
+        ));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use tokio::sync::Semaphore;
 use tokio::task::{JoinSet, spawn_blocking};
 
 use super::error::{ToolError, ToolResult};
-use super::options::apply_options;
+use super::options::{apply_options, content_options};
 use super::render::{paginate, render_page};
 
 const DEFAULT_MAX_CONCURRENT_FETCHES: usize = 4;
@@ -83,7 +83,7 @@ fn render_one(
     visibility: VisibilityPolicy,
     options: RequestOptions,
 ) -> String {
-    let opts = match apply_options(FetchOptions::new(url).visibility(visibility), options) {
+    let opts = match apply_options(content_options(url, format, visibility), options) {
         Ok(opts) => opts,
         Err(e) => return format!("[error] {e}"),
     };

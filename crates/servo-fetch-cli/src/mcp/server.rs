@@ -111,9 +111,10 @@ impl ServoFetchMcp {
 async fn run_fetch(p: FetchRequest) -> Result<CallToolResult, tools::ToolError> {
     let url = tools::validated_url(&p.url)?;
     tools::validate_selector(p.selector.as_deref())?;
-    let opts = FetchOptions::new(&url).visibility(tools::visibility_policy(p.visibility));
+    let format = p.format.unwrap_or_default();
+    let opts = tools::content_options(&url, format, tools::visibility_policy(p.visibility));
     let page = tools::fetch_with(tools::apply_options(opts, p.options)?).await?;
-    let full = tools::render_page(&page, &url, p.format.unwrap_or_default(), p.selector.as_deref())?;
+    let full = tools::render_page(&page, &url, format, p.selector.as_deref())?;
     let content = tools::paginate(
         &servo_fetch::sanitize::sanitize(&full),
         to_len(p.start_index, 0),

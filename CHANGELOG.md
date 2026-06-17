@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.0](https://github.com/konippi/servo-fetch/compare/0.12.2..0.13.0) - 2026-06-17
+
+
+### Breaking Changes
+
+- *(cli)* Return full content by default on serve and rpc fetch ([#315](https://github.com/konippi/servo-fetch/pull/315))
+- *(cli)* Unify request DTOs with option parity ([#313](https://github.com/konippi/servo-fetch/pull/313))
+- *(wire)* Unify process-boundary JSON onto camelCase wire DTOs ([#297](https://github.com/konippi/servo-fetch/pull/297))
+
+### Features
+
+- *(cli)* [**breaking**] Return full content by default on serve and rpc fetch ([#315](https://github.com/konippi/servo-fetch/pull/315))
+- *(mcp)* Report all tool failures as isError results ([#314](https://github.com/konippi/servo-fetch/pull/314))
+- *(cli)* [**breaking**] Unify request DTOs with option parity ([#313](https://github.com/konippi/servo-fetch/pull/313))
+- Add custom request headers support (#312)
+- *(cli)* Classify errors with a shared typed error kind ([#311](https://github.com/konippi/servo-fetch/pull/311))
+- *(cli)* Add stdio JSON-RPC server for the warm-process model ([#309](https://github.com/konippi/servo-fetch/pull/309))
+- *(wire)* [**breaking**] Unify process-boundary JSON onto camelCase wire DTOs ([#297](https://github.com/konippi/servo-fetch/pull/297))
+- *(types)* Add request DTOs to the wire crate ([#301](https://github.com/konippi/servo-fetch/pull/301))
+- *(types)* Add servo-fetch-types crate as the single source of truth (#295)
+
+### Bug Fixes
+
+- *(cli)* Capture the a11y tree for the accessibility_tree format ([#317](https://github.com/konippi/servo-fetch/pull/317))
+- *(cli)* Align mcp/serve crawl default limit with the CLI ([#310](https://github.com/konippi/servo-fetch/pull/310))
+
+### Dependencies
+
+- *(deps)* Bump ts-rs from 11.1.0 to 12.0.1 (#306)
+
 ## [0.12.2](https://github.com/konippi/servo-fetch/compare/0.12.1..0.12.2) - 2026-06-08
 
 ### Features

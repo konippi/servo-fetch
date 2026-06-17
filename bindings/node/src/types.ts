@@ -16,12 +16,8 @@ export interface FetchOptions {
   visibility?: Visibility;
   /** Custom request headers sent with the navigation request. */
   headers?: Record<string, string>;
-  /** Allow requests to loopback/private addresses, relaxing the SSRF guard. */
-  allowPrivateAddresses?: boolean;
-  /** Abort the underlying process. */
+  /** Abort the in-flight request. */
   signal?: AbortSignal;
-  /** Max bytes to buffer from the binary's stdout before aborting. Default: 128 MiB. */
-  maxBuffer?: number;
 }
 
 /** Per-URL result from {@link batchFetch}. */
@@ -52,8 +48,6 @@ export interface CrawlOptions {
   cookiesFile?: string;
   /** CSS selector to extract a specific section per page. */
   selector?: string;
-  /** Allow requests to loopback/private addresses, relaxing the SSRF guard (for local testing). */
-  allowPrivateAddresses?: boolean;
   /** Custom request headers sent with each page's navigation request. */
   headers?: Record<string, string>;
   signal?: AbortSignal;
@@ -85,8 +79,6 @@ export interface MapOptions {
   timeout?: number;
   /** Skip the HTML link fallback when no sitemap is found. */
   noFallback?: boolean;
-  /** Allow requests to loopback/private addresses, relaxing the SSRF guard (for local testing). */
-  allowPrivateAddresses?: boolean;
   /** Custom request headers sent with each discovery request. */
   headers?: Record<string, string>;
   signal?: AbortSignal;

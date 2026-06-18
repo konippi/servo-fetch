@@ -10,7 +10,6 @@ use servo_fetch::{FetchOptions, Page};
 
 use crate::cli::{FetchArgs, Format};
 use crate::output::{self, Sink};
-use crate::progress::Progress;
 
 /// Fetch one or more URLs and write the rendered output to stdout, a file, or a directory.
 pub(crate) fn run(args: &FetchArgs) -> Result<()> {
@@ -68,20 +67,18 @@ fn sink(args: &FetchArgs) -> Sink<'_> {
 }
 
 fn run_single(args: &FetchArgs, url_str: &str) -> Result<()> {
-    let progress = Progress::new();
-    progress.ticker(&format!("Fetching {url_str}..."));
+    let spinner = crate::progress::spinner(format!("Fetching {url_str}..."));
 
     let opts = build_fetch_options(args, url_str)?;
     let page = servo_fetch::blocking::fetch(&opts).map_err(Error::from);
-    progress.clear();
+    spinner.finish_and_clear();
     let page = page?;
     dispatch_output(args, &page, url_str, sink(args))
 }
 
 async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
     let total = urls.len();
-    let progress = Progress::new();
-    progress.header(&format!("Fetching {total} URLs..."));
+    let bar = crate::progress::bar(u64::try_from(total).unwrap_or(u64::MAX));
 
     let schema = args.schema.as_ref().map(|p| load_schema(p)).transpose()?;
     let cookies = args.cookies.as_ref().map(servo_fetch::load_cookies).transpose()?;
@@ -124,21 +121,22 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
     drop(tx);
 
     let sink = sink(args);
-    let mut completed = 0usize;
     let mut failures = 0usize;
     while let Some((url, result)) = rx.recv().await {
-        completed += 1;
         match result {
             Ok(page) => {
                 batch_emit(args, &page, &url, sink)?;
-                progress.item_done(completed, Some(total), &url, true);
+                bar.set_message(url);
             }
             Err(err) => {
                 failures += 1;
                 tracing::error!(url = %url, "{err}");
+                bar.set_message(url);
             }
         }
+        bar.inc(1);
     }
+    bar.finish_and_clear();
 
     if failures == total {
         bail!("all {total} URLs failed");

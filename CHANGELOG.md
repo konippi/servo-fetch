@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.1](https://github.com/konippi/servo-fetch/compare/0.13.0..0.13.1) - 2026-06-18
+
+### Bug Fixes
+
+- *(cli)* Draw progress on the controlling terminal ([#320](https://github.com/konippi/servo-fetch/pull/320))
+
 ## [0.13.0](https://github.com/konippi/servo-fetch/compare/0.12.2..0.13.0) - 2026-06-17
 
 

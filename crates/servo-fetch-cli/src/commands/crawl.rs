@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 
 use crate::cli::{CrawlArgs, CrawlFormat};
 use crate::output::{Ext, Sink};
-use crate::progress::Progress;
 
 /// Crawl a site starting from `args.url` and stream results to stdout or a directory.
 pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
@@ -21,7 +20,7 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     }
     opts = opts.headers(servo_fetch::headers::parse_lines(&args.headers)?);
 
-    let progress = Progress::new();
+    let counter = crate::progress::counter();
     let mut completed = 0u64;
     let mut errors = 0u64;
     let mut write_err: Option<anyhow::Error> = None;
@@ -46,8 +45,10 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
             write_err = Some(e);
             return;
         }
-        progress.item_done(usize::try_from(completed).unwrap_or(usize::MAX), None, &url, ok);
+        counter.set_message(url);
+        counter.inc(1);
     })?;
+    counter.finish_and_clear();
 
     if let Some(e) = write_err {
         return Err(e);

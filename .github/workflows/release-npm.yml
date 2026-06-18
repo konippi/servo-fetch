@@ -2,7 +2,7 @@ name: Release npm
 
 on:
   release:
-    types: [released]
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -24,6 +24,7 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    if: ${{ github.event_name != 'release' || !github.event.release.prerelease }}
     environment:
       name: release-npm
       url: https://www.npmjs.com/package/servo-fetch

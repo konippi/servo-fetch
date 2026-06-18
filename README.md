@@ -12,7 +12,7 @@
 
 servo-fetch embeds the [Servo](https://servo.org/) browser engine. It executes JavaScript, computes CSS layout,
 captures screenshots with a software renderer, and extracts clean content — available as a CLI, a Rust library,
-and a Python SDK.
+a Python SDK, and a Node.js SDK.
 
 ```bash
 # CLI
@@ -29,6 +29,12 @@ let md = servo_fetch::markdown("https://example.com").await?;
 # Python
 page = servo_fetch.fetch("https://example.com")
 print(page.markdown)
+```
+
+```ts
+// Node.js
+import { fetch } from "servo-fetch";
+const md = await fetch("https://example.com");
 ```
 
 ## Why servo-fetch
@@ -200,6 +206,12 @@ const md = await fetch("https://example.com");
 for await (const page of crawl("https://docs.example.com", { limit: 50 })) {
   if (page.ok) console.log(page.url, page.title);
 }
+```
+
+Or run the bundled CLI without installing:
+
+```bash
+npx servo-fetch "https://example.com"
 ```
 
 Full API reference → [`bindings/node`](bindings/node/README.md)

@@ -48,6 +48,7 @@ jobs:
     environment: release-plz
     permissions:
       contents: read
+      id-token: write
     outputs:
       releases_created: ${{ steps.release-plz.outputs.releases_created }}
       tag: ${{ steps.tag.outputs.tag }}
@@ -222,33 +223,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  publish-crate:
-    name: Publish to crates.io
-    needs: [release-plz-release, build-release]
-    if: needs.release-plz-release.outputs.tag != ''
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: "1.95.0"
-      - name: Dry-run package
-        run: |
-          cargo package --locked --list -p servo-fetch >/dev/null
-          cargo package --locked --list -p servo-fetch-cli >/dev/null
-      - uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
-        id: auth
-      - name: Publish to crates.io
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish --workspace --locked --no-verify
-
   publish-docker:
     name: Publish Docker image
     needs: [release-plz-release, build-release]
@@ -359,7 +333,7 @@ jobs:
 
   publish-release:
     name: Publish release
-    needs: [release-plz-release, build-release, publish-crate, publish-docker, trivy-scan]
+    needs: [release-plz-release, build-release, publish-docker, trivy-scan]
     if: needs.release-plz-release.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5

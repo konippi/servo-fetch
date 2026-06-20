@@ -71,7 +71,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/core": "^0.18.0",
-    "@biomejs/biome": "2.4.16",
+    "@biomejs/biome": "2.5.0",
     "@types/node": "^25.9.1",
     "publint": "^0.3.0",
     "tsdown": "^0.22.0",

@@ -16,8 +16,8 @@ default = []
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-pyo3 = { version = "0.28", features = ["abi3-py310"] }
-pythonize = "0.28"
+pyo3 = { version = "0.29", features = ["abi3-py310"] }
+pythonize = "0.29"
 servo-fetch = { workspace = true }
 serde_json = { workspace = true }
 humantime = { workspace = true }

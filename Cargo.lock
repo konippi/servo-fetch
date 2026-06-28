@@ -451,7 +451,7 @@ dependencies = [
  "bytes",
  "form_urlencoded",
  "futures-util",
- "http 1.4.0",
+ "http 1.4.2",
  "http-body",
  "http-body-util",
  "hyper",
@@ -482,7 +482,7 @@ checksum = "08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1"
 dependencies = [
  "bytes",
  "futures-core",
- "http 1.4.0",
+ "http 1.4.2",
  "http-body",
  "http-body-util",
  "mime",
@@ -2350,7 +2350,7 @@ dependencies = [
  "fnv",
  "futures-core",
  "futures-sink",
- "http 1.4.0",
+ "http 1.4.2",
  "indexmap",
  "slab",
  "tokio",
@@ -2430,7 +2430,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "headers-core",
- "http 1.4.0",
+ "http 1.4.2",
  "httpdate",
  "mime",
  "sha1",
@@ -2442,7 +2442,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "54b4a22553d4242c49fddb9ba998a99962b5cc6f22cb5a3482bec22522403ce4"
 dependencies = [
- "http 1.4.0",
+ "http 1.4.2",
 ]
 
 [[package]]
@@ -2534,9 +2534,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "1.4.0"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3ba2a386d7f85a81f119ad7498ebe444d2e22c2af0b86b069416ace48b3311a"
+checksum = "6970f50e31d6fc17d3fa27329444bfa74e196cf62e95052a3f6fee181dba6425"
 dependencies = [
  "bytes",
  "itoa",
@@ -2549,7 +2549,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1efedce1fb8e6913f23e0c92de8e62cd5b772a67e7b3946df930a62566c93184"
 dependencies = [
  "bytes",
- "http 1.4.0",
+ "http 1.4.2",
 ]
 
 [[package]]
@@ -2560,7 +2560,7 @@ checksum = "b021d93e26becf5dc7e1b75b1bed1fd93124b374ceb73f43d4d4eafec896a64a"
 dependencies = [
  "bytes",
  "futures-core",
- "http 1.4.0",
+ "http 1.4.2",
  "http-body",
  "pin-project-lite",
 ]
@@ -2612,7 +2612,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "h2",
- "http 1.4.0",
+ "http 1.4.2",
  "http-body",
  "httparse",
  "httpdate",
@@ -2629,7 +2629,7 @@ version = "0.27.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ca68d021ef39cf6463ab54c1d0f5daf03377b70561305bb89a8f83aab66e0f"
 dependencies = [
- "http 1.4.0",
+ "http 1.4.2",
  "hyper",
  "hyper-util",
  "log",
@@ -2650,7 +2650,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "http 1.4.0",
+ "http 1.4.2",
  "http-body",
  "hyper",
  "ipnet",
@@ -3880,7 +3880,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc819448803ee517eb413276ca59613c2850a95c4fdcd87ec82c5a6ce6cdab1a"
 dependencies = [
  "buf-read-ext",
- "http 1.4.0",
+ "http 1.4.2",
  "httparse",
  "log",
  "mime",
@@ -4948,9 +4948,9 @@ dependencies = [
 
 [[package]]
 name = "psl"
-version = "2.1.212"
+version = "2.1.215"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9f6415ab1b08394487005d41ae7ee69e69903efa1ace538f3b274db605bf8ec"
+checksum = "caff7403e06671f170c65dc7bf475ed31d6e108c7e0d2440fb4df8ba56cfded6"
 dependencies = [
  "psl-types",
 ]
@@ -5428,7 +5428,7 @@ dependencies = [
  "bytes",
  "chrono",
  "futures",
- "http 1.4.0",
+ "http 1.4.2",
  "http-body",
  "http-body-util",
  "pastey 0.2.2",
@@ -5925,7 +5925,7 @@ dependencies = [
  "env_logger",
  "euclid 0.22.14",
  "gaol",
- "http 1.4.0",
+ "http 1.4.2",
  "image",
  "ipc-channel",
  "keyboard-types",
@@ -6168,7 +6168,7 @@ dependencies = [
  "content-security-policy",
  "encoding_rs",
  "euclid 0.22.14",
- "http 1.4.0",
+ "http 1.4.2",
  "ipc-channel",
  "log",
  "malloc_size_of_derive",
@@ -6224,7 +6224,7 @@ dependencies = [
  "chrono",
  "crossbeam-channel",
  "headers",
- "http 1.4.0",
+ "http 1.4.2",
  "log",
  "malloc_size_of_derive",
  "rand 0.9.4",
@@ -6249,7 +6249,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71b6639e519409abedad4bc8cdebf88f9cbda058bf48982142677b180f43769f"
 dependencies = [
- "http 1.4.0",
+ "http 1.4.2",
  "malloc_size_of_derive",
  "serde",
  "servo-base",
@@ -6284,7 +6284,7 @@ dependencies = [
  "cookie 0.18.1",
  "crossbeam-channel",
  "euclid 0.22.14",
- "http 1.4.0",
+ "http 1.4.2",
  "image",
  "inventory",
  "keyboard-types",
@@ -6322,7 +6322,7 @@ dependencies = [
  "flate2",
  "globset",
  "htmd",
- "http 1.4.0",
+ "http 1.4.2",
  "humantime",
  "image",
  "libc",
@@ -6502,7 +6502,7 @@ checksum = "2d0021ccbb80489d50c284e321c2b18ddf2d9f8c8a0c08bd8e24404bc30dc752"
 dependencies = [
  "cookie 0.18.1",
  "headers",
- "http 1.4.0",
+ "http 1.4.2",
  "hyper",
  "mime",
  "serde_bytes",
@@ -6623,7 +6623,7 @@ dependencies = [
  "data-url",
  "encoding_rs",
  "euclid 0.22.14",
- "http 1.4.0",
+ "http 1.4.2",
  "icu_locid",
  "indexmap",
  "ipc-channel",
@@ -6844,7 +6844,7 @@ dependencies = [
  "futures-util",
  "generic-array",
  "headers",
- "http 1.4.0",
+ "http 1.4.2",
  "http-body-util",
  "hyper",
  "hyper-rustls",
@@ -6904,7 +6904,7 @@ dependencies = [
  "crossbeam-channel",
  "data-url",
  "headers",
- "http 1.4.0",
+ "http 1.4.2",
  "hyper-util",
  "ipc-channel",
  "log",
@@ -7102,7 +7102,7 @@ dependencies = [
  "headers",
  "hkdf",
  "html5ever 0.39.0",
- "http 1.4.0",
+ "http 1.4.2",
  "icu_locid",
  "indexmap",
  "ipc-channel",
@@ -8345,7 +8345,7 @@ checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
  "bitflags 2.13.0",
  "bytes",
- "http 1.4.0",
+ "http 1.4.2",
  "http-body",
  "pin-project-lite",
  "tower-layer",
@@ -8479,7 +8479,7 @@ checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
 dependencies = [
  "bytes",
  "data-encoding",
- "http 1.4.0",
+ "http 1.4.2",
  "httparse",
  "log",
  "rand 0.9.4",
@@ -8681,7 +8681,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e994ba84b0bd1b1b0cf92878b7ef898a5c1760108fe7b6010327e274917a808c"
 dependencies = [
  "base64 0.22.1",
- "http 1.4.0",
+ "http 1.4.2",
  "httparse",
  "log",
 ]
@@ -9420,7 +9420,7 @@ dependencies = [
  "base64 0.22.1",
  "deadpool",
  "futures",
- "http 1.4.0",
+ "http 1.4.2",
  "http-body-util",
  "hyper",
  "hyper-util",

@@ -35,7 +35,7 @@ humantime = "2"
 image = { version = "0.25", default-features = false, features = ["png"] }
 indicatif = "0.18"
 libc = "0.2"
-pdf-extract = "0.10"
+pdf-extract = "0.12"
 predicates = "3"
 psl = "2"
 quick-xml = "0.40"

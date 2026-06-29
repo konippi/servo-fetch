@@ -5,3 +5,5 @@ pub(crate) mod map;
 pub(crate) mod mcp;
 pub(crate) mod rpc;
 pub(crate) mod serve;
+#[cfg(feature = "webdriver")]
+pub(crate) mod webdriver;

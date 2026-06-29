@@ -142,6 +142,19 @@ servo-fetch serve --host 0.0.0.0 --port 80   # expose to network
 
 See [HTTP API server](#http-api-server) below for the endpoint reference.
 
+### WebDriver server
+
+A W3C WebDriver server for scripted browser automation (click, type, wait, navigate, and read results on a persistent page). Drive it with any standard client — Rust `fantoccini`/`thirtyfour`, Python `selenium`, JS `webdriverio`.
+
+This is gated behind the off-by-default `webdriver` cargo feature, so build with it enabled:
+
+```bash
+cargo run -p servo-fetch-cli --features webdriver -- webdriver           # 127.0.0.1:4444
+cargo run -p servo-fetch-cli --features webdriver -- webdriver --port 9515
+```
+
+The server has no authentication — expose it only behind a trusted boundary. Sessions honor the process SSRF policy; pass the global `--allow-private-addresses` flag to drive a local test server (e.g. `http://localhost:3000`).
+
 ### Healthcheck
 
 ```bash

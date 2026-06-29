@@ -152,6 +152,9 @@ pub(crate) enum Command {
     /// Serve JSON-RPC over stdio for language bindings.
     #[command(hide = true)]
     Rpc(RpcArgs),
+    /// Start a W3C `WebDriver` server for scripted browser automation.
+    #[cfg(feature = "webdriver")]
+    Webdriver(WebdriverArgs),
 }
 
 impl Command {
@@ -276,6 +279,18 @@ pub(crate) struct MapArgs {
     /// Custom request header, repeatable (e.g. -H "X-Api-Key: secret")
     #[arg(short = 'H', long = "header", value_name = "NAME: VALUE")]
     pub headers: Vec<String>,
+}
+
+#[cfg(feature = "webdriver")]
+#[derive(Args, Debug)]
+pub(crate) struct WebdriverArgs {
+    /// Host to bind on.
+    #[arg(long, value_name = "HOST", default_value = "127.0.0.1")]
+    pub host: String,
+
+    /// Port to listen on.
+    #[arg(long, value_name = "PORT", default_value_t = 4444)]
+    pub port: u16,
 }
 
 #[derive(Args, Debug)]

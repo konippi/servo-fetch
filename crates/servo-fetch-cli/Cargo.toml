@@ -33,6 +33,10 @@ path = "tests/parallel.rs"
 name = "rpc"
 path = "tests/rpc.rs"
 
+[[test]]
+name = "webdriver"
+path = "tests/webdriver.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
@@ -58,6 +62,12 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ureq = { workspace = true }
 url = { workspace = true }
+webdriver = { workspace = true, optional = true }
+
+[features]
+# W3C WebDriver server subcommand. Off by default; enables the `servo-fetch
+# webdriver` command and the WebDriver-capable engine in `servo-fetch`.
+webdriver = ["dep:webdriver", "servo-fetch/webdriver"]
 
 [dev-dependencies]
 assert_cmd = { workspace = true }

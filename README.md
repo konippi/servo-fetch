@@ -255,6 +255,16 @@ Endpoints: `GET /health`, `GET /version`, `POST /v1/fetch`, `POST /v1/batch_fetc
 
 Full HTTP API reference → [`servo-fetch-cli` README](crates/servo-fetch-cli/README.md#http-api-server)
 
+## WebDriver
+
+A W3C WebDriver server for scripted browser automation — click, type, wait, navigate, and read results on a persistent page — drivable by any standard client (`fantoccini`, `selenium`, `webdriverio`). Gated behind the off-by-default `webdriver` cargo feature:
+
+```bash
+cargo run -p servo-fetch-cli --features webdriver -- webdriver   # 127.0.0.1:4444
+```
+
+No authentication — expose only behind a trusted boundary. Details → [`servo-fetch-cli` README](crates/servo-fetch-cli/README.md#webdriver-server).
+
 ## Docker
 
 Multi-arch image on GitHub Container Registry (`linux/amd64`, `linux/arm64`):

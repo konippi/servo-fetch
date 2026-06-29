@@ -24,6 +24,8 @@ pub mod headers;
 pub mod sanitize;
 pub mod schema;
 pub mod visibility;
+#[cfg(feature = "webdriver")]
+pub mod webdriver;
 
 pub(crate) mod bridge;
 pub(crate) mod client;

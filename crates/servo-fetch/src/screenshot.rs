@@ -74,7 +74,7 @@ impl Drop for ViewportRestore<'_> {
 
 /// Invoke `WebView::take_screenshot` synchronously by spinning the event loop
 /// until the callback fires or the deadline elapses.
-fn take_screenshot(
+pub(crate) fn take_screenshot(
     servo: &servo::Servo,
     webview: &WebView,
     rect: Option<WebViewRect>,

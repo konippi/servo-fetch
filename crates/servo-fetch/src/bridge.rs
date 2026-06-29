@@ -102,21 +102,21 @@ pub(crate) fn wait_for_wake(timeout: Duration) {
 }
 
 #[derive(Default)]
-struct WebViewState {
-    loaded_at: Cell<Option<Instant>>,
+pub(crate) struct WebViewState {
+    pub(crate) loaded_at: Cell<Option<Instant>>,
     deferred_load: RefCell<Option<UrlRequest>>,
     a11y_truncated: Cell<bool>,
     a11y_nodes: RefCell<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>,
     console_messages: RefCell<Vec<ConsoleMessage>>,
 }
 
-struct SharedDelegate {
+pub(crate) struct SharedDelegate {
     states: RefCell<HashMap<WebViewId, Rc<WebViewState>>>,
     policy: crate::net::NetworkPolicy,
 }
 
 impl SharedDelegate {
-    fn register(&self, id: WebViewId, deferred_load: Option<UrlRequest>) -> Rc<WebViewState> {
+    pub(crate) fn register(&self, id: WebViewId, deferred_load: Option<UrlRequest>) -> Rc<WebViewState> {
         let state = Rc::new(WebViewState {
             deferred_load: RefCell::new(deferred_load),
             ..Default::default()
@@ -125,7 +125,7 @@ impl SharedDelegate {
         state
     }
 
-    fn remove(&self, id: WebViewId) -> Option<Rc<WebViewState>> {
+    pub(crate) fn remove(&self, id: WebViewId) -> Option<Rc<WebViewState>> {
         self.states.borrow_mut().remove(&id)
     }
 
@@ -309,8 +309,41 @@ struct PendingFetch {
     dedicated_ctx: Option<Rc<SoftwareRenderingContext>>,
 }
 
+/// A message handed to the Servo engine thread.
+enum EngineMsg {
+    /// A stateless one-shot page fetch. Boxed because [`FetchRequest`] is much
+    /// larger than the other variants.
+    Fetch(Box<FetchRequest>),
+    /// A `WebDriver` task to run against the persistent session state.
+    #[cfg(feature = "webdriver")]
+    Wd(WdTask),
+}
+
+/// A unit of `WebDriver` work that runs on the Servo engine thread with access
+/// to the persistent session state. It owns its reply channel and signals the
+/// caller when it is done.
+#[cfg(feature = "webdriver")]
+pub(crate) type WdTask = Box<dyn FnOnce(&mut WdEngineCtx<'_>) + Send>;
+
+/// Engine-thread context handed to each [`WdTask`]. Bundles the live Servo
+/// handle and the shared resources a `WebDriver` command needs to build webviews
+/// and round-trip script commands. The actual command logic lives in
+/// [`crate::webdriver`].
+#[cfg(feature = "webdriver")]
+pub(crate) struct WdEngineCtx<'a> {
+    pub(crate) servo: &'a servo::Servo,
+    /// Shared with the fetch path: enforces the network policy on navigations
+    /// and tracks per-webview load status.
+    pub(crate) delegate: Rc<SharedDelegate>,
+    pub(crate) rc_ctx: Rc<SoftwareRenderingContext>,
+    /// User-content manager WITHOUT the noise-removal stylesheet, so `WebDriver`
+    /// sessions see the page exactly as authored.
+    pub(crate) raw_ucm: Rc<UserContentManager>,
+    pub(crate) sessions: &'a mut crate::webdriver::SessionMap,
+}
+
 struct Engine {
-    requests: mpsc::Sender<FetchRequest>,
+    requests: mpsc::Sender<EngineMsg>,
     wake: Arc<WakeFlag>,
     policy: crate::net::NetworkPolicy,
 }
@@ -357,7 +390,7 @@ const PENDING_CAPACITY: usize = 64;
 
 fn ensure_engine() -> &'static Engine {
     ENGINE.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<FetchRequest>(PENDING_CAPACITY);
+        let (tx, rx) = mpsc::channel::<EngineMsg>(PENDING_CAPACITY);
         let wake = Arc::new(WakeFlag::default());
         let wake_for_thread = wake.clone();
         let policy = pending_policy();
@@ -399,7 +432,29 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage, EngineErro
             let _ = reply_tx.send(r);
         }),
     );
-    engine.requests.try_send(request).map_err(|e| match e {
+    engine
+        .requests
+        .try_send(EngineMsg::Fetch(Box::new(request)))
+        .map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => {
+                anyhow!("Servo engine queue is full ({PENDING_CAPACITY} pending); back off and retry")
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                anyhow!("Servo engine is not running (it may have crashed on a previous request)")
+            }
+        })?;
+    engine.wake.signal();
+    reply_rx
+        .recv()
+        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page").into()))
+}
+
+/// Submit a `WebDriver` task to the Servo engine thread, starting the engine if
+/// needed. The task owns its own reply channel; this only enqueues and wakes.
+#[cfg(feature = "webdriver")]
+pub(crate) fn submit_wd_task(task: WdTask) -> Result<()> {
+    let engine = ensure_engine();
+    engine.requests.try_send(EngineMsg::Wd(task)).map_err(|e| match e {
         mpsc::error::TrySendError::Full(_) => {
             anyhow!("Servo engine queue is full ({PENDING_CAPACITY} pending); back off and retry")
         }
@@ -408,9 +463,7 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage, EngineErro
         }
     })?;
     engine.wake.signal();
-    reply_rx
-        .recv()
-        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page").into()))
+    Ok(())
 }
 
 pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage, EngineError> {
@@ -424,7 +477,7 @@ pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage
     );
     engine
         .requests
-        .send(request)
+        .send(EngineMsg::Fetch(Box::new(request)))
         .await
         .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
     engine.wake.signal();
@@ -441,14 +494,20 @@ fn is_apple_gl_driver_noise(line: &str) -> bool {
     clippy::needless_pass_by_value,
     reason = "the thread owns its receiver for its lifetime"
 )]
-fn servo_thread(mut request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag>, policy: crate::net::NetworkPolicy) {
+fn servo_thread(mut request_rx: mpsc::Receiver<EngineMsg>, wake: Arc<WakeFlag>, policy: crate::net::NetworkPolicy) {
     let _filter = crate::sys::StderrFilter::install(is_apple_gl_driver_noise).ok();
 
     let (rc_ctx, servo) = match build_servo(FlagWaker(wake.clone())) {
         Ok(pair) => pair,
         Err(e) => {
-            if let Some(req) = request_rx.blocking_recv() {
-                (req.reply)(Err(e.context("Servo initialization failed").into()));
+            if let Some(msg) = request_rx.blocking_recv() {
+                match msg {
+                    EngineMsg::Fetch(req) => (req.reply)(Err(e.context("Servo initialization failed").into())),
+                    // Dropping the task disconnects the caller's reply channel,
+                    // surfacing the failure as an engine error.
+                    #[cfg(feature = "webdriver")]
+                    EngineMsg::Wd(_task) => {}
+                }
             }
             return;
         }
@@ -463,17 +522,46 @@ fn servo_thread(mut request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag
     let ucm = Rc::new(UserContentManager::new(&servo));
     ucm.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
 
+    // WebDriver sessions render the page as authored, so they use a separate
+    // user-content manager without the fetch path's noise-removal stylesheet.
+    #[cfg(feature = "webdriver")]
+    let raw_ucm = Rc::new(UserContentManager::new(&servo));
+    #[cfg(feature = "webdriver")]
+    let mut wd_sessions = crate::webdriver::SessionMap::new();
+
     let mut pending: HashMap<WebViewId, PendingFetch> = HashMap::new();
 
     loop {
-        while let Ok(req) = request_rx.try_recv() {
-            accept_request(&servo, &rc_ctx, &delegate, &ucm, req, &mut pending);
+        while let Ok(msg) = request_rx.try_recv() {
+            accept_message(
+                &servo,
+                &rc_ctx,
+                &delegate,
+                &ucm,
+                #[cfg(feature = "webdriver")]
+                &raw_ucm,
+                #[cfg(feature = "webdriver")]
+                &mut wd_sessions,
+                msg,
+                &mut pending,
+            );
         }
 
         if pending.is_empty() {
             // Idle: block until a new request nudges us or the channel hangs up.
             match request_rx.blocking_recv() {
-                Some(req) => accept_request(&servo, &rc_ctx, &delegate, &ucm, req, &mut pending),
+                Some(msg) => accept_message(
+                    &servo,
+                    &rc_ctx,
+                    &delegate,
+                    &ucm,
+                    #[cfg(feature = "webdriver")]
+                    &raw_ucm,
+                    #[cfg(feature = "webdriver")]
+                    &mut wd_sessions,
+                    msg,
+                    &mut pending,
+                ),
                 None => return,
             }
             continue;
@@ -500,16 +588,42 @@ fn servo_thread(mut request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag
     }
 }
 
-fn accept_request(
+#[cfg_attr(
+    feature = "webdriver",
+    expect(
+        clippy::too_many_arguments,
+        reason = "engine-thread dispatch fans out the shared resources both message kinds need"
+    )
+)]
+fn accept_message(
     servo: &servo::Servo,
     rc_ctx: &Rc<SoftwareRenderingContext>,
     delegate: &Rc<SharedDelegate>,
     ucm: &Rc<UserContentManager>,
-    req: FetchRequest,
+    #[cfg(feature = "webdriver")] raw_ucm: &Rc<UserContentManager>,
+    #[cfg(feature = "webdriver")] wd_sessions: &mut crate::webdriver::SessionMap,
+    msg: EngineMsg,
     pending: &mut HashMap<WebViewId, PendingFetch>,
 ) {
-    if let Some(p) = start_fetch(servo, rc_ctx, delegate, ucm, req) {
-        pending.insert(p.webview.id(), p);
+    match msg {
+        EngineMsg::Fetch(req) => {
+            if let Some(p) = start_fetch(servo, rc_ctx, delegate, ucm, *req) {
+                pending.insert(p.webview.id(), p);
+            }
+        }
+        // WebDriver tasks run synchronously to completion on this thread; they
+        // own their reply channel and spin the event loop as needed.
+        #[cfg(feature = "webdriver")]
+        EngineMsg::Wd(task) => {
+            let mut ctx = WdEngineCtx {
+                servo,
+                delegate: delegate.clone(),
+                rc_ctx: rc_ctx.clone(),
+                raw_ucm: raw_ucm.clone(),
+                sessions: wd_sessions,
+            };
+            task(&mut ctx);
+        }
     }
 }
 
@@ -765,7 +879,39 @@ pub(crate) fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str, dea
     }
 }
 
-fn jsvalue_to_json(val: &JSValue) -> Result<Value> {
+/// Like [`eval_js`], but returns the result as typed JSON rather than a string.
+/// Used by the `WebDriver` execute-script commands, which must preserve value
+/// types (numbers, booleans, arrays, objects) per the W3C protocol.
+#[cfg(feature = "webdriver")]
+pub(crate) fn eval_json(servo: &servo::Servo, webview: &WebView, script: &str, deadline: Instant) -> Result<Value> {
+    if Instant::now() >= deadline {
+        return Err(anyhow!("timeout waiting for JS evaluation"));
+    }
+    let result: Rc<RefCell<Option<Result<Value>>>> = Rc::new(RefCell::new(None));
+    let cb_result = result.clone();
+
+    webview.evaluate_javascript(script, move |js_result| {
+        let val = match js_result {
+            Ok(value) => jsvalue_to_json(&value),
+            Err(e) => Err(anyhow!("JS eval error: {e:?}")),
+        };
+        *cb_result.borrow_mut() = Some(val);
+    });
+
+    loop {
+        servo.spin_event_loop();
+        if let Some(val) = result.borrow_mut().take() {
+            return val;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(anyhow!("timeout waiting for JS evaluation"));
+        }
+        wait_for_wake(deadline.saturating_duration_since(now));
+    }
+}
+
+pub(crate) fn jsvalue_to_json(val: &JSValue) -> Result<Value> {
     const MAX_DEPTH: u8 = 64;
     fn convert(val: &JSValue, depth: u8) -> Result<Value> {
         if depth >= MAX_DEPTH {

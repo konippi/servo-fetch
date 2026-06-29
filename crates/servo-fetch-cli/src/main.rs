@@ -12,6 +12,8 @@ mod progress;
 mod rpc;
 mod serve;
 mod tools;
+#[cfg(feature = "webdriver")]
+mod webdriver;
 mod wire;
 
 use clap::Parser;
@@ -45,6 +47,8 @@ fn dispatch(args: &Cli) -> anyhow::Result<()> {
         Some(Command::Map(map)) => commands::map::run(map),
         Some(Command::Healthcheck(hc)) => commands::healthcheck::run(hc),
         Some(Command::Rpc(_)) => commands::rpc::run(),
+        #[cfg(feature = "webdriver")]
+        Some(Command::Webdriver(wd)) => commands::webdriver::run(wd),
         None => commands::fetch::run(&args.fetch),
     }
 }

@@ -14,6 +14,7 @@ include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "LICENSE-APACHE", "README.md
 
 [dependencies]
 servo = { workspace = true }
+servo-base = { workspace = true, optional = true }
 anyhow = { workspace = true }
 bitflags = { workspace = true }
 cookie = { workspace = true }
@@ -39,6 +40,12 @@ ureq = { workspace = true }
 quick-xml = { workspace = true }
 flate2 = { workspace = true }
 humantime = { workspace = true }
+
+[features]
+# W3C WebDriver support: persistent, scriptable browser sessions on top of the
+# embedded Servo engine. Off by default; pulls in `servo-base` for the
+# constellation reply channels used to round-trip WebDriver script commands.
+webdriver = ["dep:servo-base"]
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

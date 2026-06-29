@@ -486,13 +486,16 @@ impl WdEngineCtx<'_> {
         let state = self.delegate.register(webview_id, None);
 
         // Drive the initial about:blank load to completion so that a later
-        // `WebView::load` is not dropped before the pipeline is ready.
+        // `WebView::load` is not dropped before the pipeline is ready. If it
+        // never settles, fail session creation rather than hand back a webview
+        // that may silently drop the first navigation.
         let deadline = Instant::now() + READY_TIMEOUT;
         while webview.load_status() != LoadStatus::Complete {
             self.servo.spin_event_loop();
             let now = Instant::now();
             if now >= deadline {
-                break;
+                self.delegate.remove(webview_id);
+                return Err(anyhow!("session webview did not become ready within {READY_TIMEOUT:?}"));
             }
             wait_for_wake(deadline.saturating_duration_since(now));
         }
@@ -707,10 +710,11 @@ impl WdEngineCtx<'_> {
     /// computed style (Servo exposes no dedicated script command for it).
     fn is_displayed(&self, id: &SessionId, element: &str) -> Result<bool> {
         let bcid = self.session(id)?.bcid;
-        // A `display:none` or zero-area element has an empty bounding rect, so
-        // this single round-trip subsumes the separate `display` check.
+        // A `display:none` element has a 0x0 rect, and an element with either
+        // dimension zero has zero area and is not rendered — so this single
+        // round-trip subsumes the separate `display` check.
         let rect = self.raw_element_rect(bcid, element)?;
-        if rect.size.width <= 0.0 && rect.size.height <= 0.0 {
+        if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
             return Ok(false);
         }
         let css = |property: &str| -> Result<String> {

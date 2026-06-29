@@ -79,11 +79,15 @@ impl ServoWdHandler {
     }
 
     fn new_session(&mut self) -> WebDriverResult<WebDriverResponse> {
-        // Defensively tear down any lingering session before creating a new one,
-        // so a prior session's webview can't be leaked. (The dispatcher normally
-        // prevents a second New Session, so this is belt-and-suspenders.)
-        if let Some(old) = self.session.take() {
-            let _ = self.engine.delete_session(&old);
+        // Single-session server: refuse a second New Session and require the
+        // client to delete the active one first, rather than silently discarding
+        // it. (The `webdriver` dispatcher normally rejects this before us; this
+        // keeps the handler correct on its own.)
+        if self.session.is_some() {
+            return Err(WebDriverError::new(
+                ErrorStatus::SessionNotCreated,
+                "a session is already active; delete it before creating a new one",
+            ));
         }
         let id = self
             .engine

@@ -14,13 +14,14 @@ async fn main() {
     }
 
     while let Some(result) = set.join_next().await {
-        match result.unwrap() {
-            (url, Ok(page)) => {
+        match result {
+            Ok((url, Ok(page))) => {
                 let md = page.markdown().unwrap_or_default();
                 let preview: String = md.chars().take(200).collect();
-                println!("✓ {url} — {} bytes\n{preview}\n", page.html.len());
+                println!("✓ {url} — {} HTML bytes\n{preview}\n", page.html.len());
             }
-            (url, Err(e)) => println!("✗ {url} — {e}\n"),
+            Ok((url, Err(e))) => println!("✗ {url} — {e}\n"),
+            Err(join_err) => eprintln!("✗ {join_err}\n"),
         }
     }
 }

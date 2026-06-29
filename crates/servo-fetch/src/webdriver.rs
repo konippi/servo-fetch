@@ -38,9 +38,8 @@ use servo::{
     NamedKey, RenderingContext, WebDriverCommandMsg, WebDriverScriptCommand, WebView, WebViewBuilder, WebViewDelegate,
     WebViewId, WebViewPoint, WebViewRect,
 };
-use servo_base::generic_channel::{GenericOneshotSender, GenericSender, TryReceiveError, channel, oneshot};
+use servo_base::generic_channel::{GenericSender, TryReceiveError, channel};
 use servo_base::id::BrowsingContextId;
-use url::Url;
 
 use crate::bridge::{self, WdEngineCtx, WdTask, WebViewState, wait_for_wake};
 
@@ -451,8 +450,10 @@ impl WdEngineCtx<'_> {
         Ok(session)
     }
 
-    fn new_session(&mut self) -> Result<SessionId> {
-        // Garbage-collect idle sessions before enforcing the limit.
+    /// Drop sessions untouched for longer than [`SESSION_IDLE_TIMEOUT`]. Run
+    /// before every command (see `bridge::accept_message`) so abandoned sessions
+    /// are reclaimed on any activity, not only when a new session is requested.
+    pub(crate) fn gc_idle_sessions(&mut self) {
         let now = Instant::now();
         let idle: Vec<SessionId> = self
             .sessions
@@ -463,6 +464,11 @@ impl WdEngineCtx<'_> {
         for id in idle {
             self.remove_session(&id);
         }
+    }
+
+    fn new_session(&mut self) -> Result<SessionId> {
+        // Idle sessions were already swept before this command ran; just enforce
+        // the live-session ceiling.
         if self.sessions.len() >= MAX_SESSIONS {
             return Err(anyhow!("maximum number of WebDriver sessions ({MAX_SESSIONS}) reached"));
         }
@@ -521,7 +527,12 @@ impl WdEngineCtx<'_> {
     }
 
     fn navigate(&self, id: &SessionId, url: &str) -> Result<()> {
-        let parsed = Url::parse(url).map_err(|e| anyhow!("invalid URL '{url}': {e}"))?;
+        // Validate the scheme and SSRF policy up front, exactly like the fetch
+        // path — this fails fast on disallowed/loopback/`file:` URLs instead of
+        // loading them (or hanging until the page-load timeout if the navigation
+        // delegate later denies them).
+        let parsed = crate::net::validate_url(url)
+            .map_err(|e| anyhow!("InvalidArgument: invalid or disallowed URL '{url}': {e}"))?;
         let session = self.session(id)?;
         session.webview.load(parsed);
         self.await_load(session)
@@ -582,7 +593,7 @@ impl WdEngineCtx<'_> {
             transport_deadline(),
             WebDriverScriptCommand::GetPageSource,
         )?
-        .map_err(|e| anyhow!("get page source failed: {e:?}"))
+        .map_err(|e| script_error("get page source", e))
     }
 
     fn find_elements(&self, id: &SessionId, locator: Locator, value: &str) -> Result<Vec<String>> {
@@ -606,7 +617,7 @@ impl WdEngineCtx<'_> {
                 WebDriverScriptCommand::FindElementsXpathSelector(v, tx)
             }),
         }?;
-        found.map_err(|e| anyhow!("find elements failed: {e:?}"))
+        found.map_err(|e| script_error("find elements", e))
     }
 
     fn element_text(&self, id: &SessionId, element: &str) -> Result<String> {
@@ -615,7 +626,7 @@ impl WdEngineCtx<'_> {
         script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::GetElementText(element, tx)
         })?
-        .map_err(|e| anyhow!("get element text failed: {e:?}"))
+        .map_err(|e| script_error("get element text", e))
     }
 
     fn element_attribute(&self, id: &SessionId, element: &str, name: &str) -> Result<Option<String>> {
@@ -624,7 +635,7 @@ impl WdEngineCtx<'_> {
         script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::GetElementAttribute(element, name, tx)
         })?
-        .map_err(|e| anyhow!("get element attribute failed: {e:?}"))
+        .map_err(|e| script_error("get element attribute", e))
     }
 
     fn element_property(&self, id: &SessionId, element: &str, name: &str) -> Result<Value> {
@@ -633,7 +644,7 @@ impl WdEngineCtx<'_> {
         let value = script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::GetElementProperty(element, name, tx)
         })?
-        .map_err(|e| anyhow!("get element property failed: {e:?}"))?;
+        .map_err(|e| script_error("get element property", e))?;
         bridge::jsvalue_to_json(&value)
     }
 
@@ -643,7 +654,7 @@ impl WdEngineCtx<'_> {
         script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::GetElementCSS(element, name, tx)
         })?
-        .map_err(|e| anyhow!("get element css failed: {e:?}"))
+        .map_err(|e| script_error("get element css", e))
     }
 
     fn element_tag_name(&self, id: &SessionId, element: &str) -> Result<String> {
@@ -652,7 +663,7 @@ impl WdEngineCtx<'_> {
         script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::GetElementTagName(element, tx)
         })?
-        .map_err(|e| anyhow!("get element tag name failed: {e:?}"))
+        .map_err(|e| script_error("get element tag name", e))
     }
 
     fn raw_element_rect(&self, bcid: BrowsingContextId, element: &str) -> Result<UntypedRect<f64>> {
@@ -660,7 +671,7 @@ impl WdEngineCtx<'_> {
         script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::GetElementRect(element, tx)
         })?
-        .map_err(|e| anyhow!("get element rect failed: {e:?}"))
+        .map_err(|e| script_error("get element rect", e))
     }
 
     fn element_rect(&self, id: &SessionId, element: &str) -> Result<ElementRect> {
@@ -680,7 +691,7 @@ impl WdEngineCtx<'_> {
         script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::IsEnabled(element, tx)
         })?
-        .map_err(|e| anyhow!("is enabled failed: {e:?}"))
+        .map_err(|e| script_error("is enabled", e))
     }
 
     fn is_selected(&self, id: &SessionId, element: &str) -> Result<bool> {
@@ -689,31 +700,43 @@ impl WdEngineCtx<'_> {
         script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::IsSelected(element, tx)
         })?
-        .map_err(|e| anyhow!("is selected failed: {e:?}"))
+        .map_err(|e| script_error("is selected", e))
     }
 
-    /// Approximate the W3C "is element displayed" check from computed style and
-    /// geometry (Servo exposes no dedicated script command for it).
+    /// Approximate the W3C "is element displayed" check from geometry and
+    /// computed style (Servo exposes no dedicated script command for it).
     fn is_displayed(&self, id: &SessionId, element: &str) -> Result<bool> {
         let bcid = self.session(id)?.bcid;
+        // A `display:none` or zero-area element has an empty bounding rect, so
+        // this single round-trip subsumes the separate `display` check.
+        let rect = self.raw_element_rect(bcid, element)?;
+        if rect.size.width <= 0.0 && rect.size.height <= 0.0 {
+            return Ok(false);
+        }
         let css = |property: &str| -> Result<String> {
             let (element, property) = (element.to_string(), property.to_string());
             script_command(self.servo, bcid, transport_deadline(), |tx| {
                 WebDriverScriptCommand::GetElementCSS(element, property, tx)
             })?
-            .map_err(|e| anyhow!("get element css failed: {e:?}"))
+            .map_err(|e| script_error("get element css", e))
         };
-        if css("display")? == "none" {
-            return Ok(false);
-        }
         if matches!(css("visibility")?.as_str(), "hidden" | "collapse") {
             return Ok(false);
         }
         if css("opacity")?.parse::<f64>().is_ok_and(|o| o == 0.0) {
             return Ok(false);
         }
-        let rect = self.raw_element_rect(bcid, element)?;
-        Ok(rect.size.width > 0.0 || rect.size.height > 0.0)
+        Ok(true)
+    }
+
+    /// Scroll the element into view and return its viewport-relative rect (CSS
+    /// pixels). Channel-based, so it is bounded by the transport deadline.
+    fn scroll_and_rect(&self, bcid: BrowsingContextId, element: &str) -> Result<UntypedRect<f32>> {
+        let element = element.to_string();
+        script_command(self.servo, bcid, transport_deadline(), |tx| {
+            WebDriverScriptCommand::ScrollAndGetBoundingClientRect(element, tx)
+        })?
+        .map_err(|e| script_error("scroll and get element rect", e))
     }
 
     fn click_element(&self, id: &SessionId, element: &str) -> Result<()> {
@@ -726,19 +749,19 @@ impl WdEngineCtx<'_> {
         let outcome = script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::ElementClick(element_owned, tx)
         })?
-        .map_err(|e| anyhow!("element click failed: {e:?}"))?;
+        .map_err(|e| script_error("element click", e))?;
         if outcome.is_none() {
             return Ok(());
         }
 
-        let element_owned = element.to_string();
-        let center = script_command_oneshot(self.servo, bcid, |tx| {
-            WebDriverScriptCommand::GetElementInViewCenterPoint(element_owned, tx)
-        })?
-        .map_err(|e| anyhow!("element center point failed: {e:?}"))?
-        .ok_or_else(|| anyhow!("element is not in view"))?;
-
-        let point = css_point(center.0, center.1);
+        // Compute the viewport-relative center to click. `ScrollAndGetBoundingClientRect`
+        // scrolls the element into view and returns its `getBoundingClientRect()`,
+        // which is already viewport-relative — exactly what `WebViewPoint::Page` wants.
+        let rect = self.scroll_and_rect(bcid, element)?;
+        let point = css_point(
+            rect.origin.x + rect.size.width / 2.0,
+            rect.origin.y + rect.size.height / 2.0,
+        );
         let webview = &self.session(id)?.webview;
         webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
             MouseButtonAction::Down,
@@ -760,7 +783,7 @@ impl WdEngineCtx<'_> {
         script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::ElementClear(element, tx)
         })?
-        .map_err(|e| anyhow!("element clear failed: {e:?}"))
+        .map_err(|e| script_error("element clear", e))
     }
 
     fn send_keys(&self, id: &SessionId, element: &str, text: &str) -> Result<()> {
@@ -772,7 +795,7 @@ impl WdEngineCtx<'_> {
         let should_send = script_command(self.servo, bcid, transport_deadline(), |tx| {
             WebDriverScriptCommand::WillSendKeys(element_owned, text_owned, false, tx)
         })?
-        .map_err(|e| anyhow!("send keys failed: {e:?}"))?;
+        .map_err(|e| script_error("send keys", e))?;
         if !should_send {
             return Ok(());
         }
@@ -851,7 +874,9 @@ impl WdEngineCtx<'_> {
 
     fn element_screenshot(&self, id: &SessionId, element: &str) -> Result<Vec<u8>> {
         let bcid = self.session(id)?.bcid;
-        let rect = self.raw_element_rect(bcid, element)?;
+        // Viewport-relative rect (also scrolls the element into view), so the
+        // clip region is correct even when the page is scrolled.
+        let rect = self.scroll_and_rect(bcid, element)?;
         let webview = &self.session(id)?.webview;
         let deadline = Instant::now() + SCREENSHOT_TIMEOUT;
         let view_rect = WebViewRect::Page(page_box(rect));
@@ -934,18 +959,11 @@ where
     }
 }
 
-/// Dispatch a oneshot-reply script command. The script thread replies
-/// independently of the embedder loop, so a blocking receive is safe; a single
-/// spin keeps the compositor responsive first.
-fn script_command_oneshot<T, F>(servo: &servo::Servo, bcid: BrowsingContextId, build: F) -> Result<T>
-where
-    T: serde::Serialize + for<'de> serde::Deserialize<'de> + Send + 'static,
-    F: FnOnce(GenericOneshotSender<T>) -> WebDriverScriptCommand,
-{
-    let (tx, rx) = oneshot::<T>().ok_or_else(|| anyhow!("failed to create WebDriver reply channel"))?;
-    servo.execute_webdriver_command(WebDriverCommandMsg::ScriptCommand(bcid, build(tx)));
-    servo.spin_event_loop();
-    rx.recv().map_err(|e| anyhow!("WebDriver reply channel closed: {e}"))
+/// Format a script-command failure so its first token is the W3C error-status
+/// name (e.g. `NoSuchElement`), letting the CLI handler map it back to an
+/// `ErrorStatus` precisely without depending on the `webdriver` crate here.
+fn script_error<E: std::fmt::Debug>(context: &str, status: E) -> anyhow::Error {
+    anyhow!("{status:?}: {context} failed")
 }
 
 /// W3C "execute script": wrap the body as a function applied to its arguments.
@@ -989,24 +1007,13 @@ fn map_key(ch: char) -> Key {
     }
 }
 
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "page coordinates fit comfortably in f32 for input events"
-)]
-fn css_point(x: i64, y: i64) -> WebViewPoint {
-    Point2D::<f32, CSSPixel>::new(x as f32, y as f32).into()
+fn css_point(x: f32, y: f32) -> WebViewPoint {
+    Point2D::<f32, CSSPixel>::new(x, y).into()
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "element rects fit comfortably in f32 for screenshot clipping"
-)]
-fn page_box(rect: UntypedRect<f64>) -> Box2D<f32, CSSPixel> {
-    let min = Point2D::new(rect.origin.x as f32, rect.origin.y as f32);
-    let max = Point2D::new(
-        (rect.origin.x + rect.size.width) as f32,
-        (rect.origin.y + rect.size.height) as f32,
-    );
+fn page_box(rect: UntypedRect<f32>) -> Box2D<f32, CSSPixel> {
+    let min = Point2D::new(rect.origin.x, rect.origin.y);
+    let max = Point2D::new(rect.origin.x + rect.size.width, rect.origin.y + rect.size.height);
     Box2D::new(min, max)
 }
 

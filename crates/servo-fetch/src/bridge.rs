@@ -622,6 +622,8 @@ fn accept_message(
                 raw_ucm: raw_ucm.clone(),
                 sessions: wd_sessions,
             };
+            // Reclaim idle sessions on any activity, not only on new-session.
+            ctx.gc_idle_sessions();
             task(&mut ctx);
         }
     }

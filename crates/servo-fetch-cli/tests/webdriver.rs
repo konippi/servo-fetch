@@ -179,6 +179,20 @@ async fn webdriver_server_round_trip() {
             "screenshot should be a non-empty base64 string"
         );
 
+        // A disallowed scheme must be rejected promptly, not hang until the
+        // page-load timeout (regression guard for the missing URL validation).
+        let started = Instant::now();
+        let blocked = serde_json::to_vec(&json!({"url": "file:///etc/passwd"})).unwrap();
+        let rejected = agent
+            .post(&format!("{base}/session/{sid}/url"))
+            .header("Content-Type", "application/json")
+            .send(blocked.as_slice());
+        assert!(rejected.is_err(), "file:// navigation should be rejected");
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "blocked navigation must fail fast, not hang until the page-load timeout"
+        );
+
         // Delete Session.
         agent
             .delete(&format!("{base}/session/{sid}"))

@@ -79,6 +79,12 @@ impl ServoWdHandler {
     }
 
     fn new_session(&mut self) -> WebDriverResult<WebDriverResponse> {
+        // Defensively tear down any lingering session before creating a new one,
+        // so a prior session's webview can't be leaked. (The dispatcher normally
+        // prevents a second New Session, so this is belt-and-suspenders.)
+        if let Some(old) = self.session.take() {
+            let _ = self.engine.delete_session(&old);
+        }
         let id = self
             .engine
             .new_session()
@@ -240,29 +246,35 @@ impl WebDriverHandler for ServoWdHandler {
     }
 }
 
-/// Map an engine error to the closest W3C error status, inspecting the message
-/// for the `ErrorStatus` names Servo's script thread reports.
+/// Map an engine error to the closest W3C error status.
+///
+/// The engine prefixes script-command failures with the W3C status name (e.g.
+/// `"NoSuchElement: …"`, see `servo_fetch::webdriver`'s `script_error`), so the
+/// leading token is matched exactly; engine-internal errors that aren't
+/// status-prefixed fall back to keyword heuristics.
 fn error_status_of(error: &anyhow::Error) -> ErrorStatus {
     let message = error.to_string();
-    let has = |needle: &str| message.contains(needle);
-    if has("NoSuchElement") {
-        ErrorStatus::NoSuchElement
-    } else if has("StaleElement") {
-        ErrorStatus::StaleElementReference
-    } else if has("ElementClickIntercepted") {
-        ErrorStatus::ElementClickIntercepted
-    } else if has("ElementNotInteractable") {
-        ErrorStatus::ElementNotInteractable
-    } else if has("InvalidSelector") {
-        ErrorStatus::InvalidSelector
-    } else if has("InvalidElementState") {
-        ErrorStatus::InvalidElementState
-    } else if has("no such WebDriver session") {
+    if let Some(token) = message.split([':', ' ']).next() {
+        match token {
+            "NoSuchElement" => return ErrorStatus::NoSuchElement,
+            "StaleElementReference" => return ErrorStatus::StaleElementReference,
+            "ElementClickIntercepted" => return ErrorStatus::ElementClickIntercepted,
+            "ElementNotInteractable" => return ErrorStatus::ElementNotInteractable,
+            "InvalidSelector" => return ErrorStatus::InvalidSelector,
+            "InvalidElementState" => return ErrorStatus::InvalidElementState,
+            "InvalidArgument" => return ErrorStatus::InvalidArgument,
+            "JavascriptError" => return ErrorStatus::JavascriptError,
+            "UnknownError" => return ErrorStatus::UnknownError,
+            _ => {}
+        }
+    }
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("no such webdriver session") {
         ErrorStatus::InvalidSessionId
-    } else if has("async script error") || has("JS eval") || has("JavaScript") {
-        ErrorStatus::JavascriptError
-    } else if has("timed out") || has("Timeout") {
+    } else if lower.contains("timed out") || lower.contains("timeout") {
         ErrorStatus::Timeout
+    } else if lower.contains("js eval") || lower.contains("script error") || lower.contains("javascript") {
+        ErrorStatus::JavascriptError
     } else {
         ErrorStatus::UnknownError
     }
@@ -411,14 +423,20 @@ mod tests {
 
     #[test]
     fn error_status_recognizes_known_names() {
+        // Status-prefixed (the engine's `script_error` format).
         assert_eq!(
-            error_status_of(&anyhow!("get element text failed: NoSuchElement")),
+            error_status_of(&anyhow!("NoSuchElement: get element text failed")),
             ErrorStatus::NoSuchElement
         );
         assert_eq!(
-            error_status_of(&anyhow!("element click failed: ElementClickIntercepted")),
+            error_status_of(&anyhow!("ElementClickIntercepted: element click failed")),
             ErrorStatus::ElementClickIntercepted
         );
+        assert_eq!(
+            error_status_of(&anyhow!("InvalidArgument: invalid or disallowed URL 'file:///x'")),
+            ErrorStatus::InvalidArgument
+        );
+        // Engine-internal errors (not status-prefixed) fall back to keywords.
         assert_eq!(error_status_of(&anyhow!("navigation timed out")), ErrorStatus::Timeout);
         assert_eq!(
             error_status_of(&anyhow!("no such WebDriver session: servo-fetch-9")),

@@ -38,7 +38,7 @@ libc = "0.2"
 pdf-extract = "0.12"
 predicates = "3"
 psl = "2"
-quick-xml = "0.40"
+quick-xml = "0.41"
 rmcp = { version = "1", features = ["server", "transport-io", "transport-streamable-http-server", "macros"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
 serde = { version = "1", features = ["derive"] }

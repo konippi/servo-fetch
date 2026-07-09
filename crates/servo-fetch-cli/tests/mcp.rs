@@ -73,7 +73,7 @@ async fn fetch_rejects_private_ip() {
 async fn fetch_rejects_missing_url() {
     let client = connect().await;
     let result = client.call_tool(call_params("fetch", &serde_json::json!({}))).await;
-    assert!(result.is_err());
+    assert_tool_error(result);
 }
 
 #[tokio::test]
@@ -121,7 +121,7 @@ async fn fetch_returns_content() {
         .await
         .unwrap();
     assert!(!result.content.is_empty());
-    let text = &result.content[0].raw.as_text().unwrap().text;
+    let text = &result.content[0].as_text().unwrap().text;
     assert!(text.contains("Hello from Servo"), "got: {text}");
 }
 
@@ -194,7 +194,7 @@ async fn crawl_rejects_private_ip() {
 async fn crawl_rejects_missing_url() {
     let client = connect().await;
     let result = client.call_tool(call_params("crawl", &serde_json::json!({}))).await;
-    assert!(result.is_err());
+    assert_tool_error(result);
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
 //! MCP-specific helpers over the shared [`crate::tools`] business logic.
 
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, ContentBlock};
 
 pub(super) use crate::tools::{
     BatchSpec, CrawlSpec, MapSpec, ToolError, apply_options, batch_fetch_pages, build_map_options, clamp_js_output,
@@ -10,5 +10,5 @@ pub(super) use crate::tools::{
 
 /// Build an `isError` tool result carrying the failure message for the model to react to.
 pub(super) fn tool_error(err: impl std::fmt::Display) -> CallToolResult {
-    CallToolResult::error(vec![Content::text(err.to_string())])
+    CallToolResult::error(vec![ContentBlock::text(err.to_string())])
 }

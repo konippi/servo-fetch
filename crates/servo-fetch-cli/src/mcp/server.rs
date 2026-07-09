@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use base64::Engine as _;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, ProtocolVersion, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ContentBlock, ProtocolVersion, ServerCapabilities, ServerInfo};
 use rmcp::{ErrorData, ServerHandler, tool, tool_handler, tool_router};
 use servo_fetch::FetchOptions;
 use servo_fetch_types::{
@@ -120,7 +120,7 @@ async fn run_fetch(p: FetchRequest) -> Result<CallToolResult, tools::ToolError> 
         to_len(p.start_index, 0),
         to_len(p.max_length, DEFAULT_MAX_LENGTH),
     );
-    Ok(CallToolResult::success(vec![Content::text(content)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
 }
 
 async fn run_screenshot(p: ScreenshotRequest) -> Result<CallToolResult, tools::ToolError> {
@@ -130,7 +130,7 @@ async fn run_screenshot(p: ScreenshotRequest) -> Result<CallToolResult, tools::T
     let png = page
         .screenshot_png()
         .ok_or_else(|| tools::ToolError::internal("screenshot capture failed"))?;
-    Ok(CallToolResult::success(vec![Content::image(
+    Ok(CallToolResult::success(vec![ContentBlock::image(
         base64::engine::general_purpose::STANDARD.encode(png),
         "image/png",
     )]))
@@ -152,7 +152,7 @@ async fn run_execute_js(p: EvaluateRequest) -> Result<CallToolResult, tools::Too
             let _ = writeln!(result, "[{:?}] {}", msg.level, msg.message);
         }
     }
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         servo_fetch::sanitize::sanitize(&result).into_owned(),
     )]))
 }
@@ -181,7 +181,10 @@ async fn run_batch_fetch(p: BatchFetchRequest) -> Result<CallToolResult, tools::
         options: p.options,
     })
     .await;
-    let contents: Vec<Content> = results.into_iter().map(|(_url, text)| Content::text(text)).collect();
+    let contents: Vec<ContentBlock> = results
+        .into_iter()
+        .map(|(_url, text)| ContentBlock::text(text))
+        .collect();
     Ok(CallToolResult::success(contents))
 }
 
@@ -204,7 +207,10 @@ async fn run_crawl(p: CrawlRequest) -> Result<CallToolResult, tools::ToolError> 
         to_len(p.max_length, DEFAULT_MAX_LENGTH),
     )
     .await?;
-    let contents: Vec<Content> = results.into_iter().map(|(_url, text)| Content::text(text)).collect();
+    let contents: Vec<ContentBlock> = results
+        .into_iter()
+        .map(|(_url, text)| ContentBlock::text(text))
+        .collect();
     Ok(CallToolResult::success(contents))
 }
 
@@ -226,7 +232,7 @@ async fn run_map(p: MapRequest) -> Result<CallToolResult, tools::ToolError> {
         .map(|entry| entry.url)
         .collect::<Vec<_>>()
         .join("\n");
-    Ok(CallToolResult::success(vec![Content::text(urls)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(urls)]))
 }
 
 #[tool_handler]

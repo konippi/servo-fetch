@@ -458,8 +458,10 @@ fn servo_thread(mut request_rx: mpsc::Receiver<EngineMsg>, wake: Arc<WakeFlag>, 
     let (rc_ctx, servo) = match build_servo(FlagWaker(wake.clone())) {
         Ok(pair) => pair,
         Err(e) => {
-            if let Some(EngineMsg::Fetch(req)) = request_rx.blocking_recv() {
-                (req.reply)(Err(e.context("Servo initialization failed").into()));
+            if let Some(msg) = request_rx.blocking_recv() {
+                match msg {
+                    EngineMsg::Fetch(req) => (req.reply)(Err(e.context("Servo initialization failed").into())),
+                }
             }
             return;
         }

@@ -309,16 +309,16 @@ struct PendingFetch {
     dedicated_ctx: Option<Rc<SoftwareRenderingContext>>,
 }
 
-/// A message handed to the Servo engine thread. Today every message is a
-/// stateless one-shot [`FetchRequest`]; the enum is the dispatch envelope so the
-/// engine thread can grow further message kinds without reworking the channel
-/// plumbing.
+/// Dispatch envelope for the Servo engine thread; today the only kind is a stateless one-shot [`FetchRequest`].
 enum EngineMsg {
     Fetch(FetchRequest),
 }
 
+type EngineTx = mpsc::Sender<EngineMsg>;
+type EngineRx = mpsc::Receiver<EngineMsg>;
+
 struct Engine {
-    requests: mpsc::Sender<EngineMsg>,
+    requests: EngineTx,
     wake: Arc<WakeFlag>,
     policy: crate::net::NetworkPolicy,
 }
@@ -452,7 +452,7 @@ fn is_apple_gl_driver_noise(line: &str) -> bool {
     clippy::needless_pass_by_value,
     reason = "the thread owns its receiver for its lifetime"
 )]
-fn servo_thread(mut request_rx: mpsc::Receiver<EngineMsg>, wake: Arc<WakeFlag>, policy: crate::net::NetworkPolicy) {
+fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, policy: crate::net::NetworkPolicy) {
     let _filter = crate::sys::StderrFilter::install(is_apple_gl_driver_noise).ok();
 
     let (rc_ctx, servo) = match build_servo(FlagWaker(wake.clone())) {

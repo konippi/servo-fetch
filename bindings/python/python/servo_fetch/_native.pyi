@@ -1,12 +1,12 @@
 import os
 import threading
 from collections.abc import Callable
-from typing import Any, Literal, final
+from typing import Any, Literal, TypeAlias, final
 
 __version__: str
 
-ConsoleLevel = Literal["log", "debug", "info", "warn", "error", "trace"]
-FieldType = Literal["text", "attribute", "html", "inner_html", "nested_list"]
+ConsoleLevel: TypeAlias = Literal["log", "debug", "info", "warn", "error", "trace"]
+FieldType: TypeAlias = Literal["text", "attribute", "html", "inner_html", "nested_list"]
 
 @final
 class ConsoleMessage:

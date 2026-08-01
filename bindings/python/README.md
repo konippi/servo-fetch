@@ -16,6 +16,8 @@ Python bindings for [servo-fetch](https://github.com/konippi/servo-fetch) — fe
 
 ## Install
 
+Requires Python 3.11 or later.
+
 ```bash
 pip install servo-fetch
 ```
@@ -99,11 +101,11 @@ async with AsyncClient(user_agent="MyBot/1.0") as client:
 Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync --group all              # create venv + install dev deps
-uv run maturin develop           # build extension (debug, fast compile)
-uv run pytest                    # run tests
-uv run ruff check python tests   # lint
-uv run ty check python           # type check
+uv sync --group all --no-install-project  # create venv + install dev deps
+uv run --no-sync maturin develop          # build extension (debug, fast compile)
+uv run --no-sync pytest                   # run tests
+uv run --no-sync ruff check python tests  # lint
+uv run --no-sync ty check python          # type check
 ```
 
 ## Troubleshooting

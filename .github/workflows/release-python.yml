@@ -48,6 +48,7 @@ jobs:
         with:
           name: wheels-${{ matrix.target }}
           path: dist/*.whl
+          if-no-files-found: error
 
   build-macos:
     name: Build / ${{ matrix.target }}
@@ -71,6 +72,7 @@ jobs:
         with:
           name: wheels-${{ matrix.target }}
           path: dist/*.whl
+          if-no-files-found: error
 
   build-windows:
     name: Build / x86_64-pc-windows-msvc
@@ -92,6 +94,7 @@ jobs:
         with:
           name: wheels-x86_64-pc-windows-msvc
           path: dist/*.whl
+          if-no-files-found: error
 
   sdist:
     name: Source Distribution
@@ -111,6 +114,7 @@ jobs:
         with:
           name: wheels-sdist
           path: dist/*.tar.gz
+          if-no-files-found: error
 
   publish:
     name: Publish to PyPI

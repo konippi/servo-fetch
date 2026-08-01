@@ -288,22 +288,33 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: bindings/python/uv.lock
+          python-version: "3.14"
+      - name: Sync lint tools
+        working-directory: bindings/python
+        run: uv sync --locked --only-group lint --no-install-project
       - name: ruff check
         working-directory: bindings/python
-        run: uv run --no-project --with ruff ruff check python tests
+        run: uv run --locked --no-sync ruff check python tests
       - name: ruff format
         working-directory: bindings/python
-        run: uv run --no-project --with ruff ruff format --check python tests
+        run: uv run --locked --no-sync ruff format --check python tests
       - name: ty check
         working-directory: bindings/python
-        run: uv run --no-project --with ty ty check python
+        run: uv run --locked --no-sync ty check python
 
   python-test:
-    name: Python Test
+    name: Python Test (${{ matrix.python }})
     needs: [changes, cargo-test]
     if: ${{ !cancelled() && needs.cargo-test.result != 'failure' && (needs.changes.outputs.python == 'true' || needs.changes.outputs.rust == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
     permissions:
       contents: read
     env:
@@ -320,6 +331,10 @@ jobs:
           toolchain: "1.95.0"
       - uses: ./.github/actions/sccache
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: bindings/python/uv.lock
+          python-version: ${{ matrix.python }}
       - name: Install servo build deps
         run: |
           sudo apt-get update
@@ -328,13 +343,13 @@ jobs:
       - name: Build + Test
         working-directory: bindings/python
         run: |
-          uv sync --group test --group lint
-          uv run maturin develop --profile ci
-          uv run pytest
+          uv sync --locked --group test --group lint --no-install-project
+          uv run --locked --no-sync maturin develop --profile ci
+          uv run --locked --no-sync pytest
       - name: Stubtest
         working-directory: bindings/python
         run: |
-          uv run python -m mypy.stubtest servo_fetch._native \
+          uv run --locked --no-sync python -m mypy.stubtest servo_fetch._native \
             --allowlist .mypy-stubtest-allowlist
       - name: sccache stats
         if: always()

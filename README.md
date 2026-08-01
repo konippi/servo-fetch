@@ -167,6 +167,8 @@ Full API reference → [`servo-fetch`](crates/servo-fetch/README.md)
 
 ### Python
 
+Requires Python 3.11 or later.
+
 ```bash
 pip install servo-fetch
 ```

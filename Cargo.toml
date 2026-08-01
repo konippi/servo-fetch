@@ -16,7 +16,7 @@ homepage = "https://github.com/konippi/servo-fetch"
 anyhow = "1"
 assert_cmd = "2"
 axum = "0.8"
-base64 = "0.22"
+base64 = "0.23"
 bitflags = "2"
 clap = { version = "4", features = ["derive"] }
 console = "0.16"

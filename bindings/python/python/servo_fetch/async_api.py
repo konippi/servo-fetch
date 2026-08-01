@@ -6,7 +6,7 @@ import asyncio
 import os
 import threading
 from collections.abc import AsyncIterator
-from typing import cast
+from typing import Self, cast
 
 from ._native import Client as _SyncClient
 from ._native import CrawlResult, MappedUrl, Page, Schema
@@ -175,7 +175,7 @@ class AsyncClient:
             headers=headers,
         )
 
-    async def __aenter__(self) -> AsyncClient:
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *_: object) -> None:

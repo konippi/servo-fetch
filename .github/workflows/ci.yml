@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         id: filter
         with:
           filters: |
@@ -101,7 +101,7 @@ jobs:
         with:
           toolchain: "1.95.0"
       - uses: ./.github/actions/sccache
-      - uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2.82.7
+      - uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2.85.1
         with:
           tool: cargo-nextest
       - name: Install servo build deps
@@ -182,7 +182,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2.82.7
+      - uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2.85.1
         with:
           tool: taplo-cli
       - run: taplo fmt --check --diff
@@ -199,7 +199,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2.82.7
+      - uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2.85.1
         with:
           tool: cargo-deny
       - run: cargo deny check
@@ -216,7 +216,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2.82.7
+      - uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2.85.1
         with:
           tool: cargo-shear
       - run: cargo shear
@@ -231,7 +231,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: crate-ci/typos@37bb98842b0d8c4ffebdb75301a13db0267cef89 # v1.47.2
+      - uses: crate-ci/typos@bee27e3a4fd1ea2111cf90ab89cd076c870fce14 # v1.48.0
         with:
           config: typos.toml
 
@@ -254,7 +254,7 @@ jobs:
         with:
           toolchain: "1.95.0"
       - uses: ./.github/actions/sccache
-      - uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2.82.7
+      - uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094 # v2.85.1
         with:
           tool: cargo-nextest
       - name: Install servo build deps
@@ -287,23 +287,34 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: bindings/python/uv.lock
+          python-version: "3.14"
+      - name: Sync lint tools
+        working-directory: bindings/python
+        run: uv sync --locked --only-group lint --no-install-project
       - name: ruff check
         working-directory: bindings/python
-        run: uv run --no-project --with ruff ruff check python tests
+        run: uv run --locked --no-sync ruff check python tests
       - name: ruff format
         working-directory: bindings/python
-        run: uv run --no-project --with ruff ruff format --check python tests
+        run: uv run --locked --no-sync ruff format --check python tests
       - name: ty check
         working-directory: bindings/python
-        run: uv run --no-project --with ty ty check python
+        run: uv run --locked --no-sync ty check python
 
   python-test:
-    name: Python Test
+    name: Python Test (${{ matrix.python }})
     needs: [changes, cargo-test]
     if: ${{ !cancelled() && needs.cargo-test.result != 'failure' && (needs.changes.outputs.python == 'true' || needs.changes.outputs.rust == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
     permissions:
       contents: read
     env:
@@ -319,7 +330,11 @@ jobs:
         with:
           toolchain: "1.95.0"
       - uses: ./.github/actions/sccache
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: bindings/python/uv.lock
+          python-version: ${{ matrix.python }}
       - name: Install servo build deps
         run: |
           sudo apt-get update
@@ -328,13 +343,13 @@ jobs:
       - name: Build + Test
         working-directory: bindings/python
         run: |
-          uv sync --group test --group lint
-          uv run maturin develop --profile ci
-          uv run pytest
+          uv sync --locked --group test --group lint --no-install-project
+          uv run --locked --no-sync maturin develop --profile ci
+          uv run --locked --no-sync pytest
       - name: Stubtest
         working-directory: bindings/python
         run: |
-          uv run python -m mypy.stubtest servo_fetch._native \
+          uv run --locked --no-sync python -m mypy.stubtest servo_fetch._native \
             --allowlist .mypy-stubtest-allowlist
       - name: sccache stats
         if: always()

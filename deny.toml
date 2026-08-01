@@ -12,6 +12,7 @@ ignore = [
   "RUSTSEC-2025-0141", # ml-dsa timing side-channel
   "RUSTSEC-2025-0144", # rsa marvin attack
   "RUSTSEC-2026-0192", # ttf-parser unmaintained
+  "RUSTSEC-2026-0206", # rustybuzz unmaintained
 ]
 
 [licenses]

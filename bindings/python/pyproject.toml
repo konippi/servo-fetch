@@ -7,7 +7,7 @@ name = "servo-fetch"
 dynamic = ["version"]
 description = "Browser engine in a library — fetch, render, and extract web content."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [{ name = "konippi" }]
@@ -21,10 +21,10 @@ classifiers = [
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Rust",
   "Topic :: Internet :: WWW/HTTP",
@@ -41,7 +41,7 @@ Issues = "https://github.com/konippi/servo-fetch/issues"
 [dependency-groups]
 dev = ["maturin>=1.7,<2"]
 test = [{ include-group = "dev" }, "pytest>=8.3", "pytest-asyncio>=0.24"]
-lint = [{ include-group = "dev" }, "ruff>=0.7", "ty>=0.0.35", "mypy>=1.13"]
+lint = [{ include-group = "dev" }, "ruff>=0.16.1", "ty>=0.0.35", "mypy>=1.13"]
 all = [{ include-group = "test" }, { include-group = "lint" }]
 
 [tool.maturin]
@@ -58,7 +58,7 @@ xfail_strict = true
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 extend-select = ["B", "C4", "I", "N", "PT", "RUF", "SIM", "UP"]

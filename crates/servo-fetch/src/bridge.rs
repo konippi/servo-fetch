@@ -309,8 +309,16 @@ struct PendingFetch {
     dedicated_ctx: Option<Rc<SoftwareRenderingContext>>,
 }
 
+/// Dispatch envelope for the Servo engine thread; today the only kind is a stateless one-shot [`FetchRequest`].
+enum EngineMsg {
+    Fetch(FetchRequest),
+}
+
+type EngineTx = mpsc::Sender<EngineMsg>;
+type EngineRx = mpsc::Receiver<EngineMsg>;
+
 struct Engine {
-    requests: mpsc::Sender<FetchRequest>,
+    requests: EngineTx,
     wake: Arc<WakeFlag>,
     policy: crate::net::NetworkPolicy,
 }
@@ -357,7 +365,7 @@ const PENDING_CAPACITY: usize = 64;
 
 fn ensure_engine() -> &'static Engine {
     ENGINE.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<FetchRequest>(PENDING_CAPACITY);
+        let (tx, rx) = mpsc::channel::<EngineMsg>(PENDING_CAPACITY);
         let wake = Arc::new(WakeFlag::default());
         let wake_for_thread = wake.clone();
         let policy = pending_policy();
@@ -399,14 +407,17 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage, EngineErro
             let _ = reply_tx.send(r);
         }),
     );
-    engine.requests.try_send(request).map_err(|e| match e {
-        mpsc::error::TrySendError::Full(_) => {
-            anyhow!("Servo engine queue is full ({PENDING_CAPACITY} pending); back off and retry")
-        }
-        mpsc::error::TrySendError::Closed(_) => {
-            anyhow!("Servo engine is not running (it may have crashed on a previous request)")
-        }
-    })?;
+    engine
+        .requests
+        .try_send(EngineMsg::Fetch(request))
+        .map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => {
+                anyhow!("Servo engine queue is full ({PENDING_CAPACITY} pending); back off and retry")
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                anyhow!("Servo engine is not running (it may have crashed on a previous request)")
+            }
+        })?;
     engine.wake.signal();
     reply_rx
         .recv()
@@ -424,7 +435,7 @@ pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage
     );
     engine
         .requests
-        .send(request)
+        .send(EngineMsg::Fetch(request))
         .await
         .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
     engine.wake.signal();
@@ -441,14 +452,16 @@ fn is_apple_gl_driver_noise(line: &str) -> bool {
     clippy::needless_pass_by_value,
     reason = "the thread owns its receiver for its lifetime"
 )]
-fn servo_thread(mut request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag>, policy: crate::net::NetworkPolicy) {
+fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, policy: crate::net::NetworkPolicy) {
     let _filter = crate::sys::StderrFilter::install(is_apple_gl_driver_noise).ok();
 
     let (rc_ctx, servo) = match build_servo(FlagWaker(wake.clone())) {
         Ok(pair) => pair,
         Err(e) => {
-            if let Some(req) = request_rx.blocking_recv() {
-                (req.reply)(Err(e.context("Servo initialization failed").into()));
+            if let Some(msg) = request_rx.blocking_recv() {
+                match msg {
+                    EngineMsg::Fetch(req) => (req.reply)(Err(e.context("Servo initialization failed").into())),
+                }
             }
             return;
         }
@@ -466,14 +479,14 @@ fn servo_thread(mut request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag
     let mut pending: HashMap<WebViewId, PendingFetch> = HashMap::new();
 
     loop {
-        while let Ok(req) = request_rx.try_recv() {
-            accept_request(&servo, &rc_ctx, &delegate, &ucm, req, &mut pending);
+        while let Ok(msg) = request_rx.try_recv() {
+            accept_message(&servo, &rc_ctx, &delegate, &ucm, msg, &mut pending);
         }
 
         if pending.is_empty() {
-            // Idle: block until a new request nudges us or the channel hangs up.
+            // Idle: block until a new message nudges us or the channel hangs up.
             match request_rx.blocking_recv() {
-                Some(req) => accept_request(&servo, &rc_ctx, &delegate, &ucm, req, &mut pending),
+                Some(msg) => accept_message(&servo, &rc_ctx, &delegate, &ucm, msg, &mut pending),
                 None => return,
             }
             continue;
@@ -500,16 +513,20 @@ fn servo_thread(mut request_rx: mpsc::Receiver<FetchRequest>, wake: Arc<WakeFlag
     }
 }
 
-fn accept_request(
+fn accept_message(
     servo: &servo::Servo,
     rc_ctx: &Rc<SoftwareRenderingContext>,
     delegate: &Rc<SharedDelegate>,
     ucm: &Rc<UserContentManager>,
-    req: FetchRequest,
+    msg: EngineMsg,
     pending: &mut HashMap<WebViewId, PendingFetch>,
 ) {
-    if let Some(p) = start_fetch(servo, rc_ctx, delegate, ucm, req) {
-        pending.insert(p.webview.id(), p);
+    match msg {
+        EngineMsg::Fetch(req) => {
+            if let Some(p) = start_fetch(servo, rc_ctx, delegate, ucm, req) {
+                pending.insert(p.webview.id(), p);
+            }
+        }
     }
 }
 

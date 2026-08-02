@@ -2,15 +2,14 @@
 version = 2
 yanked = "deny"
 ignore = [
-  "RUSTSEC-2023-0071", # bincode unmaintained
+  "RUSTSEC-2023-0071", # rsa Marvin timing attack
   "RUSTSEC-2024-0436", # paste unmaintained
-  "RUSTSEC-2025-0075", # unic-common unmaintained
-  "RUSTSEC-2025-0080", # unic-ucd-version unmaintained
-  "RUSTSEC-2025-0081", # unic-ucd-ident unmaintained
-  "RUSTSEC-2025-0098", # unic-char-range unmaintained
-  "RUSTSEC-2025-0100", # unic-char-property unmaintained
-  "RUSTSEC-2025-0141", # ml-dsa timing side-channel
-  "RUSTSEC-2025-0144", # rsa marvin attack
+  "RUSTSEC-2025-0075", # unic-char-range unmaintained
+  "RUSTSEC-2025-0080", # unic-common unmaintained
+  "RUSTSEC-2025-0081", # unic-char-property unmaintained
+  "RUSTSEC-2025-0098", # unic-ucd-version unmaintained
+  "RUSTSEC-2025-0100", # unic-ucd-ident unmaintained
+  "RUSTSEC-2025-0141", # bincode unmaintained
   "RUSTSEC-2026-0192", # ttf-parser unmaintained
   "RUSTSEC-2026-0206", # rustybuzz unmaintained
 ]

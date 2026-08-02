@@ -1,4 +1,4 @@
-msrv = "1.86.0"
+msrv = "1.88.0"
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-dbg-in-tests = true

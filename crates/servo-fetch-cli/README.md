@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/konippi/servo-fetch/main/install.sh
 
 ```bash
 cargo binstall servo-fetch-cli   # prebuilt binary via cargo-binstall
-cargo install servo-fetch-cli    # build from source (requires Rust 1.86.0+)
+cargo install servo-fetch-cli    # build from source (requires Rust 1.88.0+)
 ```
 
 ## Usage

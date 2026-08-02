@@ -83,6 +83,34 @@ jobs:
         if: always()
         run: sccache --show-stats || true
 
+  cargo-msrv:
+    name: Minimum supported Rust
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: "1.88.0"
+      - uses: ./.github/actions/sccache
+      - name: Install servo build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
+            libssl-dev libglib2.0-dev libegl1-mesa-dev
+      - run: cargo check --workspace --locked
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats || true
+
   cargo-test:
     name: cargo test
     needs: [changes]

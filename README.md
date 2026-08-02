@@ -4,7 +4,7 @@
   <p>
     <a href="https://github.com/konippi/servo-fetch/actions"><img src="https://github.com/konippi/servo-fetch/workflows/CI/badge.svg" alt="CI"></a>
     <a href="https://crates.io/crates/servo-fetch"><img src="https://img.shields.io/crates/v/servo-fetch.svg" alt="crates.io"></a>
-    <img src="https://img.shields.io/badge/Rust-1.86.0-blue?color=fc8d62&logo=rust" alt="MSRV">
+    <img src="https://img.shields.io/badge/Rust-1.88.0-blue?color=fc8d62&logo=rust" alt="MSRV">
     <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="MIT OR Apache-2.0">
   </p>
   <img src="assets/demo.gif" alt="servo-fetch demo" width="900">

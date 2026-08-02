@@ -6,7 +6,7 @@ If your contribution is not straightforward, please open an issue first to discu
 
 ## Development setup
 
-Requires Rust **1.86.0+** (see `rust-version` in Cargo.toml).
+Requires Rust **1.88.0+** (see `rust-version` in Cargo.toml).
 
 ```sh
 git clone https://github.com/konippi/servo-fetch

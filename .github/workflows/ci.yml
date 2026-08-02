@@ -117,7 +117,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
             libssl-dev libglib2.0-dev libegl1-mesa-dev
-      - run: cargo +${{ steps.msrv.outputs.version }} check --workspace --locked
+      - name: Check workspace with MSRV
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
+        run: cargo "+$MSRV" check --workspace --locked
       - name: sccache stats
         if: always()
         run: sccache --show-stats || true

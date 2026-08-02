@@ -5,7 +5,7 @@ from typing import Any, Literal, TypeAlias, final
 
 __version__: str
 
-ConsoleLevel: TypeAlias = Literal["log", "debug", "info", "warn", "error", "trace"]
+ConsoleLevel: TypeAlias = Literal["log", "debug", "info", "warn", "error", "trace", "dir"]
 FieldType: TypeAlias = Literal["text", "attribute", "html", "inner_html", "nested_list"]
 
 @final

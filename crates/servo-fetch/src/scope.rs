@@ -24,10 +24,10 @@ fn registrable_domain(url: &Url) -> Option<String> {
 
 pub(crate) fn matches_scope(url: &Url, include: Option<&GlobSet>, exclude: Option<&GlobSet>) -> bool {
     let path = url.path();
-    if let Some(exc) = exclude {
-        if exc.is_match(path) {
-            return false;
-        }
+    if let Some(exc) = exclude
+        && exc.is_match(path)
+    {
+        return false;
     }
     match include {
         Some(inc) => inc.is_match(path),

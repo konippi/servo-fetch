@@ -79,16 +79,16 @@ cookiesFile?: string,
 headers?: { [key in string]: string }, };
 
 /**
- * Severity of a captured console message.
+ * Level or category of a captured console message.
  */
-export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug" | "trace";
+export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug" | "trace" | "dir";
 
 /**
  * A console message captured while evaluating JavaScript.
  */
 export type ConsoleMessage = { 
 /**
- * Message severity.
+ * Message level or category.
  */
 level: ConsoleLevel, 
 /**

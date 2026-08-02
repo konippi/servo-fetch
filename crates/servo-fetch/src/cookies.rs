@@ -117,7 +117,7 @@ pub(crate) fn seed(servo: &servo::Servo, target: &Url, specs: &[CookieSpec]) {
     let manager = servo.site_data_manager();
     for spec in specs {
         if let Some((url, cookie)) = cookie_for(target, spec, policy) {
-            manager.set_cookie_for_url(url, cookie);
+            manager.set_cookie_for_url(url, cookie, None);
         }
     }
 }

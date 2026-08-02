@@ -270,10 +270,10 @@ fn discover_sitemaps(robots: &RobotsPolicy, seed: &Url) -> Vec<Url> {
     if let RobotsPolicy::Rules(rules) = robots {
         urls.extend(rules.sitemaps.iter().cloned());
     }
-    if let Ok(default) = seed.join("/sitemap.xml") {
-        if !urls.contains(&default) {
-            urls.push(default);
-        }
+    if let Ok(default) = seed.join("/sitemap.xml")
+        && !urls.contains(&default)
+    {
+        urls.push(default);
     }
     urls
 }

@@ -48,10 +48,10 @@ pub(crate) fn validate_url_with_policy(input: &str, policy: NetworkPolicy) -> Re
         let _ = parsed.set_username("");
         let _ = parsed.set_password(None);
     }
-    if let Some(host) = parsed.host_str() {
-        if !policy.is_host_allowed(host) {
-            return Err(UrlError::PrivateAddress(host.to_string()));
-        }
+    if let Some(host) = parsed.host_str()
+        && !policy.is_host_allowed(host)
+    {
+        return Err(UrlError::PrivateAddress(host.to_string()));
     }
     Ok(parsed)
 }

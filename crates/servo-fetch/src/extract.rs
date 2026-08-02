@@ -214,23 +214,22 @@ fn parse_article(input: &ExtractInput<'_>) -> ParsedArticle {
     let filtered = filter(input);
 
     let doc = Document::from(filtered.as_ref());
-    if let Ok(mut readability) = Readability::with_document(doc, Some(input.url), None) {
-        if let Ok(article) = readability.parse() {
-            if !is_nextjs_error_page(&article.text_content) {
-                let converter = HtmlToMarkdown::builder().build();
-                let markdown = converter
-                    .convert(&article.content)
-                    .unwrap_or_else(|_| article.text_content.to_string());
-                return ParsedArticle {
-                    title: article.title.clone(),
-                    content: article.content.to_string(),
-                    text_content: markdown,
-                    byline: article.byline.clone(),
-                    excerpt: article.excerpt.clone(),
-                    lang: article.lang,
-                };
-            }
-        }
+    if let Ok(mut readability) = Readability::with_document(doc, Some(input.url), None)
+        && let Ok(article) = readability.parse()
+        && !is_nextjs_error_page(&article.text_content)
+    {
+        let converter = HtmlToMarkdown::builder().build();
+        let markdown = converter
+            .convert(&article.content)
+            .unwrap_or_else(|_| article.text_content.to_string());
+        return ParsedArticle {
+            title: article.title.clone(),
+            content: article.content.to_string(),
+            text_content: markdown,
+            byline: article.byline.clone(),
+            excerpt: article.excerpt.clone(),
+            lang: article.lang,
+        };
     }
 
     // Readability failed or returned an error page — fall back to the filtered

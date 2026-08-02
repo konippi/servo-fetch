@@ -144,13 +144,13 @@ impl Page {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[non_exhaustive]
 pub struct ConsoleMessage {
-    /// Severity level.
+    /// Message level or category.
     pub level: ConsoleLevel,
     /// Message text.
     pub message: String,
 }
 
-/// Console message severity.
+/// Console message level or category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
@@ -167,10 +167,12 @@ pub enum ConsoleLevel {
     Error,
     /// Trace-level message.
     Trace,
+    /// Object inspection from `console.dir`.
+    Dir,
 }
 
 impl ConsoleLevel {
-    /// Returns the string representation of this level.
+    /// Returns the string representation of this level or category.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -180,6 +182,7 @@ impl ConsoleLevel {
             Self::Warn => "warn",
             Self::Error => "error",
             Self::Trace => "trace",
+            Self::Dir => "dir",
         }
     }
 }
@@ -200,6 +203,7 @@ impl From<crate::bridge::ConsoleLevel> for ConsoleLevel {
             Bridge::Warn => Self::Warn,
             Bridge::Error => Self::Error,
             Bridge::Trace => Self::Trace,
+            Bridge::Dir => Self::Dir,
         }
     }
 }
@@ -735,16 +739,17 @@ mod tests {
         }
 
         #[test]
-        fn console_messages_preserve_all_six_levels() {
+        fn console_messages_preserve_all_seven_levels() {
             let cases = [
-                (bridge::ConsoleLevel::Log, ConsoleLevel::Log),
-                (bridge::ConsoleLevel::Debug, ConsoleLevel::Debug),
-                (bridge::ConsoleLevel::Info, ConsoleLevel::Info),
-                (bridge::ConsoleLevel::Warn, ConsoleLevel::Warn),
-                (bridge::ConsoleLevel::Error, ConsoleLevel::Error),
-                (bridge::ConsoleLevel::Trace, ConsoleLevel::Trace),
+                (bridge::ConsoleLevel::Log, ConsoleLevel::Log, "log"),
+                (bridge::ConsoleLevel::Debug, ConsoleLevel::Debug, "debug"),
+                (bridge::ConsoleLevel::Info, ConsoleLevel::Info, "info"),
+                (bridge::ConsoleLevel::Warn, ConsoleLevel::Warn, "warn"),
+                (bridge::ConsoleLevel::Error, ConsoleLevel::Error, "error"),
+                (bridge::ConsoleLevel::Trace, ConsoleLevel::Trace, "trace"),
+                (bridge::ConsoleLevel::Dir, ConsoleLevel::Dir, "dir"),
             ];
-            for (src, expected) in cases {
+            for (src, expected, label) in cases {
                 let mut sp = empty_servo_page();
                 sp.console_messages = vec![bridge::ConsoleMessage {
                     level: src,
@@ -756,10 +761,11 @@ mod tests {
                     1,
                     "console message lost for source level {src:?}",
                 );
-                assert_eq!(
-                    page.console_messages[0].level, expected,
-                    "level mapping wrong for source {src:?}",
-                );
+                let level = page.console_messages[0].level;
+                assert_eq!(level, expected, "level mapping wrong for source {src:?}");
+                assert_eq!(level.as_str(), label);
+                assert_eq!(level.to_string(), label);
+                assert_eq!(serde_json::to_value(level).unwrap(), serde_json::json!(label));
             }
         }
 

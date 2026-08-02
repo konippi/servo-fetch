@@ -109,10 +109,10 @@ fn spawn_request(id: RequestId, method: String, params: Value, tx: &UnboundedSen
 }
 
 fn cancel(params: Value, cancels: &Cancellations) {
-    if let Ok(params) = serde_json::from_value::<CancelParams>(params) {
-        if let Some(token) = cancels.lock().expect("cancellations poisoned").get(&params.id) {
-            token.cancel();
-        }
+    if let Ok(params) = serde_json::from_value::<CancelParams>(params)
+        && let Some(token) = cancels.lock().expect("cancellations poisoned").get(&params.id)
+    {
+        token.cancel();
     }
 }
 

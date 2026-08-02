@@ -142,8 +142,8 @@ pub(crate) struct ConsoleMessage {
     pub message: String,
 }
 
-/// Console message severity level.
-#[derive(Debug, Clone, Copy, serde::Serialize)]
+/// Console message level or category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum ConsoleLevel {
     Log,
@@ -152,6 +152,7 @@ pub(crate) enum ConsoleLevel {
     Warn,
     Error,
     Trace,
+    Dir,
 }
 
 impl fmt::Display for ConsoleLevel {
@@ -163,6 +164,7 @@ impl fmt::Display for ConsoleLevel {
             Self::Warn => f.write_str("warn"),
             Self::Error => f.write_str("error"),
             Self::Trace => f.write_str("trace"),
+            Self::Dir => f.write_str("dir"),
         }
     }
 }
@@ -176,6 +178,7 @@ impl From<ConsoleLogLevel> for ConsoleLevel {
             ConsoleLogLevel::Warn => Self::Warn,
             ConsoleLogLevel::Error => Self::Error,
             ConsoleLogLevel::Trace => Self::Trace,
+            ConsoleLogLevel::Dir => Self::Dir,
         }
     }
 }
@@ -818,19 +821,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn console_level_display() {
-        assert_eq!(ConsoleLevel::Log.to_string(), "log");
-        assert_eq!(ConsoleLevel::Debug.to_string(), "debug");
-        assert_eq!(ConsoleLevel::Info.to_string(), "info");
-        assert_eq!(ConsoleLevel::Warn.to_string(), "warn");
-        assert_eq!(ConsoleLevel::Error.to_string(), "error");
-        assert_eq!(ConsoleLevel::Trace.to_string(), "trace");
-    }
-
-    #[test]
-    fn console_level_serializes_lowercase() {
-        let json = serde_json::to_string(&ConsoleLevel::Warn).unwrap();
-        assert_eq!(json, "\"warn\"");
+    fn console_level_display_and_serialization() {
+        let cases = [
+            (ConsoleLevel::Log, "log"),
+            (ConsoleLevel::Debug, "debug"),
+            (ConsoleLevel::Info, "info"),
+            (ConsoleLevel::Warn, "warn"),
+            (ConsoleLevel::Error, "error"),
+            (ConsoleLevel::Trace, "trace"),
+            (ConsoleLevel::Dir, "dir"),
+        ];
+        for (level, expected) in cases {
+            assert_eq!(level.to_string(), expected);
+            assert_eq!(serde_json::to_string(&level).unwrap(), format!("\"{expected}\""));
+        }
     }
 
     #[test]
@@ -921,21 +925,18 @@ mod tests {
 
     #[test]
     fn console_level_from_servo() {
-        assert!(matches!(ConsoleLevel::from(ConsoleLogLevel::Log), ConsoleLevel::Log));
-        assert!(matches!(
-            ConsoleLevel::from(ConsoleLogLevel::Debug),
-            ConsoleLevel::Debug
-        ));
-        assert!(matches!(ConsoleLevel::from(ConsoleLogLevel::Info), ConsoleLevel::Info));
-        assert!(matches!(ConsoleLevel::from(ConsoleLogLevel::Warn), ConsoleLevel::Warn));
-        assert!(matches!(
-            ConsoleLevel::from(ConsoleLogLevel::Error),
-            ConsoleLevel::Error
-        ));
-        assert!(matches!(
-            ConsoleLevel::from(ConsoleLogLevel::Trace),
-            ConsoleLevel::Trace
-        ));
+        let cases = [
+            (ConsoleLogLevel::Log, ConsoleLevel::Log),
+            (ConsoleLogLevel::Debug, ConsoleLevel::Debug),
+            (ConsoleLogLevel::Info, ConsoleLevel::Info),
+            (ConsoleLogLevel::Warn, ConsoleLevel::Warn),
+            (ConsoleLogLevel::Error, ConsoleLevel::Error),
+            (ConsoleLogLevel::Trace, ConsoleLevel::Trace),
+            (ConsoleLogLevel::Dir, ConsoleLevel::Dir),
+        ];
+        for (source, expected) in cases {
+            assert_eq!(ConsoleLevel::from(source), expected);
+        }
     }
 
     #[test]

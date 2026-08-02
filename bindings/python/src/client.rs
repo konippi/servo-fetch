@@ -162,14 +162,14 @@ impl Client {
                 }
                 let mut r_opt = Some(r);
                 Python::attach(|py| {
-                    if let Some(ref ab) = abort {
-                        if matches!(
+                    if let Some(ref ab) = abort
+                        && matches!(
                             ab.bind(py).call_method0("is_set").and_then(|v| v.extract::<bool>()),
                             Ok(true)
-                        ) {
-                            stop.store(true, Ordering::Release);
-                            return;
-                        }
+                        )
+                    {
+                        stop.store(true, Ordering::Release);
+                        return;
                     }
                     let item = match Py::new(py, CrawlResult::from_core(r_opt.take().expect("once"))) {
                         Ok(i) => i,

@@ -17,10 +17,10 @@ pub(crate) fn run(args: &FetchArgs) -> Result<()> {
     if let Some(dir) = args.output_dir.as_deref() {
         fs::create_dir_all(dir)?;
     }
-    if let Some(file) = args.output.as_deref() {
-        if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
-            fs::create_dir_all(parent)?;
-        }
+    if let Some(file) = args.output.as_deref()
+        && let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)?;
     }
     match args.urls.as_slice() {
         [] => bail!("URL is required. Run with --help for usage."),

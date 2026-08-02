@@ -73,11 +73,12 @@ pub(crate) fn schema_extract(url: &str, extracted: Value) -> wire::SchemaExtract
 fn console_level(level: servo_fetch::ConsoleLevel) -> wire::ConsoleLevel {
     use servo_fetch::ConsoleLevel as C;
     match level {
+        C::Debug => wire::ConsoleLevel::Debug,
         C::Info => wire::ConsoleLevel::Info,
         C::Warn => wire::ConsoleLevel::Warn,
         C::Error => wire::ConsoleLevel::Error,
-        C::Debug => wire::ConsoleLevel::Debug,
         C::Trace => wire::ConsoleLevel::Trace,
+        C::Dir => wire::ConsoleLevel::Dir,
         _ => wire::ConsoleLevel::Log,
     }
 }

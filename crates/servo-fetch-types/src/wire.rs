@@ -43,10 +43,11 @@ pub struct Article {
     pub url: Option<String>,
 }
 
-/// Severity of a captured console message.
+/// Level or category of a captured console message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum ConsoleLevel {
     /// `console.log`.
     Log,
@@ -60,6 +61,8 @@ pub enum ConsoleLevel {
     Debug,
     /// `console.trace`.
     Trace,
+    /// `console.dir`.
+    Dir,
 }
 
 /// A console message captured while evaluating JavaScript.
@@ -67,7 +70,7 @@ pub enum ConsoleLevel {
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
 #[serde(rename_all = "camelCase")]
 pub struct ConsoleMessage {
-    /// Message severity.
+    /// Message level or category.
     pub level: ConsoleLevel,
     /// Message text.
     pub message: String,

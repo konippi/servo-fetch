@@ -97,16 +97,27 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+      - name: Read MSRV from Cargo metadata
+        id: msrv
+        run: |
+          msrv=$(cargo metadata --locked --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "servo-fetch") | .rust_version')
+          if [[ -z "$msrv" || "$msrv" == "null" ]]; then
+            echo "Failed to determine MSRV" >&2
+            exit 1
+          fi
+          echo "version=$msrv" >> "$GITHUB_OUTPUT"
+      - name: Install Rust ${{ steps.msrv.outputs.version }}
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
-          toolchain: "1.88.0"
+          toolchain: ${{ steps.msrv.outputs.version }}
       - uses: ./.github/actions/sccache
       - name: Install servo build deps
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake clang pkg-config libfontconfig-dev libfreetype-dev \
             libssl-dev libglib2.0-dev libegl1-mesa-dev
-      - run: cargo check --workspace --locked
+      - run: cargo +${{ steps.msrv.outputs.version }} check --workspace --locked
       - name: sccache stats
         if: always()
         run: sccache --show-stats || true

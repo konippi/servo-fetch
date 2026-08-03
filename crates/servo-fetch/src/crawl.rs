@@ -478,7 +478,13 @@ fn spawn_fetch(
                 cookies: &cookies,
                 headers: &headers,
             })
-            .map_err(|e| crate::error::Error::engine(e, Some(url_str.clone())));
+            .map_err(|error| match error {
+                bridge::EngineError::Timeout(timeout_secs) => crate::error::Error::Timeout {
+                    url: url_str.clone(),
+                    timeout: Duration::from_secs(timeout_secs),
+                },
+                bridge::EngineError::Other(error) => crate::error::Error::engine(error, Some(url_str.clone())),
+            });
         FetchOutcome {
             url,
             depth,
@@ -664,6 +670,15 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct TimeoutFetcher;
+
+    impl PageFetcher for TimeoutFetcher {
+        fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
+            Err(bridge::EngineError::Timeout(opts.timeout_secs))
+        }
+    }
+
     fn page(links: &[&str]) -> String {
         use std::fmt::Write as _;
         let mut anchors = String::new();
@@ -719,6 +734,38 @@ mod tests {
             },
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_preserves_page_load_timeout_kind() {
+        let opts = CrawlPlan {
+            seed: Url::parse("https://example.com/").unwrap(),
+            limit: 1,
+            max_depth: 0,
+            timeout_secs: 7,
+            settle_ms: 0,
+            include: None,
+            exclude: None,
+            selector: None,
+            json: false,
+            user_agent: None,
+            concurrency: 1,
+            delay: None,
+            cookies: Vec::new(),
+            headers: http::HeaderMap::new(),
+        };
+        let mut results = Vec::new();
+        run(opts, RobotsPolicy::Unavailable, &TimeoutFetcher, |result| {
+            results.push(result);
+        })
+        .await;
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            results[0].error,
+            Some(crate::error::Error::Timeout { ref url, timeout })
+                if url == "https://example.com/" && timeout == Duration::from_secs(7)
+        ));
     }
 
     #[tokio::test]

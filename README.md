@@ -1,3 +1,5 @@
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fkonippi%2Fservo-fetch.svg)](https://mcptoplist.com/server/glama%2Fkonippi%2Fservo-fetch)
+
 <div align="center">
   <h1 align="center">servo-fetch</h1>
   <p align="center">A self-contained browser engine that fetches, renders, and extracts web content as Markdown, JSON, or screenshots — no Chromium, no API key, no setup.</p>

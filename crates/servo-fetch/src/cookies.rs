@@ -4,12 +4,15 @@ use std::io::Read;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use url::Url;
+use url::{Host, Url};
 
 use crate::error::{Error, Result};
 
 const MAX_FILE_BYTES: u64 = 4 << 20;
 const MAX_COOKIES: usize = 3000;
+const MAX_COOKIE_NAME_VALUE_BYTES: usize = 4096;
+const MAX_COOKIE_HEADER_BYTES: usize = 8190;
+const COOKIE_HEADER_PREFIX_BYTES: usize = "Cookie: ".len();
 
 /// A cookie to seed into the jar before navigation.
 #[derive(Clone, PartialEq, Eq)]
@@ -18,6 +21,7 @@ pub struct CookieSpec {
     value: String,
     domain: String,
     path: String,
+    expires: Option<i64>,
     secure: bool,
     http_only: bool,
     include_subdomains: bool,
@@ -30,6 +34,7 @@ impl std::fmt::Debug for CookieSpec {
             .field("value", &"<redacted>")
             .field("domain", &self.domain)
             .field("path", &self.path)
+            .field("expires", &self.expires)
             .field("secure", &self.secure)
             .field("http_only", &self.http_only)
             .field("include_subdomains", &self.include_subdomains)
@@ -60,6 +65,8 @@ enum ParseError {
     FieldCount { line: usize, found: usize },
     #[error("line {line}: illegal character in cookie name or value")]
     IllegalChar { line: usize },
+    #[error("line {line}: cookie name and value exceed {max} bytes")]
+    TooLarge { line: usize, max: usize },
     #[error("too many cookies (max {max})")]
     TooMany { max: usize },
 }
@@ -81,31 +88,112 @@ fn parse_cookies(text: &str) -> std::result::Result<Vec<CookieSpec>, ParseError>
                 found: fields.len(),
             });
         };
-        if has_control(name) || name.contains([';', '=']) || has_control(value) || value.contains(';') {
+        if name.is_empty()
+            || has_control(name)
+            || name.contains([';', '='])
+            || has_control(value)
+            || value.contains(';')
+        {
             return Err(ParseError::IllegalChar { line });
         }
-        if expires
+        if name.len().saturating_add(value.len()) > MAX_COOKIE_NAME_VALUE_BYTES {
+            return Err(ParseError::TooLarge {
+                line,
+                max: MAX_COOKIE_NAME_VALUE_BYTES,
+            });
+        }
+
+        let path = if cpath.starts_with('/') { cpath } else { "/" };
+        let include_subdomains = include_sub.eq_ignore_ascii_case("TRUE");
+        let existing = out
+            .iter()
+            .position(|cookie| same_cookie_key(cookie, name, domain, path));
+        let expires_at = match expires
             .split('.')
             .next()
-            .and_then(|s| s.trim().parse::<i64>().ok())
-            .is_some_and(|e| e > 0 && e <= now)
+            .and_then(|value| value.trim().parse::<i64>().ok())
         {
+            Some(0) => None,
+            Some(expiry) if expiry > 0 => Some(expiry),
+            _ => continue,
+        };
+        if expires_at.is_some_and(|expiry| expiry <= now) {
+            if let Some(index) = existing {
+                out.remove(index);
+            }
             continue;
         }
-        if out.len() >= MAX_COOKIES {
-            return Err(ParseError::TooMany { max: MAX_COOKIES });
-        }
-        out.push(CookieSpec {
+
+        let cookie = CookieSpec {
             name: name.to_owned(),
             value: value.to_owned(),
             domain: domain.to_owned(),
-            path: if cpath.is_empty() { "/" } else { cpath }.to_owned(),
+            path: path.to_owned(),
+            expires: expires_at,
             secure: secure.eq_ignore_ascii_case("TRUE"),
             http_only,
-            include_subdomains: include_sub.eq_ignore_ascii_case("TRUE"),
-        });
+            include_subdomains,
+        };
+        if let Some(index) = existing {
+            out[index] = cookie;
+        } else {
+            if out.len() >= MAX_COOKIES {
+                return Err(ParseError::TooMany { max: MAX_COOKIES });
+            }
+            out.push(cookie);
+        }
     }
     Ok(out)
+}
+
+fn canonical_cookie_host(domain: &str) -> Option<Host<String>> {
+    let domain = domain.strip_prefix('.').unwrap_or(domain);
+    if domain.contains(':') && !domain.starts_with('[') {
+        Host::parse(&format!("[{domain}]")).ok()
+    } else {
+        Host::parse(domain).ok()
+    }
+}
+
+fn same_cookie_key(cookie: &CookieSpec, name: &str, domain: &str, path: &str) -> bool {
+    let domains_equal = match (canonical_cookie_host(&cookie.domain), canonical_cookie_host(domain)) {
+        (Some(left), Some(right)) => left == right,
+        _ => cookie
+            .domain
+            .strip_prefix('.')
+            .unwrap_or(&cookie.domain)
+            .eq_ignore_ascii_case(domain.strip_prefix('.').unwrap_or(domain)),
+    };
+    cookie.name == name && domains_equal && cookie.path == path
+}
+
+fn domain_matches(target: &Url, spec: &CookieSpec) -> bool {
+    match (target.host(), canonical_cookie_host(&spec.domain)) {
+        (Some(Host::Domain(request)), Some(Host::Domain(cookie))) => {
+            request == cookie
+                || (spec.include_subdomains
+                    && request
+                        .strip_suffix(&cookie)
+                        .is_some_and(|prefix| prefix.ends_with('.')))
+        }
+        (Some(Host::Ipv4(request)), Some(Host::Ipv4(cookie))) => request == cookie,
+        (Some(Host::Ipv6(request)), Some(Host::Ipv6(cookie))) => request == cookie,
+        _ => false,
+    }
+}
+
+fn is_secure_context(target: &Url) -> bool {
+    target.scheme() == "https"
+        || match target.host() {
+            Some(Host::Domain(domain)) => domain == "localhost",
+            Some(Host::Ipv4(address)) => address.is_loopback(),
+            Some(Host::Ipv6(address)) => address.is_loopback(),
+            None => false,
+        }
+}
+
+fn cookie_is_expired(cookie: &CookieSpec, now: i64) -> bool {
+    cookie.expires.is_some_and(|expiry| expiry <= now)
 }
 
 /// Seed `specs` into the jar, scoped to `target`'s site and the network policy.
@@ -129,7 +217,11 @@ fn cookie_for(
     spec: &CookieSpec,
     policy: crate::net::NetworkPolicy,
 ) -> Option<(Url, cookie::Cookie<'static>)> {
-    let host = spec.domain.trim_start_matches('.');
+    if cookie_is_expired(spec, now_unix()) {
+        return None;
+    }
+    let host = canonical_cookie_host(&spec.domain)?;
+    let host = host.to_string();
     let scheme = if spec.secure { "https" } else { "http" };
     let url = Url::parse(&format!("{scheme}://{host}{}", spec.path)).ok()?;
     if crate::net::validate_url_with_policy(url.as_str(), policy).is_err() || !crate::scope::is_same_site(target, &url)
@@ -141,12 +233,65 @@ fn cookie_for(
         .path(spec.path.clone())
         .secure(spec.secure)
         .http_only(spec.http_only);
-    if spec.domain.starts_with('.') || spec.include_subdomains {
-        builder = builder.domain(url.host_str().unwrap_or(host).to_owned());
+    if let Some(expires) = spec.expires
+        && let Ok(expires) = cookie::time::OffsetDateTime::from_unix_timestamp(expires)
+    {
+        builder = builder.expires(expires);
+    }
+    if spec.include_subdomains {
+        builder = builder.domain(url.host_str().unwrap_or(&host).to_owned());
     }
     Some((url, builder.build()))
 }
 
+pub(crate) fn request_header(target: &Url, specs: &[CookieSpec]) -> Option<http::HeaderValue> {
+    let request_path = target.path();
+    let secure = is_secure_context(target);
+    let now = now_unix();
+    let mut matches = specs
+        .iter()
+        .filter(|spec| {
+            !cookie_is_expired(spec, now)
+                && domain_matches(target, spec)
+                && (!spec.secure || secure)
+                && path_matches(request_path, &spec.path)
+        })
+        .collect::<Vec<_>>();
+    // RFC 6265 section 5.4: longer paths first. `sort_by_key` is stable, so
+    // equal-length paths preserve the file order used as creation order.
+    matches.sort_by_key(|spec| std::cmp::Reverse(spec.path.len()));
+
+    let mut value = String::new();
+    for spec in matches {
+        let separator_len = usize::from(!value.is_empty()) * 2;
+        let pair_len = spec.name.len().saturating_add(1).saturating_add(spec.value.len());
+        if COOKIE_HEADER_PREFIX_BYTES
+            .saturating_add(value.len())
+            .saturating_add(separator_len)
+            .saturating_add(pair_len)
+            >= MAX_COOKIE_HEADER_BYTES
+        {
+            tracing::warn!(name = %spec.name, "omitted cookies after reaching outgoing header limit");
+            break;
+        }
+        if !value.is_empty() {
+            value.push_str("; ");
+        }
+        value.push_str(&spec.name);
+        value.push('=');
+        value.push_str(&spec.value);
+    }
+    (!value.is_empty())
+        .then(|| http::HeaderValue::from_str(&value).ok())
+        .flatten()
+}
+
+fn path_matches(request_path: &str, cookie_path: &str) -> bool {
+    request_path == cookie_path
+        || request_path
+            .strip_prefix(cookie_path)
+            .is_some_and(|suffix| cookie_path.ends_with('/') || suffix.starts_with('/'))
+}
 fn has_control(s: &str) -> bool {
     s.bytes().any(|b| b < 0x20 || b == 0x7f)
 }
@@ -161,6 +306,7 @@ fn now_unix() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
     use std::io::Write as _;
 
     use super::*;
@@ -172,6 +318,7 @@ mod tests {
             value: "v".into(),
             domain: domain.into(),
             path: "/".into(),
+            expires: None,
             secure,
             http_only: false,
             include_subdomains: false,
@@ -198,9 +345,9 @@ mod tests {
 
     #[test]
     fn drops_expired_keeps_session() {
-        // integer- and float-formatted past timestamps are dropped; 0 = session is kept.
+        // Past, negative, and malformed timestamps are dropped; 0 is a session cookie.
         let specs = parse_cookies(
-            "x.com\tFALSE\t/\tFALSE\t100\told\tv\nx.com\tFALSE\t/\tFALSE\t1700000000.5\tfloat\tv\nx.com\tFALSE\t/\tFALSE\t0\tlive\tv\n",
+            "x.com\tFALSE\t/\tFALSE\t100\told\tv\nx.com\tFALSE\t/\tFALSE\t1700000000.5\tfloat\tv\nx.com\tFALSE\t/\tFALSE\t-1\tnegative\tv\nx.com\tFALSE\t/\tFALSE\tinvalid\tmalformed\tv\nx.com\tFALSE\t/\tFALSE\t0\tlive\tv\n",
         )
         .unwrap();
         assert_eq!(specs.len(), 1);
@@ -208,8 +355,54 @@ mod tests {
     }
 
     #[test]
-    fn empty_path_defaults_to_root() {
+    fn duplicate_cookie_replaces_value_and_expiry_deletes() {
+        let replaced = parse_cookies(concat!(
+            ".example.com\tTRUE\t/\tFALSE\t0\tsid\told\n",
+            "example.com\tFALSE\t/\tTRUE\t0\tsid\tnew\n",
+        ))
+        .unwrap();
+        assert_eq!(replaced.len(), 1);
+        assert_eq!(replaced[0].value, "new");
+        assert!(replaced[0].secure);
+        assert!(!replaced[0].include_subdomains);
+
+        let deleted = parse_cookies(concat!(
+            "example.com\tFALSE\t/\tFALSE\t0\tsid\tlive\n",
+            "example.com\tFALSE\t/\tFALSE\t1\tsid\tdeleted\n",
+        ))
+        .unwrap();
+        assert!(deleted.is_empty());
+    }
+
+    #[test]
+    fn expiry_is_preserved_and_rechecked() {
+        let future = now_unix() + 60;
+        let parsed = parse_cookies(&format!("example.com\tFALSE\t/\tFALSE\t{future}\tsid\tlive\n")).unwrap();
+        assert_eq!(parsed[0].expires, Some(future));
+
+        let mut expired = spec("example.com", false);
+        expired.expires = Some(1);
+        let target = Url::parse("https://example.com/report.pdf").unwrap();
+        assert!(request_header(&target, std::slice::from_ref(&expired)).is_none());
+        assert!(cookie_for(&target, &expired, NetworkPolicy::STRICT).is_none());
+    }
+
+    #[test]
+    fn rejects_oversized_cookie() {
+        let input = format!(
+            "example.com\tFALSE\t/\tFALSE\t0\tn\t{}\n",
+            "x".repeat(MAX_COOKIE_NAME_VALUE_BYTES)
+        );
+        assert!(matches!(parse_cookies(&input), Err(ParseError::TooLarge { .. })));
+    }
+
+    #[test]
+    fn invalid_or_empty_path_defaults_to_root() {
         assert_eq!(parse_cookies("x.com\tFALSE\t\tFALSE\t0\tn\tv\n").unwrap()[0].path, "/");
+        assert_eq!(
+            parse_cookies("x.com\tFALSE\taccount\tFALSE\t0\tn\tv\n").unwrap()[0].path,
+            "/"
+        );
     }
 
     #[test]
@@ -219,6 +412,7 @@ mod tests {
 
     #[test]
     fn rejects_illegal_chars() {
+        assert!(parse_cookies("x.com\tFALSE\t/\tFALSE\t0\t\tv\n").is_err());
         assert!(parse_cookies("x.com\tFALSE\t/\tFALSE\t0\tn\ta;b\n").is_err());
         assert!(parse_cookies("x.com\tFALSE\t/\tFALSE\t0\tn=x\tv\n").is_err());
         // '=' is legal in a value (e.g. base64 padding).
@@ -242,6 +436,7 @@ mod tests {
                 value: "v".to_owned(),
                 domain: ".example.com".to_owned(),
                 path: "/".to_owned(),
+                expires: None,
                 secure: false,
                 http_only: false,
                 include_subdomains: true,
@@ -256,6 +451,108 @@ mod tests {
     }
 
     #[test]
+    fn request_header_applies_cookie_retrieval_rules() {
+        let mut host_only = spec("api.example.com", false);
+        host_only.name = "host".into();
+        let mut domain = spec(".example.com", false);
+        domain.name = "domain".into();
+        domain.include_subdomains = true;
+        domain.path = "/public/deep".into();
+        let mut path = spec("www.example.com", false);
+        path.name = "path".into();
+        path.path = "/admin".into();
+        let mut secure = spec("www.example.com", true);
+        secure.name = "secure".into();
+        let target = Url::parse("http://www.example.com/public/deep/report.pdf").unwrap();
+
+        let header = request_header(&target, &[host_only, domain, path, secure])
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(header, "domain=v");
+    }
+
+    #[test]
+    fn request_header_respects_tailmatch_and_ip_rules() {
+        let target = Url::parse("https://www.example.com/report.pdf").unwrap();
+        let mut cookie = spec(".example.com", false);
+        assert!(request_header(&target, std::slice::from_ref(&cookie)).is_none());
+        cookie.include_subdomains = true;
+        assert_eq!(request_header(&target, &[cookie]).unwrap().to_str().unwrap(), "n=v");
+
+        let target = Url::parse("http://127.0.0.1/report.pdf").unwrap();
+        let mut suffix = spec("0.0.1", false);
+        suffix.include_subdomains = true;
+        assert!(request_header(&target, &[suffix]).is_none());
+        assert_eq!(
+            request_header(&target, &[spec("127.0.0.1", false)])
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "n=v"
+        );
+    }
+
+    #[test]
+    fn request_header_canonicalizes_idna_and_allows_secure_loopback() {
+        let target = Url::parse("http://xn--bcher-kva.example/report.pdf").unwrap();
+        assert_eq!(
+            request_header(&target, &[spec("bücher.example", false)])
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "n=v"
+        );
+
+        for url in [
+            "http://localhost/report.pdf",
+            "http://127.0.0.2/report.pdf",
+            "http://[::1]/report.pdf",
+        ] {
+            let target = Url::parse(url).unwrap();
+            let domain = target.host_str().unwrap();
+            assert_eq!(
+                request_header(&target, &[spec(domain, true)])
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "n=v"
+            );
+        }
+    }
+
+    #[test]
+    fn request_header_orders_stably_and_caps_output() {
+        let mut root = spec("example.com", false);
+        root.name = "root".into();
+        let mut first = spec("example.com", false);
+        first.name = "first".into();
+        first.path = "/account".into();
+        let mut second = spec("example.com", false);
+        second.name = "second".into();
+        second.path = "/account".into();
+        let target = Url::parse("https://example.com/account/report.pdf").unwrap();
+        assert_eq!(
+            request_header(&target, &[root, first, second])
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "first=v; second=v; root=v"
+        );
+
+        let mut first = spec("example.com", false);
+        first.name = "a".into();
+        first.value = "x".repeat(MAX_COOKIE_NAME_VALUE_BYTES - 1);
+        let mut second = first.clone();
+        second.name = "b".into();
+        let header = request_header(&target, &[first, second]).unwrap();
+        let value = header.to_str().unwrap();
+        assert!(value.starts_with("a=") && !value.contains("; b="));
+        assert!(COOKIE_HEADER_PREFIX_BYTES + value.len() < MAX_COOKIE_HEADER_BYTES);
+    }
+
+    #[test]
     fn debug_redacts_value() {
         let mut c = spec("example.com", false);
         c.value = "SUPERSECRET".into();
@@ -265,7 +562,10 @@ mod tests {
 
     #[test]
     fn rejects_too_many_cookies() {
-        let text = "x.com\tFALSE\t/\tFALSE\t0\tn\tv\n".repeat(MAX_COOKIES + 1);
+        let mut text = String::new();
+        for index in 0..=MAX_COOKIES {
+            writeln!(text, "x.com\tFALSE\t/\tFALSE\t0\tn{index}\tv").unwrap();
+        }
         assert!(matches!(parse_cookies(&text), Err(ParseError::TooMany { .. })));
     }
 
@@ -279,12 +579,18 @@ mod tests {
     #[test]
     fn cookie_for_derives_origin_and_domain_attr() {
         let target = Url::parse("https://example.com/").unwrap();
-        // host-only over https: secure flag picks the https origin, no Domain attribute.
+        // Host-only over https: secure flag picks the https origin, no Domain attribute.
         let (url, c) = cookie_for(&target, &spec("example.com", true), NetworkPolicy::STRICT).unwrap();
         assert_eq!(url.scheme(), "https");
         assert!(c.domain().is_none());
-        // leading dot makes it a domain cookie scoped to the registrable host.
+
+        // The Netscape tailmatch column, not a decorative leading dot, controls
+        // whether the cookie is a domain cookie.
         let (_, c) = cookie_for(&target, &spec(".example.com", false), NetworkPolicy::STRICT).unwrap();
+        assert!(c.domain().is_none());
+        let mut domain = spec(".example.com", false);
+        domain.include_subdomains = true;
+        let (_, c) = cookie_for(&target, &domain, NetworkPolicy::STRICT).unwrap();
         assert_eq!(c.domain(), Some("example.com"));
     }
 
@@ -293,5 +599,9 @@ mod tests {
         let target = Url::parse("http://127.0.0.1/").unwrap();
         assert!(cookie_for(&target, &spec("127.0.0.1", false), NetworkPolicy::STRICT).is_none());
         assert!(cookie_for(&target, &spec("127.0.0.1", false), NetworkPolicy::PERMISSIVE).is_some());
+
+        let target = Url::parse("http://[::1]/").unwrap();
+        let (url, _) = cookie_for(&target, &spec("::1", false), NetworkPolicy::PERMISSIVE).unwrap();
+        assert_eq!(url.host(), Some(Host::Ipv6("::1".parse().unwrap())));
     }
 }

@@ -1,23 +1,22 @@
-//! PDF detection and retrieval, run before Servo so PDF handling never
-//! blocks concurrent `WebView`s in the engine queue.
+//! Bounded PDF retrieval for one-shot fetches.
 
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 
 const MAX_PDF_BYTES: u64 = 50 * 1024 * 1024;
-const HEAD_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Return PDF bytes when the resource is a PDF, `None` otherwise.
-pub(crate) fn probe(url: &str, timeout_secs: u64) -> Option<Vec<u8>> {
+pub(crate) fn probe(
+    url: &str,
+    timeout_secs: u64,
+    user_agent: Option<&str>,
+    headers: &http::HeaderMap,
+) -> Option<Vec<u8>> {
     if !looks_like_pdf_url(url) {
         return None;
     }
-    let overall = Duration::from_secs(timeout_secs);
-    if !head_is_pdf(url, HEAD_TIMEOUT.min(overall)) {
-        return None;
-    }
-    fetch_bytes(url, overall).ok()
+    fetch_bytes(url, Duration::from_secs(timeout_secs), user_agent, headers).ok()
 }
 
 fn looks_like_pdf_url(url: &str) -> bool {
@@ -30,21 +29,22 @@ fn looks_like_pdf_url(url: &str) -> bool {
     })
 }
 
-fn head_is_pdf(url: &str, timeout: Duration) -> bool {
-    let Ok(resp) = build_agent(timeout).head(url).call() else {
-        return false;
-    };
-    resp.headers()
+fn fetch_bytes(url: &str, timeout: Duration, user_agent: Option<&str>, headers: &http::HeaderMap) -> Result<Vec<u8>> {
+    let agent = build_agent(timeout, user_agent);
+    let mut request = agent.get(url);
+    for (name, value) in headers {
+        request = request.header(name.clone(), value.clone());
+    }
+    let response = request.call().with_context(|| format!("PDF GET failed for {url}"))?;
+    let is_pdf = response
+        .headers()
         .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|ct| ct.to_ascii_lowercase().starts_with("application/pdf"))
-}
-
-fn fetch_bytes(url: &str, timeout: Duration) -> Result<Vec<u8>> {
-    build_agent(timeout)
-        .get(url)
-        .call()
-        .with_context(|| format!("PDF GET failed for {url}"))?
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.to_ascii_lowercase().starts_with("application/pdf"));
+    if !is_pdf {
+        anyhow::bail!("response is not a PDF");
+    }
+    response
         .into_body()
         .with_config()
         .limit(MAX_PDF_BYTES)
@@ -52,13 +52,14 @@ fn fetch_bytes(url: &str, timeout: Duration) -> Result<Vec<u8>> {
         .context("PDF body read failed")
 }
 
-fn build_agent(timeout: Duration) -> ureq::Agent {
-    ureq::Agent::new_with_config(
-        ureq::config::Config::builder()
-            .max_redirects(0)
-            .timeout_global(Some(timeout))
-            .build(),
-    )
+fn build_agent(timeout: Duration, user_agent: Option<&str>) -> ureq::Agent {
+    let mut config = ureq::config::Config::builder()
+        .max_redirects(0)
+        .timeout_global(Some(timeout));
+    if let Some(user_agent) = user_agent {
+        config = config.user_agent(user_agent);
+    }
+    ureq::Agent::new_with_config(config.build())
 }
 
 #[cfg(test)]
@@ -79,33 +80,39 @@ mod tests {
     #[test]
     fn probe_skips_non_pdf_urls_without_network() {
         // No network traffic because suffix check fails first.
-        assert!(probe("https://example.com/page.html", 1).is_none());
+        assert!(probe("https://example.com/page.html", 1, None, &http::HeaderMap::new()).is_none());
     }
 
     #[test]
     fn probe_returns_none_for_unresolvable_host() {
-        // Suffix matches, HEAD fails quickly.
-        assert!(probe("http://invalid.invalid/foo.pdf", 1).is_none());
+        // Suffix matches, but GET fails quickly.
+        assert!(probe("http://invalid.invalid/foo.pdf", 1, None, &http::HeaderMap::new()).is_none());
     }
 
     mod integration {
-        use wiremock::matchers::{method, path};
+        use wiremock::matchers::{header, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         use crate::pdf::probe;
 
+        async fn run_probe_with(
+            url: String,
+            timeout: u64,
+            user_agent: Option<&'static str>,
+            headers: http::HeaderMap,
+        ) -> Option<Vec<u8>> {
+            tokio::task::spawn_blocking(move || probe(&url, timeout, user_agent, &headers))
+                .await
+                .unwrap()
+        }
+
         async fn run_probe(url: String, timeout: u64) -> Option<Vec<u8>> {
-            tokio::task::spawn_blocking(move || probe(&url, timeout)).await.unwrap()
+            run_probe_with(url, timeout, None, http::HeaderMap::new()).await
         }
 
         #[tokio::test]
-        async fn returns_bytes_when_head_advertises_pdf() {
+        async fn returns_bytes_when_get_is_pdf() {
             let server = MockServer::start().await;
-            Mock::given(method("HEAD"))
-                .and(path("/doc.pdf"))
-                .respond_with(ResponseTemplate::new(200).insert_header("content-type", "application/pdf"))
-                .mount(&server)
-                .await;
             Mock::given(method("GET"))
                 .and(path("/doc.pdf"))
                 .respond_with(ResponseTemplate::new(200).set_body_raw(b"%PDF-1.4 minimal".to_vec(), "application/pdf"))
@@ -117,9 +124,40 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn returns_none_when_head_says_html() {
+        async fn sends_request_context_to_get() {
             let server = MockServer::start().await;
-            Mock::given(method("HEAD"))
+            let required = || {
+                Mock::given(header("user-agent", "TestBot/1.0"))
+                    .and(header("authorization", "Bearer test"))
+                    .and(header("cookie", "sid=seed"))
+                    .and(path("/protected.pdf"))
+            };
+            required()
+                .and(method("GET"))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(b"PDF".to_vec(), "application/pdf"))
+                .mount(&server)
+                .await;
+            let mut headers = http::HeaderMap::new();
+            headers.insert(
+                http::header::AUTHORIZATION,
+                http::HeaderValue::from_static("Bearer test"),
+            );
+            headers.insert(http::header::COOKIE, http::HeaderValue::from_static("sid=seed"));
+
+            let bytes = run_probe_with(
+                format!("{}/protected.pdf", server.uri()),
+                5,
+                Some("TestBot/1.0"),
+                headers,
+            )
+            .await;
+            assert_eq!(bytes.as_deref(), Some(&b"PDF"[..]));
+        }
+
+        #[tokio::test]
+        async fn returns_none_when_get_says_html() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
                 .and(path("/lying.pdf"))
                 .respond_with(ResponseTemplate::new(200).insert_header("content-type", "text/html"))
                 .mount(&server)
@@ -129,9 +167,9 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn returns_none_when_head_lacks_content_type() {
+        async fn returns_none_when_get_lacks_content_type() {
             let server = MockServer::start().await;
-            Mock::given(method("HEAD"))
+            Mock::given(method("GET"))
                 .and(path("/no-ct.pdf"))
                 .respond_with(ResponseTemplate::new(200))
                 .mount(&server)
@@ -141,9 +179,9 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn returns_none_when_head_returns_404() {
+        async fn returns_none_when_get_returns_404() {
             let server = MockServer::start().await;
-            Mock::given(method("HEAD"))
+            Mock::given(method("GET"))
                 .and(path("/missing.pdf"))
                 .respond_with(ResponseTemplate::new(404))
                 .mount(&server)
@@ -155,11 +193,6 @@ mod tests {
         #[tokio::test]
         async fn skips_non_pdf_url_without_any_request() {
             let server = MockServer::start().await;
-            Mock::given(method("HEAD"))
-                .respond_with(ResponseTemplate::new(500))
-                .expect(0)
-                .mount(&server)
-                .await;
             Mock::given(method("GET"))
                 .respond_with(ResponseTemplate::new(500))
                 .expect(0)
@@ -172,16 +205,11 @@ mod tests {
         #[tokio::test]
         async fn accepts_content_type_with_parameter() {
             let server = MockServer::start().await;
-            Mock::given(method("HEAD"))
-                .and(path("/x.pdf"))
-                .respond_with(
-                    ResponseTemplate::new(200).insert_header("content-type", "application/pdf; charset=binary"),
-                )
-                .mount(&server)
-                .await;
             Mock::given(method("GET"))
                 .and(path("/x.pdf"))
-                .respond_with(ResponseTemplate::new(200).set_body_raw(b"PDF".to_vec(), "application/pdf"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_raw(b"PDF".to_vec(), "application/pdf; charset=binary"),
+                )
                 .mount(&server)
                 .await;
 
@@ -193,10 +221,9 @@ mod tests {
 
         #[tokio::test]
         async fn does_not_follow_redirects() {
-            // PDF probe is configured with `max_redirects(0)` to avoid SSRF bypass via
-            // redirect to a private IP.
+            // Disable redirects to prevent SSRF bypass.
             let server = MockServer::start().await;
-            Mock::given(method("HEAD"))
+            Mock::given(method("GET"))
                 .and(path("/redirect.pdf"))
                 .respond_with(ResponseTemplate::new(302).insert_header("location", "https://example.com/"))
                 .mount(&server)
@@ -209,14 +236,8 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn head_request_actually_uses_head_method() {
+        async fn probe_uses_single_get_request() {
             let server = MockServer::start().await;
-            Mock::given(method("HEAD"))
-                .and(path("/big.pdf"))
-                .respond_with(ResponseTemplate::new(200).insert_header("content-type", "application/pdf"))
-                .expect(1)
-                .mount(&server)
-                .await;
             Mock::given(method("GET"))
                 .and(path("/big.pdf"))
                 .respond_with(ResponseTemplate::new(200).set_body_raw(b"PDF".to_vec(), "application/pdf"))
@@ -225,7 +246,6 @@ mod tests {
                 .await;
 
             let _ = run_probe(format!("{}/big.pdf", server.uri()), 5).await;
-            // Mock expectations are verified on `MockServer` drop.
         }
     }
 }

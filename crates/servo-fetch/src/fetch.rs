@@ -401,31 +401,40 @@ fn pre_fetch(opts: &FetchOptions) -> crate::error::Result<Option<Page>> {
     crate::net::ensure_crypto_provider();
     crate::net::validate_url(&opts.url)?;
 
-    if matches!(opts.mode, FetchMode::Content { .. })
-        && let Some(bytes) = crate::pdf::probe(&opts.url, opts.effective_timeout().as_secs().max(1))
-    {
-        return Ok(Some(pdf_page(&bytes)));
-    }
-
-    Ok(None)
-}
-
-async fn pre_fetch_async(opts: &FetchOptions) -> crate::error::Result<Option<Page>> {
-    crate::net::ensure_crypto_provider();
-    crate::net::validate_url(&opts.url)?;
-
     if matches!(opts.mode, FetchMode::Content { .. }) {
-        let url = opts.url.clone();
-        let timeout_secs = opts.effective_timeout().as_secs().max(1);
-        let probe = tokio::task::spawn_blocking(move || crate::pdf::probe(&url, timeout_secs))
-            .await
-            .map_err(|e| Error::engine(anyhow::anyhow!("pdf probe task panicked: {e}"), Some(opts.url.clone())))?;
-        if let Some(bytes) = probe {
+        let headers = pdf_headers(opts)?;
+        if let Some(bytes) = crate::pdf::probe(
+            &opts.url,
+            opts.effective_timeout().as_secs().max(1),
+            opts.user_agent.as_deref(),
+            &headers,
+        ) {
             return Ok(Some(pdf_page(&bytes)));
         }
     }
 
     Ok(None)
+}
+
+fn pdf_headers(opts: &FetchOptions) -> crate::error::Result<http::HeaderMap> {
+    let mut headers = opts.headers.clone();
+    let target = url::Url::parse(&opts.url).map_err(|error| Error::InvalidUrl {
+        url: opts.url.clone(),
+        reason: error.to_string(),
+    })?;
+    if !headers.contains_key(http::header::COOKIE)
+        && let Some(cookie) = crate::cookies::request_header(&target, &opts.cookies)
+    {
+        headers.insert(http::header::COOKIE, cookie);
+    }
+    Ok(headers)
+}
+
+async fn pre_fetch_async(opts: &FetchOptions) -> crate::error::Result<Option<Page>> {
+    let options = opts.clone();
+    tokio::task::spawn_blocking(move || pre_fetch(&options))
+        .await
+        .map_err(|error| Error::engine(error, Some(opts.url.clone())))?
 }
 
 fn pdf_page(bytes: &[u8]) -> Page {
@@ -671,6 +680,22 @@ mod tests {
     fn fetch_rejects_file_scheme() {
         let result = fetch_blocking(&FetchOptions::new("file:///etc/passwd"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn pdf_headers_preserve_explicit_cookie() {
+        use std::io::Write as _;
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        writeln!(file, ".example.com\tTRUE\t/\tFALSE\t0\traw\tloser").unwrap();
+        let cookies = crate::load_cookies(file.path()).unwrap();
+        let mut headers = http::HeaderMap::new();
+        headers.insert(http::header::COOKIE, http::HeaderValue::from_static("raw=winner"));
+        let options = FetchOptions::new("https://www.example.com/report.pdf")
+            .cookies(cookies)
+            .headers(headers);
+
+        assert_eq!(pdf_headers(&options).unwrap()[http::header::COOKIE], "raw=winner");
     }
 
     mod page_from_servo {

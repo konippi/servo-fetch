@@ -43,7 +43,7 @@ impl ServoFetchMcp {
     }
 
     #[tool(
-        description = "Capture a PNG screenshot of a web page. Uses Servo's software renderer — no GPU required. Set `full_page` to capture the full scrollable content instead of just the viewport.",
+        description = "Capture a PNG screenshot of a web page. Uses Servo's software renderer — no GPU required. Set `fullPage` to capture the full scrollable content instead of just the viewport.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,

@@ -147,6 +147,39 @@ fn cookie_for(
     Some((url, builder.build()))
 }
 
+pub(crate) fn request_header(target: &Url, specs: &[CookieSpec]) -> Option<http::HeaderValue> {
+    let host = target.host_str()?.to_ascii_lowercase();
+    let request_path = target.path();
+    let secure = target.scheme() == "https";
+    let mut matches = specs
+        .iter()
+        .filter(|spec| {
+            let domain = spec.domain.trim_start_matches('.').to_ascii_lowercase();
+            let domain_matches = if spec.domain.starts_with('.') || spec.include_subdomains {
+                host == domain || host.ends_with(&format!(".{domain}"))
+            } else {
+                host == domain
+            };
+            domain_matches && (!spec.secure || secure) && path_matches(request_path, &spec.path)
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by_key(|spec| std::cmp::Reverse(spec.path.len()));
+    let value = matches
+        .into_iter()
+        .map(|spec| format!("{}={}", spec.name, spec.value))
+        .collect::<Vec<_>>()
+        .join("; ");
+    (!value.is_empty())
+        .then(|| http::HeaderValue::from_str(&value).ok())
+        .flatten()
+}
+
+fn path_matches(request_path: &str, cookie_path: &str) -> bool {
+    request_path == cookie_path
+        || request_path
+            .strip_prefix(cookie_path)
+            .is_some_and(|suffix| cookie_path.ends_with('/') || suffix.starts_with('/'))
+}
 fn has_control(s: &str) -> bool {
     s.bytes().any(|b| b < 0x20 || b == 0x7f)
 }
@@ -253,6 +286,29 @@ mod tests {
     fn missing_file_reports_path() {
         let err = load_cookies("/no/such/cookies.txt").unwrap_err();
         assert!(matches!(err, Error::Cookies { .. }));
+    }
+
+    #[test]
+    fn request_header_applies_cookie_retrieval_rules() {
+        let mut host_only = spec("api.example.com", false);
+        host_only.name = "host".into();
+        let mut domain = spec(".example.com", false);
+        domain.name = "domain".into();
+        domain.include_subdomains = true;
+        domain.path = "/public/deep".into();
+        let mut path = spec("www.example.com", false);
+        path.name = "path".into();
+        path.path = "/admin".into();
+        let mut secure = spec("www.example.com", true);
+        secure.name = "secure".into();
+        let target = Url::parse("http://www.example.com/public/deep/report.pdf").unwrap();
+
+        let header = request_header(&target, &[host_only, domain, path, secure])
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(header, "domain=v");
     }
 
     #[test]

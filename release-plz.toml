@@ -19,6 +19,7 @@ git_release_body = """
 
 [[package]]
 name = "servo-fetch-cli"
+version_group = "servo-fetch"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = ["servo-fetch", "servo-fetch-types", "servo-fetch-python"]
@@ -31,10 +32,13 @@ git_release_draft = true
 
 [[package]]
 name = "servo-fetch"
+version_group = "servo-fetch"
 release = true
 
 [[package]]
 name = "servo-fetch-types"
+version_group = "servo-fetch"
+changelog_include = ["servo-fetch", "servo-fetch-cli", "servo-fetch-python"]
 release = true
 
 [changelog]

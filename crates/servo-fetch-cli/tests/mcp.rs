@@ -102,31 +102,6 @@ async fn execute_js_rejects_private_ip() {
 
 #[tokio::test]
 #[ignore = "e2e: requires Servo engine"]
-async fn fetch_returns_content() {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/"))
-        .respond_with(mock_page(
-            "<html><head><title>Test Page</title></head><body><p>Hello from Servo</p></body></html>",
-        ))
-        .mount(&server)
-        .await;
-
-    let client = connect_loopback().await;
-    let result = client
-        .call_tool(call_params(
-            "fetch",
-            &serde_json::json!({"url": server.uri(), "timeout": 30}),
-        ))
-        .await
-        .unwrap();
-    assert!(!result.content.is_empty());
-    let text = &result.content[0].as_text().unwrap().text;
-    assert!(text.contains("Hello from Servo"), "got: {text}");
-}
-
-#[tokio::test]
-#[ignore = "e2e: requires Servo engine"]
 async fn execute_js_returns_title() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -238,7 +213,7 @@ async fn crawl_returns_multiple_pages() {
             &serde_json::json!({
                 "url": server.uri(),
                 "limit": 3,
-                "max_depth": 1,
+                "maxDepth": 1,
                 "timeout": 30
             }),
         ))

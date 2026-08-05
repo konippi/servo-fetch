@@ -50,19 +50,18 @@ async fn parallel_fetches_do_not_cross_contaminate() {
     let calls = cases.iter().map(|(url, _, _)| {
         client.call_tool(call_params(
             "fetch",
-            &serde_json::json!({ "url": url, "max_length": 2000, "timeout": 30 }),
+            &serde_json::json!({ "url": url, "maxLength": 2000, "timeout": 30 }),
         ))
     });
     let results = futures_util::future::join_all(calls).await;
 
     for ((url, expected, forbidden), result) in cases.iter().zip(results) {
         let r = result.unwrap_or_else(|e| panic!("fetch {url} failed: {e}"));
-        let text = r
-            .content
-            .iter()
-            .filter_map(|c| c.as_text())
-            .map(|t| t.text.as_str())
-            .collect::<String>();
+        assert_eq!(r.content.len(), 1, "fetch {url} returned unexpected content blocks");
+        let text = &r.content[0]
+            .as_text()
+            .unwrap_or_else(|| panic!("fetch {url} did not return text content"))
+            .text;
         assert!(
             text.contains(expected),
             "response for {url} missing {expected:?}; got: {text}"
@@ -106,7 +105,7 @@ async fn concurrent_full_page_screenshots_are_distinct() {
     let calls = urls.iter().map(|url| {
         client.call_tool(call_params(
             "screenshot",
-            &serde_json::json!({ "url": url, "full_page": true, "timeout": 30 }),
+            &serde_json::json!({ "url": url, "fullPage": true, "timeout": 30 }),
         ))
     });
     let results = futures_util::future::join_all(calls).await;

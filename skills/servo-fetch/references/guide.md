@@ -38,7 +38,7 @@ servo-fetch URL1 URL2 --output-dir ./out/                             # One file
 Use `crawl` to follow links within a site and extract content from multiple pages. Results stream as each page completes.
 
 ```text
-crawl(url: "https://docs.example.com", limit: 20, max_depth: 3)
+crawl(url: "https://docs.example.com", limit: 20, maxDepth: 3)
 crawl(url: "https://docs.example.com", include: ["/guide/**"])
 ```
 

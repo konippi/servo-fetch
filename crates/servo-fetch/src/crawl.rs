@@ -214,6 +214,18 @@ impl CrawlResult {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SuppressionReason {
+    DuplicateContent,
+}
+
+#[derive(Debug)]
+pub(crate) struct SuppressedPage {
+    pub url: String,
+    pub depth: usize,
+    pub reason: SuppressionReason,
+}
+
 /// Crawl a site, invoking `on_page` for each result as it arrives (blocking).
 pub fn crawl_each_blocking<F>(opts: &CrawlOptions, on_page: F) -> crate::error::Result<()>
 where
@@ -238,8 +250,16 @@ where
     })
     .await
     .unwrap_or(RobotsPolicy::Unreachable);
-    run(plan, robots, &bridge::ServoFetcher, |r| {
-        on_page(CrawlResult::from_internal(r));
+    run(plan, robots, &bridge::ServoFetcher, |event| match event {
+        CrawlRunEvent::Result(result) => on_page(CrawlResult::from_internal(result)),
+        CrawlRunEvent::Suppressed(page) => {
+            tracing::debug!(
+                url = %page.url,
+                depth = page.depth,
+                reason = ?page.reason,
+                "crawl result suppressed"
+            );
+        }
     })
     .await;
     Ok(())
@@ -382,11 +402,16 @@ fn extract_links_from_html(html: &str, base: &Url) -> Vec<Url> {
         .collect()
 }
 
+pub(crate) enum CrawlRunEvent {
+    Result(CrawlPageResult),
+    Suppressed(SuppressedPage),
+}
+
 pub(crate) async fn run(
     opts: CrawlPlan,
     robots: RobotsPolicy,
     fetcher: &(impl PageFetcher + Clone),
-    mut on_page: impl FnMut(CrawlPageResult),
+    mut on_event: impl FnMut(CrawlRunEvent),
 ) {
     let mut frontier = Frontier::new(&opts.seed);
     let mut completed: usize = 0;
@@ -434,7 +459,7 @@ pub(crate) async fn run(
         let page = match result {
             Ok(p) => p,
             Err(err) => {
-                on_page(error_result(&url, depth, err, fetched_at));
+                on_event(CrawlRunEvent::Result(error_result(&url, depth, err, fetched_at)));
                 completed += 1;
                 continue;
             }
@@ -446,9 +471,12 @@ pub(crate) async fn run(
             robots: &robots,
             opts: &opts,
         };
-        if let Some(r) = process_ok_fetch(&mut ctx, &url, depth, &page, budget_used, fetched_at) {
-            on_page(r);
-            completed += 1;
+        match process_ok_fetch(&mut ctx, &url, depth, &page, budget_used, fetched_at) {
+            event @ CrawlRunEvent::Result(_) => {
+                on_event(event);
+                completed += 1;
+            }
+            event @ CrawlRunEvent::Suppressed(_) => on_event(event),
         }
     }
 }
@@ -509,7 +537,7 @@ fn process_ok_fetch(
     page: &bridge::ServoPage,
     budget_used: usize,
     fetched_at: SystemTime,
-) -> Option<CrawlPageResult> {
+) -> CrawlRunEvent {
     let html = if page.html.len() > MAX_HTML_BYTES {
         &page.html[..crate::sanitize::floor_char_boundary(&page.html, MAX_HTML_BYTES)]
     } else {
@@ -529,8 +557,15 @@ fn process_ok_fetch(
         crate::extract::extract_text(&input).ok()
     };
 
-    if content.as_ref().is_some_and(|c| ctx.frontier.is_duplicate_content(c)) {
-        return None;
+    if content
+        .as_ref()
+        .is_some_and(|content| ctx.frontier.is_duplicate_content(content))
+    {
+        return CrawlRunEvent::Suppressed(SuppressedPage {
+            url: url.to_string(),
+            depth,
+            reason: SuppressionReason::DuplicateContent,
+        });
     }
 
     let links = extract_links_from_html(html, url);
@@ -558,7 +593,7 @@ fn process_ok_fetch(
         (!t.is_empty()).then_some(t)
     };
 
-    Some(CrawlPageResult {
+    CrawlRunEvent::Result(CrawlPageResult {
         url: url.to_string(),
         depth,
         status: CrawlStatus::Ok,
@@ -719,7 +754,12 @@ mod tests {
         };
         configure(&mut opts);
         let mut results = Vec::new();
-        run(opts, RobotsPolicy::Unavailable, &fetcher, |r| results.push(r)).await;
+        run(opts, RobotsPolicy::Unavailable, &fetcher, |progress| {
+            if let CrawlRunEvent::Result(result) = progress {
+                results.push(result);
+            }
+        })
+        .await;
         assert(&results);
     }
 
@@ -755,8 +795,10 @@ mod tests {
             headers: http::HeaderMap::new(),
         };
         let mut results = Vec::new();
-        run(opts, RobotsPolicy::Unavailable, &TimeoutFetcher, |result| {
-            results.push(result);
+        run(opts, RobotsPolicy::Unavailable, &TimeoutFetcher, |progress| {
+            if let CrawlRunEvent::Result(result) = progress {
+                results.push(result);
+            }
         })
         .await;
 
@@ -894,18 +936,94 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn crawl_deduplicates_content() {
-        let same = "<html><head><title>Same</title></head><body>identical</body></html>";
-        check(
-            &[
-                ("https://example.com/", &page(&["/a", "/b"])),
-                ("https://example.com/a", same),
-                ("https://example.com/b", same),
-            ],
-            |_| {},
-            |r| assert_eq!(r.len(), 2),
-        )
+    async fn suppressed_page_does_not_consume_result_limit() {
+        let root = page(&["/a", "/b", "/c"]);
+        let duplicate = "<html><body>same</body></html>";
+        let distinct = r#"<html><body>distinct<a href="/d"></a></body></html>"#;
+        let final_page = "<html><body>final</body></html>";
+        let fetcher = MockFetcher::new(&[
+            ("https://example.com/", &root),
+            ("https://example.com/a", duplicate),
+            ("https://example.com/b", duplicate),
+            ("https://example.com/c", distinct),
+            ("https://example.com/d", final_page),
+        ]);
+        let opts = CrawlPlan {
+            seed: Url::parse("https://example.com/").unwrap(),
+            limit: 4,
+            max_depth: 3,
+            timeout_secs: 30,
+            settle_ms: 0,
+            include: None,
+            exclude: None,
+            selector: None,
+            json: false,
+            user_agent: None,
+            concurrency: 1,
+            delay: None,
+            cookies: Vec::new(),
+            headers: http::HeaderMap::new(),
+        };
+        let mut results = Vec::new();
+        let mut suppressed = 0;
+        run(opts, RobotsPolicy::Unavailable, &fetcher, |event| match event {
+            CrawlRunEvent::Result(result) => results.push(result.url),
+            CrawlRunEvent::Suppressed(_) => suppressed += 1,
+        })
         .await;
+
+        assert_eq!(suppressed, 1);
+        assert_eq!(
+            results,
+            [
+                "https://example.com/",
+                "https://example.com/a",
+                "https://example.com/c",
+                "https://example.com/d",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn crawl_reports_duplicate_content_suppression() {
+        let same = "<html><head><title>Same</title></head><body>identical</body></html>";
+        let fetcher = MockFetcher::new(&[
+            ("https://example.com/", &page(&["/a", "/b"])),
+            ("https://example.com/a", same),
+            ("https://example.com/b", same),
+        ]);
+        let opts = CrawlPlan {
+            seed: Url::parse("https://example.com/").unwrap(),
+            limit: 50,
+            max_depth: 3,
+            timeout_secs: 30,
+            settle_ms: 0,
+            include: None,
+            exclude: None,
+            selector: None,
+            json: false,
+            user_agent: None,
+            concurrency: 1,
+            delay: None,
+            cookies: Vec::new(),
+            headers: http::HeaderMap::new(),
+        };
+        let mut results = 0;
+        let mut suppressed = Vec::new();
+        run(opts, RobotsPolicy::Unavailable, &fetcher, |event| match event {
+            CrawlRunEvent::Result(_) => results += 1,
+            CrawlRunEvent::Suppressed(page) => suppressed.push(page),
+        })
+        .await;
+
+        assert_eq!(results, 2);
+        assert_eq!(suppressed.len(), 1);
+        assert_eq!(suppressed[0].depth, 1);
+        assert_eq!(suppressed[0].reason, SuppressionReason::DuplicateContent);
+        assert!(matches!(
+            suppressed[0].url.as_str(),
+            "https://example.com/a" | "https://example.com/b"
+        ));
     }
 
     #[tokio::test]

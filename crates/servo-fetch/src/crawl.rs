@@ -226,18 +226,27 @@ pub(crate) struct SuppressedPage {
     pub reason: SuppressionReason,
 }
 
-/// Crawl a site, invoking `on_page` for each result as it arrives (blocking).
-pub fn crawl_each_blocking<F>(opts: &CrawlOptions, on_page: F) -> crate::error::Result<()>
-where
-    F: FnMut(CrawlResult) + Send,
-{
-    crate::runtime::block_on(crawl_each(opts, on_page)).map_err(|e| crate::error::Error::engine(e, None))?
+/// Session-facing crawl event after conversion from engine-internal state.
+pub(crate) enum CrawlSessionEvent {
+    Result(CrawlResult),
+    Suppressed(SuppressedPage),
 }
 
-/// Crawl a site, invoking `on_page` for each result as it arrives.
-pub async fn crawl_each<F>(opts: &CrawlOptions, mut on_page: F) -> crate::error::Result<()>
+/// Crawl in-process, forwarding result and suppression events until the sink fails.
+pub(crate) fn crawl_each_in_process_blocking_with_events<F>(
+    opts: &CrawlOptions,
+    on_event: F,
+) -> crate::error::Result<()>
 where
-    F: FnMut(CrawlResult) + Send,
+    F: FnMut(CrawlSessionEvent) -> crate::error::Result<()>,
+{
+    crate::runtime::block_on(crawl_each_in_process_with_events(opts, on_event))
+        .map_err(|error| crate::error::Error::engine(error, None))?
+}
+
+async fn crawl_each_in_process_with_events<F>(opts: &CrawlOptions, mut on_event: F) -> crate::error::Result<()>
+where
+    F: FnMut(CrawlSessionEvent) -> crate::error::Result<()>,
 {
     net::ensure_crypto_provider();
     let plan = build_crawl_plan(opts)?;
@@ -250,9 +259,19 @@ where
     })
     .await
     .unwrap_or(RobotsPolicy::Unreachable);
-    run(plan, robots, &bridge::ServoFetcher, |event| match event {
-        CrawlRunEvent::Result(result) => on_page(CrawlResult::from_internal(result)),
-        CrawlRunEvent::Suppressed(page) => {
+    run(plan, robots, &bridge::ServoFetcher, |event| {
+        on_event(match event {
+            CrawlRunEvent::Result(result) => CrawlSessionEvent::Result(CrawlResult::from_internal(result)),
+            CrawlRunEvent::Suppressed(page) => CrawlSessionEvent::Suppressed(page),
+        })
+    })
+    .await
+}
+
+fn emit_crawl_result(event: CrawlSessionEvent, on_page: &mut impl FnMut(CrawlResult)) {
+    match event {
+        CrawlSessionEvent::Result(result) => on_page(result),
+        CrawlSessionEvent::Suppressed(page) => {
             tracing::debug!(
                 url = %page.url,
                 depth = page.depth,
@@ -260,9 +279,30 @@ where
                 "crawl result suppressed"
             );
         }
+    }
+}
+
+/// Crawl a site, invoking `on_page` for each result as it arrives (blocking).
+pub fn crawl_each_blocking<F>(opts: &CrawlOptions, mut on_page: F) -> crate::error::Result<()>
+where
+    F: FnMut(CrawlResult) + Send,
+{
+    crawl_each_in_process_blocking_with_events(opts, |event| {
+        emit_crawl_result(event, &mut on_page);
+        Ok(())
     })
-    .await;
-    Ok(())
+}
+
+/// Crawl a site, invoking `on_page` for each result as it arrives.
+pub async fn crawl_each<F>(opts: &CrawlOptions, mut on_page: F) -> crate::error::Result<()>
+where
+    F: FnMut(CrawlResult) + Send,
+{
+    crawl_each_in_process_with_events(opts, |event| {
+        emit_crawl_result(event, &mut on_page);
+        Ok(())
+    })
+    .await
 }
 
 /// Crawl a site and collect all results (blocking).
@@ -411,8 +451,8 @@ pub(crate) async fn run(
     opts: CrawlPlan,
     robots: RobotsPolicy,
     fetcher: &(impl PageFetcher + Clone),
-    mut on_event: impl FnMut(CrawlRunEvent),
-) {
+    mut on_event: impl FnMut(CrawlRunEvent) -> crate::error::Result<()>,
+) -> crate::error::Result<()> {
     let mut frontier = Frontier::new(&opts.seed);
     let mut completed: usize = 0;
     let mut in_flight: JoinSet<FetchOutcome> = JoinSet::new();
@@ -459,7 +499,7 @@ pub(crate) async fn run(
         let page = match result {
             Ok(p) => p,
             Err(err) => {
-                on_event(CrawlRunEvent::Result(error_result(&url, depth, err, fetched_at)));
+                on_event(CrawlRunEvent::Result(error_result(&url, depth, err, fetched_at)))?;
                 completed += 1;
                 continue;
             }
@@ -473,12 +513,13 @@ pub(crate) async fn run(
         };
         match process_ok_fetch(&mut ctx, &url, depth, &page, budget_used, fetched_at) {
             event @ CrawlRunEvent::Result(_) => {
-                on_event(event);
+                on_event(event)?;
                 completed += 1;
             }
-            event @ CrawlRunEvent::Suppressed(_) => on_event(event),
+            event @ CrawlRunEvent::Suppressed(_) => on_event(event)?,
         }
     }
+    Ok(())
 }
 
 fn spawn_fetch(
@@ -728,15 +769,8 @@ mod tests {
         format!("<html><head><title>{tag}</title></head><body>page {tag}</body></html>")
     }
 
-    /// Test helper: build `CrawlPlan`, run, assert. `delay=None` keeps tests fast.
-    async fn check(
-        pages: &[(&str, &str)],
-        configure: impl FnOnce(&mut CrawlPlan),
-        assert: impl FnOnce(&[CrawlPageResult]),
-    ) {
-        let fetcher = MockFetcher::new(pages);
-        let seed = pages[0].0;
-        let mut opts = CrawlPlan {
+    fn test_plan(seed: &str) -> CrawlPlan {
+        CrawlPlan {
             seed: Url::parse(seed).unwrap(),
             limit: 50,
             max_depth: 3,
@@ -751,15 +785,28 @@ mod tests {
             delay: None,
             cookies: Vec::new(),
             headers: http::HeaderMap::new(),
-        };
+        }
+    }
+
+    /// Test helper: build `CrawlPlan`, run, assert. `delay=None` keeps tests fast.
+    async fn check(
+        pages: &[(&str, &str)],
+        configure: impl FnOnce(&mut CrawlPlan),
+        assert: impl FnOnce(&[CrawlPageResult]),
+    ) {
+        let fetcher = MockFetcher::new(pages);
+        let seed = pages[0].0;
+        let mut opts = test_plan(seed);
         configure(&mut opts);
         let mut results = Vec::new();
         run(opts, RobotsPolicy::Unavailable, &fetcher, |progress| {
             if let CrawlRunEvent::Result(result) = progress {
                 results.push(result);
             }
+            Ok(())
         })
-        .await;
+        .await
+        .unwrap();
         assert(&results);
     }
 
@@ -777,30 +824,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn crawl_propagates_event_sink_failure() {
+        let root = "https://example.com/";
+        let fetcher = MockFetcher::new(&[(root, &page(&["/a"])), ("https://example.com/a", &distinct_page("a"))]);
+        let mut events = 0;
+        let error = run(test_plan(root), RobotsPolicy::Unavailable, &fetcher, |_| {
+            events += 1;
+            Err(crate::error::Error::engine("sink closed", None))
+        })
+        .await
+        .unwrap_err();
+
+        assert_eq!(events, 1);
+        assert!(error.to_string().contains("sink closed"));
+    }
+
+    #[tokio::test]
     async fn crawl_preserves_page_load_timeout_kind() {
-        let opts = CrawlPlan {
-            seed: Url::parse("https://example.com/").unwrap(),
-            limit: 1,
-            max_depth: 0,
-            timeout_secs: 7,
-            settle_ms: 0,
-            include: None,
-            exclude: None,
-            selector: None,
-            json: false,
-            user_agent: None,
-            concurrency: 1,
-            delay: None,
-            cookies: Vec::new(),
-            headers: http::HeaderMap::new(),
-        };
+        let mut opts = test_plan("https://example.com/");
+        opts.limit = 1;
+        opts.max_depth = 0;
+        opts.timeout_secs = 7;
         let mut results = Vec::new();
         run(opts, RobotsPolicy::Unavailable, &TimeoutFetcher, |progress| {
             if let CrawlRunEvent::Result(result) = progress {
                 results.push(result);
             }
+            Ok(())
         })
-        .await;
+        .await
+        .unwrap();
 
         assert_eq!(results.len(), 1);
         assert!(matches!(
@@ -966,11 +1019,15 @@ mod tests {
         };
         let mut results = Vec::new();
         let mut suppressed = 0;
-        run(opts, RobotsPolicy::Unavailable, &fetcher, |event| match event {
-            CrawlRunEvent::Result(result) => results.push(result.url),
-            CrawlRunEvent::Suppressed(_) => suppressed += 1,
+        run(opts, RobotsPolicy::Unavailable, &fetcher, |event| {
+            match event {
+                CrawlRunEvent::Result(result) => results.push(result.url),
+                CrawlRunEvent::Suppressed(_) => suppressed += 1,
+            }
+            Ok(())
         })
-        .await;
+        .await
+        .unwrap();
 
         assert_eq!(suppressed, 1);
         assert_eq!(
@@ -1010,11 +1067,15 @@ mod tests {
         };
         let mut results = 0;
         let mut suppressed = Vec::new();
-        run(opts, RobotsPolicy::Unavailable, &fetcher, |event| match event {
-            CrawlRunEvent::Result(_) => results += 1,
-            CrawlRunEvent::Suppressed(page) => suppressed.push(page),
+        run(opts, RobotsPolicy::Unavailable, &fetcher, |event| {
+            match event {
+                CrawlRunEvent::Result(_) => results += 1,
+                CrawlRunEvent::Suppressed(page) => suppressed.push(page),
+            }
+            Ok(())
         })
-        .await;
+        .await
+        .unwrap();
 
         assert_eq!(results, 2);
         assert_eq!(suppressed.len(), 1);

@@ -9,9 +9,9 @@ use super::protocol::{
     WorkerProtocolInfo, WorkerRequest, WorkerResponse, WorkerState, decode_frame, handle_worker_initialize,
     read_bounded_frame, run_worker, write_bounded_frame,
 };
-use super::wire::FetchWire;
+use super::wire::{CrawlWire, FetchWire};
 use super::*;
-use crate::{Error, FetchOptions, NetworkPolicy};
+use crate::{CrawlOptions, Error, FetchOptions, NetworkPolicy};
 
 fn encoded(value: &impl Serialize) -> Vec<u8> {
     let mut out = Vec::new();
@@ -20,21 +20,33 @@ fn encoded(value: &impl Serialize) -> Vec<u8> {
 }
 
 #[test]
-fn bounded_framing_rejects_truncation_and_overflow() {
+fn bounded_framing_distinguishes_clean_eof_from_invalid_frames() {
+    let clean = read_bounded_frame(&mut std::io::Cursor::new(Vec::<u8>::new()), 8).unwrap_err();
+    assert_eq!(clean.kind(), std::io::ErrorKind::UnexpectedEof);
+
+    for bytes in [vec![0], vec![0, 0], vec![0, 0, 0]] {
+        let error = read_bounded_frame(&mut std::io::Cursor::new(bytes), 8).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    for length in [0_u32, 9] {
+        let error = read_bounded_frame(&mut std::io::Cursor::new(length.to_be_bytes()), 8).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    let mut truncated = 4_u32.to_be_bytes().to_vec();
+    truncated.extend_from_slice(&[1, 2, 3]);
+    let error = read_bounded_frame(&mut std::io::Cursor::new(truncated), 8).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+
+    let payload = vec![0xa5; 8];
+    let mut exact = 8_u32.to_be_bytes().to_vec();
+    exact.extend_from_slice(&payload);
     assert_eq!(
-        read_bounded_frame(&mut std::io::Cursor::new(Vec::<u8>::new()), 8)
-            .unwrap_err()
-            .kind(),
-        std::io::ErrorKind::UnexpectedEof
+        read_bounded_frame(&mut std::io::Cursor::new(exact), 8).unwrap(),
+        payload
     );
-    let mut partial = 4_u32.to_be_bytes().to_vec();
-    partial.extend_from_slice(&[1, 2, 3]);
-    assert_eq!(
-        read_bounded_frame(&mut std::io::Cursor::new(partial), 8)
-            .unwrap_err()
-            .kind(),
-        std::io::ErrorKind::InvalidData
-    );
+
     let mut buffer = BoundedBuffer::new(8);
     assert_eq!(buffer.write(b"12345678").unwrap(), 8);
     assert!(buffer.write(b"9").is_err());
@@ -150,6 +162,40 @@ fn initialization_sanitizes_ua_and_scope() {
 }
 
 #[test]
+fn pre_init_errors_preserve_id_and_worker_continues() {
+    let requests = [
+        WorkerRequest::Fetch(FetchWire::from_options(&FetchOptions::new("https://example.com"))),
+        WorkerRequest::Crawl(CrawlWire::from_options(&CrawlOptions::new("https://example.com"))),
+    ];
+
+    for request in requests {
+        let input = [
+            encoded(&RequestFrame { id: 41, request }),
+            encoded(&RequestFrame {
+                id: 42,
+                request: WorkerRequest::Shutdown,
+            }),
+        ]
+        .concat();
+        let mut output = Vec::new();
+        run_worker(&mut std::io::Cursor::new(input), &mut output).unwrap();
+        let mut output = std::io::Cursor::new(output);
+
+        let _: WorkerProtocolInfo =
+            decode_frame(&read_bounded_frame(&mut output, MAX_WORKER_PROTOCOL_INFO_BYTES).unwrap()).unwrap();
+        let error: ResponseFrame =
+            decode_frame(&read_bounded_frame(&mut output, MAX_WORKER_FRAME_BYTES).unwrap()).unwrap();
+        assert_eq!(error.id, 41);
+        assert!(matches!(error.response, WorkerResponse::Error(_)));
+
+        let shutdown: ResponseFrame =
+            decode_frame(&read_bounded_frame(&mut output, MAX_WORKER_FRAME_BYTES).unwrap()).unwrap();
+        assert_eq!(shutdown.id, 42);
+        assert!(matches!(shutdown.response, WorkerResponse::ShutdownAck));
+    }
+}
+
+#[test]
 fn worker_emits_info_and_shutdown_ack() {
     let mut output = Vec::new();
     run_worker(
@@ -173,11 +219,17 @@ fn worker_emits_info_and_shutdown_ack() {
 }
 
 #[test]
-fn malformed_frame_is_worker_error() {
+fn malformed_or_oversized_request_is_worker_error() {
     let mut truncated = 4_u32.to_be_bytes().to_vec();
     truncated.extend_from_slice(&[1, 2, 3]);
     assert!(matches!(
         run_worker(&mut std::io::Cursor::new(truncated), &mut Vec::new()),
+        Err(Error::WorkerUnavailable { .. })
+    ));
+
+    let oversized = u32::try_from(MAX_WORKER_REQUEST_FRAME_BYTES + 1).unwrap().to_be_bytes();
+    assert!(matches!(
+        run_worker(&mut std::io::Cursor::new(oversized), &mut Vec::new()),
         Err(Error::WorkerUnavailable { .. })
     ));
 }

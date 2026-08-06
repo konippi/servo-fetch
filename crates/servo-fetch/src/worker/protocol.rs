@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::wire::{CrawlProgressWire, CrawlResultWire, CrawlWire, FetchWire, PageWire, WorkerErrorWire};
 use super::{
-    MAX_WORKER_BLOB_CHUNK_BYTES, MAX_WORKER_FRAME_BYTES, MAX_WORKER_PROTOCOL_INFO_BYTES, WORKER_PROTOCOL_MAGIC,
-    WORKER_PROTOCOL_VERSION, worker_error,
+    MAX_WORKER_BLOB_CHUNK_BYTES, MAX_WORKER_FRAME_BYTES, MAX_WORKER_PROTOCOL_INFO_BYTES,
+    MAX_WORKER_REQUEST_FRAME_BYTES, WORKER_PROTOCOL_MAGIC, WORKER_PROTOCOL_VERSION, worker_error,
 };
 use crate::NetworkPolicy;
 use crate::cookies::CookieWire;
@@ -128,7 +128,7 @@ pub(super) fn run_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> R
     )?;
     let mut state = WorkerState::AwaitingInitialize;
     loop {
-        let bytes = match read_bounded_frame(reader, MAX_WORKER_FRAME_BYTES) {
+        let bytes = match read_bounded_frame(reader, MAX_WORKER_REQUEST_FRAME_BYTES) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(error) => return Err(worker_error(error)),

@@ -1,4 +1,8 @@
 //! Process-local implementation of the isolated worker protocol.
+//!
+//! Protocol v1 uses Postcard, whose structs are field-order dependent and whose
+//! enum tags are variant indices. Existing fields and variants must not be
+//! reordered; incompatible wire changes require a protocol-version bump.
 mod protocol;
 #[cfg(test)]
 mod tests;
@@ -8,6 +12,7 @@ pub use protocol::run_worker_stdio;
 use crate::error::Error;
 pub(crate) const WORKER_PROTOCOL_VERSION: u32 = 1;
 pub(crate) const MAX_WORKER_FRAME_BYTES: usize = 64 * 1024 * 1024;
+const MAX_WORKER_REQUEST_FRAME_BYTES: usize = 8 * 1024 * 1024;
 const WORKER_PROTOCOL_MAGIC: [u8; 8] = *b"SFETCHW\0";
 const MAX_WORKER_PROTOCOL_INFO_BYTES: usize = 4 * 1024;
 const MAX_WORKER_BLOB_CHUNK_BYTES: usize = 1024 * 1024;

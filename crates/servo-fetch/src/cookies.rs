@@ -39,22 +39,6 @@ pub(crate) struct CookieWire {
     include_subdomains: bool,
 }
 impl CookieWire {
-    #[cfg(test)]
-    pub(crate) fn from_specs(specs: &[CookieSpec]) -> Vec<Self> {
-        specs
-            .iter()
-            .map(|s| Self {
-                name: s.name.clone(),
-                value: s.value.clone(),
-                domain: s.domain.clone(),
-                path: s.path.clone(),
-                expires: s.expires,
-                secure: s.secure,
-                http_only: s.http_only,
-                include_subdomains: s.include_subdomains,
-            })
-            .collect()
-    }
     pub(crate) fn into_specs(wires: Vec<Self>) -> std::result::Result<Vec<CookieSpec>, &'static str> {
         if wires.len() > MAX_COOKIES {
             return Err("too many cookies in worker request");
@@ -618,11 +602,23 @@ mod tests {
     }
 
     #[test]
-    fn cookie_wire_round_trip_is_checked() {
-        let mut original = spec("example.com", true);
-        original.expires = Some(2_000_000_000);
-        let decoded = CookieWire::into_specs(CookieWire::from_specs(std::slice::from_ref(&original))).unwrap();
-        assert_eq!(decoded, [original]);
+    fn cookie_wire_validation_preserves_valid_fields() {
+        let wire = CookieWire {
+            name: "sid".into(),
+            value: "secret".into(),
+            domain: "example.com".into(),
+            path: "/account".into(),
+            expires: Some(2_000_000_000),
+            secure: true,
+            http_only: true,
+            include_subdomains: false,
+        };
+        let decoded = CookieWire::into_specs(vec![wire]).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].name, "sid");
+        assert_eq!(decoded[0].path, "/account");
+        assert_eq!(decoded[0].expires, Some(2_000_000_000));
+        assert!(decoded[0].secure && decoded[0].http_only);
     }
 
     #[test]

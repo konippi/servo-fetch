@@ -58,11 +58,5 @@ wiremock = { workspace = true }
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
 
-[package.metadata.cargo-shear]
-ignored = ["rustls"]
-
-[package.metadata.cargo-machete]
-ignored = ["rustls"]
-
 [lints]
 workspace = true

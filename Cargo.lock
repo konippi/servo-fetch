@@ -6481,6 +6481,7 @@ dependencies = [
  "console",
  "futures-util",
  "humantime",
+ "image",
  "indicatif",
  "libc",
  "postcard",

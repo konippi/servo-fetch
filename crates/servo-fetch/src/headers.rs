@@ -56,9 +56,37 @@ where
     Ok(headers)
 }
 
+const MAX_WIRE_HEADERS: usize = 128;
+const MAX_WIRE_HEADER_BYTES: usize = 64 * 1024;
+pub(crate) fn from_wire_pairs(headers: Vec<(String, Vec<u8>)>) -> Result<HeaderMap> {
+    if headers.len() > MAX_WIRE_HEADERS {
+        return Err(Error::invalid_header("too many custom headers in worker request"));
+    }
+    let mut total = 0usize;
+    let mut out = HeaderMap::new();
+    for (name, value) in headers {
+        total = total.saturating_add(name.len()).saturating_add(value.len());
+        if total > MAX_WIRE_HEADER_BYTES {
+            return Err(Error::invalid_header(
+                "custom headers in worker request exceed maximum bytes",
+            ));
+        }
+        let name = validate_name(&name)?;
+        let value = HeaderValue::from_bytes(&value)
+            .map_err(|_| Error::invalid_header(format!("invalid value for header '{name}'")))?;
+        out.append(name, value);
+    }
+    Ok(out)
+}
 fn validate(name: &str, value: &str) -> Result<(HeaderName, HeaderValue)> {
-    let name = HeaderName::from_bytes(name.trim().as_bytes())
-        .map_err(|_| Error::invalid_header(format!("invalid header name '{}'", name.trim())))?;
+    let name = validate_name(name.trim())?;
+    let value = HeaderValue::from_str(value)
+        .map_err(|_| Error::invalid_header(format!("invalid value for header '{name}'")))?;
+    Ok((name, value))
+}
+fn validate_name(name: &str) -> Result<HeaderName> {
+    let name = HeaderName::from_bytes(name.as_bytes())
+        .map_err(|_| Error::invalid_header(format!("invalid header name '{name}'")))?;
     if let Some(hint) = steer(name.as_str()) {
         return Err(Error::invalid_header(format!(
             "header '{name}' cannot be set as a custom header; use {hint} instead"
@@ -69,9 +97,7 @@ fn validate(name: &str, value: &str) -> Result<(HeaderName, HeaderValue)> {
             "header '{name}' is managed by the engine and cannot be overridden"
         )));
     }
-    let value = HeaderValue::from_str(value)
-        .map_err(|_| Error::invalid_header(format!("invalid value for header '{name}'")))?;
-    Ok((name, value))
+    Ok(name)
 }
 
 fn split_line(line: &str) -> Result<(String, String)> {

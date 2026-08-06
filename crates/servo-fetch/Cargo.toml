@@ -27,6 +27,7 @@ htmd = { workspace = true }
 http = { workspace = true }
 image = { workspace = true }
 pdf-extract = { workspace = true }
+postcard = { workspace = true }
 psl = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
@@ -56,12 +57,6 @@ wiremock = { workspace = true }
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
-
-[package.metadata.cargo-shear]
-ignored = ["rustls"]
-
-[package.metadata.cargo-machete]
-ignored = ["rustls"]
 
 [lints]
 workspace = true

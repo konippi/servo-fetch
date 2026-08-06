@@ -75,7 +75,24 @@ fn help_flag() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("browser engine in a binary"));
+        .stdout(predicate::str::contains("browser engine in a binary"))
+        .stdout(predicate::str::contains("__worker").not());
+}
+
+#[test]
+fn internal_worker_dispatches_before_clap_and_logging() {
+    #[derive(serde::Deserialize)]
+    struct WorkerProtocolInfo {
+        magic: [u8; 8],
+        package_version: String,
+    }
+    let output = servo_fetch().arg("__worker").assert().success().get_output().clone();
+    assert!(output.stderr.is_empty());
+    let length = usize::try_from(u32::from_be_bytes(output.stdout[..4].try_into().unwrap())).unwrap();
+    assert_eq!(output.stdout.len(), length + 4);
+    let info: WorkerProtocolInfo = postcard::from_bytes(&output.stdout[4..]).unwrap();
+    assert_eq!(info.magic, *b"SFETCHW\0");
+    assert_eq!(info.package_version, env!("CARGO_PKG_VERSION"));
 }
 
 const TIMEOUT: &str = "--timeout=30";

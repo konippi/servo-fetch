@@ -40,6 +40,7 @@ pub(crate) mod runtime;
 pub(crate) mod scope;
 pub(crate) mod screenshot;
 pub(crate) mod sys;
+mod worker;
 
 pub use client::{Client, ClientBuilder, ScreenshotOptions};
 pub use cookies::{CookieSpec, load_cookies};
@@ -50,6 +51,8 @@ pub use http::HeaderMap;
 pub use map::{MapOptions, MappedUrl, map};
 pub use net::{NetworkPolicy, validate_url};
 pub use visibility::{VisibilityFlags, VisibilityPolicy};
+#[doc(hidden)]
+pub use worker::run_worker_stdio;
 
 /// Set the network policy. Must be called at most once, before any engine use.
 pub fn init(policy: NetworkPolicy) {

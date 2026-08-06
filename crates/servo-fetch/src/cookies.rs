@@ -27,6 +27,55 @@ pub struct CookieSpec {
     include_subdomains: bool,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct CookieWire {
+    name: String,
+    value: String,
+    domain: String,
+    path: String,
+    expires: Option<i64>,
+    secure: bool,
+    http_only: bool,
+    include_subdomains: bool,
+}
+impl CookieWire {
+    pub(crate) fn into_specs(wires: Vec<Self>) -> std::result::Result<Vec<CookieSpec>, &'static str> {
+        if wires.len() > MAX_COOKIES {
+            return Err("too many cookies in worker request");
+        }
+        wires
+            .into_iter()
+            .map(|w| {
+                if w.name.is_empty()
+                    || has_control(&w.name)
+                    || w.name.contains([';', '='])
+                    || has_control(&w.value)
+                    || w.value.contains(';')
+                    || w.name.len().saturating_add(w.value.len()) > MAX_COOKIE_NAME_VALUE_BYTES
+                    || w.domain.len() > 253
+                    || has_control(&w.domain)
+                    || canonical_cookie_host(&w.domain).is_none()
+                    || !w.path.starts_with('/')
+                    || w.path.len() > 4096
+                    || has_control(&w.path)
+                {
+                    return Err("invalid cookie in worker request");
+                }
+                Ok(CookieSpec {
+                    name: w.name,
+                    value: w.value,
+                    domain: w.domain,
+                    path: w.path,
+                    expires: w.expires,
+                    secure: w.secure,
+                    http_only: w.http_only,
+                    include_subdomains: w.include_subdomains,
+                })
+            })
+            .collect()
+    }
+}
+
 impl std::fmt::Debug for CookieSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CookieSpec")
@@ -550,6 +599,37 @@ mod tests {
         let value = header.to_str().unwrap();
         assert!(value.starts_with("a=") && !value.contains("; b="));
         assert!(COOKIE_HEADER_PREFIX_BYTES + value.len() < MAX_COOKIE_HEADER_BYTES);
+    }
+
+    #[test]
+    fn cookie_wire_preserves_valid_fields_and_rejects_invalid_input() {
+        let mut expected = spec("example.com", true);
+        expected.path = "/account".into();
+        expected.expires = Some(2_000_000_000);
+        expected.http_only = true;
+        let valid = CookieWire {
+            name: expected.name.clone(),
+            value: expected.value.clone(),
+            domain: expected.domain.clone(),
+            path: expected.path.clone(),
+            expires: expected.expires,
+            secure: expected.secure,
+            http_only: expected.http_only,
+            include_subdomains: expected.include_subdomains,
+        };
+        assert_eq!(CookieWire::into_specs(vec![valid]).unwrap(), [expected]);
+
+        let invalid = CookieWire {
+            name: "bad;name".into(),
+            value: "secret".into(),
+            domain: "example.com".into(),
+            path: "/".into(),
+            expires: None,
+            secure: false,
+            http_only: false,
+            include_subdomains: false,
+        };
+        assert!(CookieWire::into_specs(vec![invalid]).is_err());
     }
 
     #[test]

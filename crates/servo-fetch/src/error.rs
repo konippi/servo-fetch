@@ -96,6 +96,25 @@ pub enum Error {
     /// A custom request header is malformed or not permitted.
     #[error("{0}")]
     InvalidHeader(String),
+
+    /// A worker result exceeds the supported transport payload size.
+    #[error("{kind} output is too large ({size} bytes; maximum {max} bytes)")]
+    OutputTooLarge {
+        /// Output category, such as screenshot or page text.
+        kind: &'static str,
+        /// Actual unencoded size.
+        size: usize,
+        /// Maximum supported unencoded size.
+        max: usize,
+    },
+
+    /// The isolated worker protocol could not continue.
+    #[error("isolated browser worker unavailable: {source}")]
+    WorkerUnavailable {
+        /// Underlying transport, framing, or worker error.
+        #[source]
+        source: BoxError,
+    },
 }
 
 impl Error {

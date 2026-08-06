@@ -2,6 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
@@ -312,8 +313,14 @@ struct PendingFetch {
     dedicated_ctx: Option<Rc<SoftwareRenderingContext>>,
 }
 
-/// Dispatch envelope for the Servo engine thread; today the only kind is a stateless one-shot [`FetchRequest`].
+/// Dispatch envelope for the process-local Servo engine thread.
 enum EngineMsg {
+    Initialize {
+        user_agent: Option<String>,
+        cookie_scope: Option<String>,
+        cookies: Vec<CookieSpec>,
+        reply: std::sync::mpsc::SyncSender<Result<(), EngineError>>,
+    },
     Fetch(FetchRequest),
 }
 
@@ -329,13 +336,25 @@ struct Engine {
 /// Servo engine — lives for the process lifetime. Shutdown is via process exit.
 static ENGINE: OnceLock<Engine> = OnceLock::new();
 static POLICY: OnceLock<crate::net::NetworkPolicy> = OnceLock::new();
+static ENGINE_STORAGE: OnceLock<(PathBuf, bool)> = OnceLock::new();
+
+pub(crate) fn configure_engine_storage(config_dir: PathBuf, temporary_storage: bool) -> Result<(), EngineError> {
+    ENGINE_STORAGE
+        .set((config_dir, temporary_storage))
+        .map_err(|_| anyhow!("Servo engine storage is already configured").into())
+}
+
+pub(crate) fn try_set_engine_policy(policy: crate::net::NetworkPolicy) -> Result<(), EngineError> {
+    if ENGINE.get().is_some() {
+        return Err(anyhow!("Servo engine policy cannot be changed after initialization").into());
+    }
+    POLICY
+        .set(policy)
+        .map_err(|_| anyhow!("Servo engine policy is already configured").into())
+}
 
 pub(crate) fn set_engine_policy(policy: crate::net::NetworkPolicy) {
-    assert!(
-        ENGINE.get().is_none(),
-        "servo_fetch::init called after engine initialization"
-    );
-    assert!(POLICY.set(policy).is_ok(), "servo_fetch::init called more than once");
+    try_set_engine_policy(policy).expect("servo_fetch::init must be called at most once before engine initialization");
 }
 
 fn pending_policy() -> crate::net::NetworkPolicy {
@@ -401,6 +420,27 @@ fn extraction_deadline_for(page_deadline: Instant) -> Instant {
     page_deadline.max(Instant::now() + EXTRACTION_BUDGET)
 }
 
+pub(crate) fn initialize_session(
+    user_agent: Option<&str>,
+    cookie_scope: Option<&str>,
+    cookies: &[CookieSpec],
+) -> Result<(), EngineError> {
+    let engine = ensure_engine();
+    let (reply, recv) = std::sync::mpsc::sync_channel(1);
+    engine
+        .requests
+        .try_send(EngineMsg::Initialize {
+            user_agent: user_agent.map(String::from),
+            cookie_scope: cookie_scope.map(String::from),
+            cookies: cookies.to_vec(),
+            reply,
+        })
+        .map_err(|e| anyhow!("failed to initialize isolated Servo session: {e}"))?;
+    engine.wake.signal();
+    recv.recv()
+        .unwrap_or_else(|_| Err(anyhow!("Servo engine stopped during session initialization").into()))
+}
+
 pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage, EngineError> {
     let engine = ensure_engine();
     let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<ServoPage, EngineError>>(1);
@@ -432,8 +472,8 @@ pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage
     let (reply_tx, reply_rx) = oneshot::channel::<Result<ServoPage, EngineError>>();
     let request = build_request(
         opts,
-        Box::new(move |r| {
-            let _ = reply_tx.send(r);
+        Box::new(move |result| {
+            let _ = reply_tx.send(result);
         }),
     );
     engine
@@ -463,6 +503,9 @@ fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, policy: crate::ne
         Err(e) => {
             if let Some(msg) = request_rx.blocking_recv() {
                 match msg {
+                    EngineMsg::Initialize { reply, .. } => {
+                        let _ = reply.send(Err(e.context("Servo initialization failed").into()));
+                    }
                     EngineMsg::Fetch(req) => (req.reply)(Err(e.context("Servo initialization failed").into())),
                 }
             }
@@ -480,16 +523,33 @@ fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, policy: crate::ne
     ucm.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
 
     let mut pending: HashMap<WebViewId, PendingFetch> = HashMap::new();
+    let mut baseline_user_agent = default_user_agent().to_owned();
 
     loop {
         while let Ok(msg) = request_rx.try_recv() {
-            accept_message(&servo, &rc_ctx, &delegate, &ucm, msg, &mut pending);
+            accept_message(
+                &servo,
+                &rc_ctx,
+                &delegate,
+                &ucm,
+                msg,
+                &mut pending,
+                &mut baseline_user_agent,
+            );
         }
 
         if pending.is_empty() {
             // Idle: block until a new message nudges us or the channel hangs up.
             match request_rx.blocking_recv() {
-                Some(msg) => accept_message(&servo, &rc_ctx, &delegate, &ucm, msg, &mut pending),
+                Some(msg) => accept_message(
+                    &servo,
+                    &rc_ctx,
+                    &delegate,
+                    &ucm,
+                    msg,
+                    &mut pending,
+                    &mut baseline_user_agent,
+                ),
                 None => return,
             }
             continue;
@@ -523,10 +583,34 @@ fn accept_message(
     ucm: &Rc<UserContentManager>,
     msg: EngineMsg,
     pending: &mut HashMap<WebViewId, PendingFetch>,
+    baseline_user_agent: &mut String,
 ) {
     match msg {
+        EngineMsg::Initialize {
+            user_agent,
+            cookie_scope,
+            cookies,
+            reply,
+        } => {
+            *baseline_user_agent = user_agent.unwrap_or_else(|| default_user_agent().to_owned());
+            servo.set_preference("user_agent", servo::PrefValue::Str(baseline_user_agent.clone()));
+            let result = if cookies.is_empty() {
+                Ok(())
+            } else if let Some(scope) = cookie_scope {
+                match Url::parse(&scope) {
+                    Ok(scope) => {
+                        crate::cookies::seed(servo, &scope, &cookies);
+                        Ok(())
+                    }
+                    Err(e) => Err(anyhow!("invalid cookie scope URL: {e}").into()),
+                }
+            } else {
+                Err(anyhow!("cookie_scope is required when session cookies are configured").into())
+            };
+            let _ = reply.send(result);
+        }
         EngineMsg::Fetch(req) => {
-            if let Some(p) = start_fetch(servo, rc_ctx, delegate, ucm, req) {
+            if let Some(p) = start_fetch(servo, rc_ctx, delegate, ucm, baseline_user_agent, req) {
                 pending.insert(p.webview.id(), p);
             }
         }
@@ -556,11 +640,16 @@ fn harvest(servo: &servo::Servo, delegate: &Rc<SharedDelegate>, pending: &mut Ha
     }
 }
 
+fn resolved_user_agent<'a>(request: Option<&'a str>, baseline: &'a str) -> &'a str {
+    request.unwrap_or(baseline)
+}
+
 fn start_fetch(
     servo: &servo::Servo,
     rc_ctx: &Rc<SoftwareRenderingContext>,
     delegate: &Rc<SharedDelegate>,
     ucm: &Rc<UserContentManager>,
+    baseline_user_agent: &str,
     req: FetchRequest,
 ) -> Option<PendingFetch> {
     let parsed_url = match Url::parse(&req.url) {
@@ -571,8 +660,8 @@ fn start_fetch(
         }
     };
 
-    let ua = req.user_agent.as_deref().unwrap_or_else(|| default_user_agent());
-    servo.set_preference("user_agent", servo::PrefValue::Str(ua.to_owned()));
+    let user_agent = resolved_user_agent(req.user_agent.as_deref(), baseline_user_agent);
+    servo.set_preference("user_agent", servo::PrefValue::Str(user_agent.to_owned()));
 
     crate::cookies::seed(servo, &parsed_url, &req.cookies);
 
@@ -720,8 +809,18 @@ fn build_servo(waker: FlagWaker) -> Result<(Rc<SoftwareRenderingContext>, servo:
         ..Preferences::default()
     };
 
+    let (config_dir, temporary_storage) = ENGINE_STORAGE
+        .get()
+        .cloned()
+        .map_or((None, false), |(path, temporary)| (Some(path), temporary));
+    let opts = servo::Opts {
+        config_dir,
+        temporary_storage,
+        ..servo::Opts::default()
+    };
     let rc = Rc::new(ctx);
     let servo = ServoBuilder::default()
+        .opts(opts)
         .preferences(prefs)
         .event_loop_waker(Box::new(waker))
         .build();
@@ -991,6 +1090,13 @@ mod tests {
             headers: http::HeaderMap::new(),
             reply,
         }
+    }
+
+    #[test]
+    fn request_user_agent_falls_back_to_engine_baseline() {
+        assert_eq!(resolved_user_agent(Some("Custom/1"), "Default/1"), "Custom/1");
+        assert_eq!(resolved_user_agent(None, "Default/1"), "Default/1");
+        assert_eq!(resolved_user_agent(None, "Session/1"), "Session/1");
     }
 
     #[test]

@@ -27,6 +27,7 @@ htmd = { workspace = true }
 http = { workspace = true }
 image = { workspace = true }
 pdf-extract = { workspace = true }
+postcard = { workspace = true }
 psl = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }

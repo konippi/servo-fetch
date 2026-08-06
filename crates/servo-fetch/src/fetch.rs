@@ -26,7 +26,7 @@ pub struct Page {
     pub layout_json: Option<String>,
     /// Per-node visibility flags from the visibility-aware extraction pass.
     #[serde(skip)]
-    visibility_json: Option<String>,
+    pub(crate) visibility_json: Option<String>,
     /// Result of JavaScript evaluation, if [`FetchOptions::javascript`] was used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub js_result: Option<String>,
@@ -40,13 +40,13 @@ pub struct Page {
     pub extracted: Option<Value>,
     /// PNG-encoded screenshot bytes — read via [`Page::screenshot_png`].
     #[serde(skip)]
-    screenshot_png: Option<Vec<u8>>,
+    pub(crate) screenshot_png: Option<Vec<u8>>,
     /// Typed AccessKit tree, shared cheaply across [`Page`] clones.
     #[serde(skip)]
-    a11y: Option<Arc<HashMap<NodeId, Node>>>,
+    pub(crate) a11y: Option<Arc<HashMap<NodeId, Node>>>,
     /// Visibility policy that was active when this page was fetched.
     #[serde(skip)]
-    visibility_policy: crate::visibility::VisibilityPolicy,
+    pub(crate) visibility_policy: crate::visibility::VisibilityPolicy,
 }
 
 impl Page {
@@ -345,14 +345,24 @@ impl FetchOptions {
     }
 }
 
+fn fetch_servo_blocking(opts: &FetchOptions) -> crate::error::Result<Page> {
+    let bridge_opts = build_bridge_options(opts);
+    let servo_page = crate::bridge::fetch_page(bridge_opts).map_err(|error| map_engine_error(error, opts))?;
+    Ok(finalize_page(servo_page, opts))
+}
+
+pub(crate) fn fetch_in_process_blocking(opts: &FetchOptions) -> crate::error::Result<Page> {
+    crate::net::ensure_crypto_provider();
+    crate::net::validate_url(&opts.url)?;
+    fetch_servo_blocking(opts)
+}
+
 /// Fetch a single page via the embedded Servo engine (blocking).
 pub fn fetch_blocking(opts: &FetchOptions) -> crate::error::Result<Page> {
     if let Some(pdf_page) = pre_fetch(opts)? {
         return Ok(pdf_page);
     }
-    let bridge_opts = build_bridge_options(opts);
-    let servo_page = crate::bridge::fetch_page(bridge_opts).map_err(|e| map_engine_error(e, opts))?;
-    Ok(finalize_page(servo_page, opts))
+    fetch_servo_blocking(opts)
 }
 
 /// Fetch a single page via the embedded Servo engine.

@@ -29,6 +29,7 @@ pub struct CrawlOptions {
     pub(crate) selector: Option<String>,
     pub(crate) json: bool,
     pub(crate) user_agent: Option<String>,
+    pub(crate) robots_user_agent: Option<String>,
     pub(crate) concurrency: usize,
     pub(crate) delay: Option<Duration>,
     pub(crate) cookies: Vec<crate::cookies::CookieSpec>,
@@ -49,6 +50,7 @@ impl CrawlOptions {
             selector: None,
             json: false,
             user_agent: None,
+            robots_user_agent: None,
             concurrency: 1,
             delay: Some(Duration::from_millis(500)),
             cookies: Vec::new(),
@@ -252,7 +254,7 @@ where
     let plan = build_crawl_plan(opts)?;
     let robots = spawn_blocking({
         let seed = plan.seed.clone();
-        let user_agent = plan.user_agent.clone();
+        let user_agent = plan.robots_user_agent.clone();
         let headers = plan.headers.clone();
         let timeout = Duration::from_secs(plan.timeout_secs);
         move || crate::robots::RobotsRules::fetch(&seed, user_agent.as_deref(), &headers, timeout)
@@ -342,6 +344,7 @@ fn build_crawl_plan(opts: &CrawlOptions) -> crate::error::Result<CrawlPlan> {
         selector: opts.selector.clone(),
         json: opts.json,
         user_agent: opts.user_agent.clone(),
+        robots_user_agent: opts.robots_user_agent.clone().or_else(|| opts.user_agent.clone()),
         concurrency: opts.concurrency,
         delay: opts.delay,
         cookies: opts.cookies.clone(),
@@ -361,6 +364,8 @@ pub(crate) struct CrawlPlan {
     pub selector: Option<String>,
     pub json: bool,
     pub user_agent: Option<String>,
+    /// User-Agent used only for the out-of-engine robots.txt request.
+    pub robots_user_agent: Option<String>,
     /// Parallel fetch limit (clamped to >=1; yields in completion order when >1).
     pub concurrency: usize,
     /// Dispatch interval; `None` disables rate limiting.
@@ -781,6 +786,7 @@ mod tests {
             selector: None,
             json: false,
             user_agent: None,
+            robots_user_agent: None,
             concurrency: 1,
             delay: None,
             cookies: Vec::new(),
@@ -1012,6 +1018,7 @@ mod tests {
             selector: None,
             json: false,
             user_agent: None,
+            robots_user_agent: None,
             concurrency: 1,
             delay: None,
             cookies: Vec::new(),
@@ -1060,6 +1067,7 @@ mod tests {
             selector: None,
             json: false,
             user_agent: None,
+            robots_user_agent: None,
             concurrency: 1,
             delay: None,
             cookies: Vec::new(),

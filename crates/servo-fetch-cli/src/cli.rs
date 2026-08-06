@@ -149,6 +149,9 @@ pub(crate) enum Command {
     Map(MapArgs),
     /// Probe the local /health endpoint. Exits 0 on 2xx, 1 otherwise.
     Healthcheck(HealthcheckArgs),
+    /// Serve the bounded internal browser-worker protocol over stdio.
+    #[command(name = "__worker", hide = true)]
+    Worker,
     /// Serve JSON-RPC over stdio for language bindings.
     #[command(hide = true)]
     Rpc(RpcArgs),
@@ -156,7 +159,7 @@ pub(crate) enum Command {
 
 impl Command {
     pub(crate) fn needs_servo_init(&self) -> bool {
-        !matches!(self, Self::Healthcheck(_))
+        !matches!(self, Self::Healthcheck(_) | Self::Worker)
     }
 }
 

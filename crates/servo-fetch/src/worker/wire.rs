@@ -587,10 +587,7 @@ mod tests {
         let fallback = CrawlWire::from_options(&CrawlOptions::new("https://example.com"));
         let options = fallback.into_options(Some("SessionBot/1.0")).unwrap();
         assert_eq!(options.robots_user_agent.as_deref(), Some("SessionBot/1.0"));
-    }
 
-    #[test]
-    fn zero_crawl_delay_disables_rate_limiting() {
         let mut wire = CrawlWire::from_options(&CrawlOptions::new("https://example.com"));
         wire.delay_ms = Some(0);
         let options = wire.into_options(None).unwrap();

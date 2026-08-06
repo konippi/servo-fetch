@@ -602,23 +602,34 @@ mod tests {
     }
 
     #[test]
-    fn cookie_wire_validation_preserves_valid_fields() {
-        let wire = CookieWire {
-            name: "sid".into(),
+    fn cookie_wire_preserves_valid_fields_and_rejects_invalid_input() {
+        let mut expected = spec("example.com", true);
+        expected.path = "/account".into();
+        expected.expires = Some(2_000_000_000);
+        expected.http_only = true;
+        let valid = CookieWire {
+            name: expected.name.clone(),
+            value: expected.value.clone(),
+            domain: expected.domain.clone(),
+            path: expected.path.clone(),
+            expires: expected.expires,
+            secure: expected.secure,
+            http_only: expected.http_only,
+            include_subdomains: expected.include_subdomains,
+        };
+        assert_eq!(CookieWire::into_specs(vec![valid]).unwrap(), [expected]);
+
+        let invalid = CookieWire {
+            name: "bad;name".into(),
             value: "secret".into(),
             domain: "example.com".into(),
-            path: "/account".into(),
-            expires: Some(2_000_000_000),
-            secure: true,
-            http_only: true,
+            path: "/".into(),
+            expires: None,
+            secure: false,
+            http_only: false,
             include_subdomains: false,
         };
-        let decoded = CookieWire::into_specs(vec![wire]).unwrap();
-        assert_eq!(decoded.len(), 1);
-        assert_eq!(decoded[0].name, "sid");
-        assert_eq!(decoded[0].path, "/account");
-        assert_eq!(decoded[0].expires, Some(2_000_000_000));
-        assert!(decoded[0].secure && decoded[0].http_only);
+        assert!(CookieWire::into_specs(vec![invalid]).is_err());
     }
 
     #[test]

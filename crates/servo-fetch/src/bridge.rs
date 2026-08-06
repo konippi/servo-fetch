@@ -1093,9 +1093,8 @@ mod tests {
     }
 
     #[test]
-    fn request_user_agent_falls_back_to_engine_baseline() {
-        assert_eq!(resolved_user_agent(Some("Custom/1"), "Default/1"), "Custom/1");
-        assert_eq!(resolved_user_agent(None, "Default/1"), "Default/1");
+    fn request_user_agent_prefers_override_and_falls_back_to_session() {
+        assert_eq!(resolved_user_agent(Some("Request/1"), "Session/1"), "Request/1");
         assert_eq!(resolved_user_agent(None, "Session/1"), "Session/1");
     }
 

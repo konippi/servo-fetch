@@ -163,8 +163,7 @@ pub(super) fn handle_worker_initialize(config: InitializeSession, state: &mut Wo
     };
     let session_user_agent = config.user_agent.clone();
 
-    // Everything after this point mutates process-global Servo state. A failure
-    // is terminal for this one-use worker and must never appear retryable.
+    // Mutating process-global Servo state makes any initialization failure terminal.
     *state = WorkerState::Failed;
     let result = crate::bridge::configure_engine_storage(config.config_dir, config.temporary_storage)
         .map_err(|error| worker_error(error.to_string()))

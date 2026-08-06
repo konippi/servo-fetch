@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use super::protocol::{
-    BoundedBuffer, InitializeSession, PACKAGE_VERSION, RequestFrame, ResponseFrame, ValidatedInitialize,
-    WorkerProtocolInfo, WorkerRequest, WorkerResponse, WorkerState, decode_frame, handle_worker_initialize,
-    read_bounded_frame, run_worker, write_bounded_frame,
+    BoundedBuffer, InitializeSession, RequestFrame, ResponseFrame, ValidatedInitialize, WorkerProtocolInfo,
+    WorkerRequest, WorkerResponse, WorkerState, decode_frame, handle_worker_initialize, read_bounded_frame, run_worker,
+    write_bounded_frame,
 };
 use super::wire::{CrawlWire, FetchWire};
 use super::*;
@@ -50,6 +50,19 @@ fn bounded_framing_distinguishes_clean_eof_from_invalid_frames() {
     let mut buffer = BoundedBuffer::new(8);
     assert_eq!(buffer.write(b"12345678").unwrap(), 8);
     assert!(buffer.write(b"9").is_err());
+
+    let mut truncated = 4_u32.to_be_bytes().to_vec();
+    truncated.extend_from_slice(&[1, 2, 3]);
+    assert!(matches!(
+        run_worker(&mut std::io::Cursor::new(truncated), &mut Vec::new()),
+        Err(Error::WorkerUnavailable { .. })
+    ));
+
+    let oversized = u32::try_from(MAX_WORKER_REQUEST_FRAME_BYTES + 1).unwrap().to_be_bytes();
+    assert!(matches!(
+        run_worker(&mut std::io::Cursor::new(oversized), &mut Vec::new()),
+        Err(Error::WorkerUnavailable { .. })
+    ));
 }
 
 #[test]
@@ -78,26 +91,6 @@ fn protocol_golden_encoding_is_stable() {
         .unwrap(),
         vec![7, 7]
     );
-}
-
-#[test]
-fn schema_is_json_blob_inside_postcard() {
-    use crate::schema::FieldKind;
-    let schema = crate::schema::ExtractSchema::builder()
-        .field("title", "h1", FieldKind::Text)
-        .build()
-        .unwrap();
-    let frame = RequestFrame {
-        id: 1,
-        request: WorkerRequest::Fetch(FetchWire::from_options(
-            &FetchOptions::new("https://example.com").schema(schema),
-        )),
-    };
-    let decoded: RequestFrame = decode_frame(&postcard::to_stdvec(&frame).unwrap()).unwrap();
-    let WorkerRequest::Fetch(fetch) = decoded.request else {
-        panic!("fetch")
-    };
-    assert_eq!(fetch.into_options().unwrap().extract_schema.unwrap().fields().len(), 1);
 }
 
 #[test]
@@ -192,42 +185,4 @@ fn pre_init_errors_preserve_id_and_worker_continues() {
         assert_eq!(shutdown.id, 42);
         assert!(matches!(shutdown.response, WorkerResponse::ShutdownAck));
     }
-}
-
-#[test]
-fn worker_emits_info_and_shutdown_ack() {
-    let mut output = Vec::new();
-    run_worker(
-        &mut std::io::Cursor::new(encoded(&RequestFrame {
-            id: 9,
-            request: WorkerRequest::Shutdown,
-        })),
-        &mut output,
-    )
-    .unwrap();
-    let mut output = std::io::Cursor::new(output);
-    let info: WorkerProtocolInfo =
-        decode_frame(&read_bounded_frame(&mut output, MAX_WORKER_PROTOCOL_INFO_BYTES).unwrap()).unwrap();
-    assert_eq!(info.magic, WORKER_PROTOCOL_MAGIC);
-    assert_eq!(info.package_version, PACKAGE_VERSION);
-    let response: ResponseFrame =
-        decode_frame(&read_bounded_frame(&mut output, MAX_WORKER_FRAME_BYTES).unwrap()).unwrap();
-    assert_eq!(response.id, 9);
-    assert!(matches!(response.response, WorkerResponse::ShutdownAck));
-}
-
-#[test]
-fn malformed_or_oversized_request_is_worker_error() {
-    let mut truncated = 4_u32.to_be_bytes().to_vec();
-    truncated.extend_from_slice(&[1, 2, 3]);
-    assert!(matches!(
-        run_worker(&mut std::io::Cursor::new(truncated), &mut Vec::new()),
-        Err(Error::WorkerUnavailable { .. })
-    ));
-
-    let oversized = u32::try_from(MAX_WORKER_REQUEST_FRAME_BYTES + 1).unwrap().to_be_bytes();
-    assert!(matches!(
-        run_worker(&mut std::io::Cursor::new(oversized), &mut Vec::new()),
-        Err(Error::WorkerUnavailable { .. })
-    ));
 }

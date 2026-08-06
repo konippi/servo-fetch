@@ -84,7 +84,6 @@ fn internal_worker_dispatches_before_clap_and_logging() {
     #[derive(serde::Deserialize)]
     struct WorkerProtocolInfo {
         magic: [u8; 8],
-        protocol_version: u32,
         package_version: String,
     }
     let output = servo_fetch().arg("__worker").assert().success().get_output().clone();
@@ -93,7 +92,6 @@ fn internal_worker_dispatches_before_clap_and_logging() {
     assert_eq!(output.stdout.len(), length + 4);
     let info: WorkerProtocolInfo = postcard::from_bytes(&output.stdout[4..]).unwrap();
     assert_eq!(info.magic, *b"SFETCHW\0");
-    assert_eq!(info.protocol_version, 1);
     assert_eq!(info.package_version, env!("CARGO_PKG_VERSION"));
 }
 

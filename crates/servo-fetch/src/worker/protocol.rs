@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::wire::{CrawlProgressWire, CrawlResultWire, CrawlWire, FetchWire, PageWire, WorkerErrorWire};
 use super::{
     MAX_WORKER_BLOB_CHUNK_BYTES, MAX_WORKER_FRAME_BYTES, MAX_WORKER_PROTOCOL_INFO_BYTES,
-    MAX_WORKER_REQUEST_FRAME_BYTES, WORKER_PROTOCOL_MAGIC, WORKER_PROTOCOL_VERSION, worker_error,
+    MAX_WORKER_REQUEST_FRAME_BYTES, WORKER_PROTOCOL_MAGIC, worker_error,
 };
 use crate::NetworkPolicy;
 use crate::cookies::CookieWire;
@@ -121,7 +121,6 @@ pub(super) fn run_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> R
         writer,
         &WorkerProtocolInfo {
             magic: WORKER_PROTOCOL_MAGIC,
-            protocol_version: WORKER_PROTOCOL_VERSION,
             package_version: PACKAGE_VERSION.to_owned(),
         },
         MAX_WORKER_PROTOCOL_INFO_BYTES,
@@ -341,7 +340,6 @@ pub(super) enum WorkerState {
 #[derive(Serialize, Deserialize)]
 pub(super) struct WorkerProtocolInfo {
     pub(super) magic: [u8; 8],
-    pub(super) protocol_version: u32,
     pub(super) package_version: String,
 }
 

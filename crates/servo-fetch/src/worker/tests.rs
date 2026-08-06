@@ -53,15 +53,14 @@ fn bounded_framing_distinguishes_clean_eof_from_invalid_frames() {
 }
 
 #[test]
-fn protocol_v1_golden_encoding_is_stable() {
+fn protocol_golden_encoding_is_stable() {
     let info = WorkerProtocolInfo {
         magic: WORKER_PROTOCOL_MAGIC,
-        protocol_version: 1,
         package_version: "1.2.3".into(),
     };
     assert_eq!(
         postcard::to_stdvec(&info).unwrap(),
-        [WORKER_PROTOCOL_MAGIC.as_slice(), &[1, 5], b"1.2.3"].concat()
+        [WORKER_PROTOCOL_MAGIC.as_slice(), &[5], b"1.2.3"].concat()
     );
     assert_eq!(
         postcard::to_stdvec(&RequestFrame {
@@ -210,7 +209,6 @@ fn worker_emits_info_and_shutdown_ack() {
     let info: WorkerProtocolInfo =
         decode_frame(&read_bounded_frame(&mut output, MAX_WORKER_PROTOCOL_INFO_BYTES).unwrap()).unwrap();
     assert_eq!(info.magic, WORKER_PROTOCOL_MAGIC);
-    assert_eq!(info.protocol_version, WORKER_PROTOCOL_VERSION);
     assert_eq!(info.package_version, PACKAGE_VERSION);
     let response: ResponseFrame =
         decode_frame(&read_bounded_frame(&mut output, MAX_WORKER_FRAME_BYTES).unwrap()).unwrap();

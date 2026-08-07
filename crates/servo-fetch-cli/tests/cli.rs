@@ -193,6 +193,77 @@ fn format_png_creates_file() {
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
+fn full_page_screenshot_stabilizes_resize_triggered_content() {
+    block_on(async {
+        let server = MockServer::start().await;
+        let html = r#"<!doctype html>
+<html>
+<head>
+<style>
+  html, body { margin: 0; }
+  .spacer { height: 1200px; }
+  #target { height: 100px; opacity: 0; }
+  #target.revealed { height: 1000px; opacity: 1; }
+  #target img { display: block; width: 120px; height: 120px; margin-top: 800px; }
+  .tail { height: 200px; }
+</style>
+</head>
+<body>
+  <div class="spacer"></div>
+  <div id="target"></div>
+  <div class="tail"></div>
+  <script>
+    const target = document.querySelector('#target');
+    new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      target.classList.add('revealed');
+      const image = document.createElement('img');
+      image.src = '/purple.svg';
+      target.appendChild(image);
+    }).observe(target);
+  </script>
+</body>
+</html>"#;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(html))
+            .mount(&server)
+            .await;
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="#9333ea"/></svg>"##;
+        Mock::given(method("GET"))
+            .and(path("/purple.svg"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(svg.as_bytes(), "image/svg+xml"))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("full-page-io.png");
+        servo_fetch()
+            .args([
+                "--format",
+                "png",
+                "--full-page",
+                "-o",
+                file.to_str().unwrap(),
+                "--allow-private-addresses",
+                TIMEOUT,
+                &server.uri(),
+            ])
+            .assert()
+            .success();
+
+        let screenshot = image::open(&file).expect("decode PNG").to_rgb8();
+        assert!(screenshot.height() >= 2_300, "dynamic page growth was clipped");
+        let purple = screenshot
+            .pixels()
+            .filter(|pixel| pixel.0 == [0x93, 0x33, 0xea])
+            .count();
+        assert!(purple > 5_000, "IntersectionObserver image was not painted");
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
 fn crawl_produces_ndjson() {
     block_on(async {
         let s = MockServer::start().await;

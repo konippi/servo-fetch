@@ -1,5 +1,5 @@
 //! Fetch, render, and extract web content as Markdown, JSON, or screenshots with an embedded Servo browser engine.
-//! No Chromium, no containers, no external processes.
+//! No Chromium and no external services; optional [`BrowserSession`]s isolate browser state in one-use worker processes.
 //!
 //! ## Async usage
 //!
@@ -39,6 +39,7 @@ pub(crate) mod robots;
 pub(crate) mod runtime;
 pub(crate) mod scope;
 pub(crate) mod screenshot;
+pub(crate) mod session;
 pub(crate) mod sys;
 mod worker;
 
@@ -50,6 +51,10 @@ pub use fetch::{ConsoleLevel, ConsoleMessage, FetchOptions, Page, extract_json, 
 pub use http::HeaderMap;
 pub use map::{MapOptions, MappedUrl, map};
 pub use net::{NetworkPolicy, validate_url};
+pub use session::{
+    BrowserSession, BrowserSessionConfig, SessionBroker, SessionBrokerConfig, SessionCancellation, WorkerCommand,
+    configure_default_broker, set_default_worker_command,
+};
 pub use visibility::{VisibilityFlags, VisibilityPolicy};
 #[doc(hidden)]
 pub use worker::run_worker_stdio;

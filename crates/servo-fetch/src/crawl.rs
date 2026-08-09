@@ -58,6 +58,18 @@ impl CrawlOptions {
         }
     }
 
+    /// Validate the seed URL and include/exclude glob syntax without starting a browser worker.
+    pub(crate) fn validate(&self) -> crate::error::Result<()> {
+        net::validate_url(&self.url)?;
+        if !self.include.is_empty() {
+            crate::scope::build_globset(&self.include)?;
+        }
+        if !self.exclude.is_empty() {
+            crate::scope::build_globset(&self.exclude)?;
+        }
+        Ok(())
+    }
+
     /// Maximum number of pages to crawl (default: 50).
     pub fn limit(mut self, n: usize) -> Self {
         self.limit = n;

@@ -19,7 +19,7 @@ pub(crate) fn probe(
     fetch_bytes(url, Duration::from_secs(timeout_secs), user_agent, headers).ok()
 }
 
-fn looks_like_pdf_url(url: &str) -> bool {
+pub(crate) fn looks_like_pdf_url(url: &str) -> bool {
     let Ok(parsed) = url::Url::parse(url) else {
         return false;
     };

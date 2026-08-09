@@ -108,6 +108,46 @@ pub enum Error {
         max: usize,
     },
 
+    /// Browser-session acquisition or an in-flight operation was cancelled.
+    #[error("browser session operation was cancelled")]
+    SessionCancelled,
+
+    /// The worker did not produce the next protocol frame before its deadline.
+    #[error("browser worker {operation} timed out after {timeout:?}")]
+    WorkerProtocolTimeout {
+        /// Protocol operation being awaited.
+        operation: &'static str,
+        /// Configured protocol deadline.
+        timeout: Duration,
+    },
+
+    /// Browser-session broker configuration is invalid.
+    #[error("invalid browser session configuration: {reason}")]
+    InvalidSessionConfig {
+        /// Validation failure description.
+        reason: String,
+    },
+
+    /// No isolated worker could be acquired before the configured deadline.
+    #[error("browser session acquisition timed out after {}s", timeout.as_secs())]
+    SessionAcquireTimeout {
+        /// The configured acquisition timeout.
+        timeout: Duration,
+    },
+
+    /// An operation cannot preserve the documented browser-session semantics.
+    #[error("{operation} is not supported in BrowserSession: {reason}")]
+    UnsupportedSessionOperation {
+        /// Operation that was rejected.
+        operation: &'static str,
+        /// Why it cannot preserve session semantics.
+        reason: &'static str,
+    },
+
+    /// The bounded browser-session queue is full.
+    #[error("browser session broker is at capacity")]
+    SessionBrokerFull,
+
     /// The isolated worker protocol could not continue.
     #[error("isolated browser worker unavailable: {source}")]
     WorkerUnavailable {

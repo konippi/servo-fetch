@@ -25,6 +25,10 @@ fn main() -> ! {
         let code = exit::exit_code(servo_fetch::run_worker_stdio().map_err(anyhow::Error::from));
         exit::flush_and_exit(code);
     }
+    if let Err(error) = configure_worker_command() {
+        let result: anyhow::Result<()> = Err(error);
+        exit::flush_and_exit(exit::exit_code(result));
+    }
 
     let args = Cli::parse();
     logging::init(logging::Verbosity::from_flags(args.verbose, args.quiet));
@@ -37,6 +41,14 @@ fn is_internal_worker() -> bool {
     let mut args = std::env::args_os();
     let _ = args.next();
     args.next().is_some_and(|arg| arg == "__worker") && args.next().is_none()
+}
+
+fn configure_worker_command() -> anyhow::Result<()> {
+    let program = std::env::var_os("SERVO_FETCH_WORKER")
+        .map(std::path::PathBuf::from)
+        .map_or_else(std::env::current_exe, Ok)?;
+    servo_fetch::set_default_worker_command(servo_fetch::WorkerCommand::new(program).arg("__worker"))
+        .map_err(anyhow::Error::from)
 }
 
 fn dispatch(args: &Cli) -> anyhow::Result<()> {

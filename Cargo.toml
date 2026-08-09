@@ -21,6 +21,7 @@ bitflags = "2"
 clap = { version = "4", features = ["derive"] }
 console = "0.16"
 cookie = "0.18"
+crossbeam-channel = "=0.5.15"
 cssparser = "0.36"
 dom_query = "0.28"
 dom_smoothie = "0.18"
@@ -57,6 +58,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }
 ureq = { version = "3", default-features = false, features = ["gzip", "rustls-no-provider", "rustls-webpki-roots"] }
 url = "2"
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 wiremock = "0.6"
 
 [workspace.lints.rust]

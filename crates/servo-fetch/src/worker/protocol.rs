@@ -16,10 +16,10 @@ use crate::NetworkPolicy;
 use crate::cookies::CookieWire;
 use crate::error::{Error, Result};
 
-pub(super) const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub(crate) const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 const FRAME_LENGTH_BYTES: usize = size_of::<u32>();
 
-pub(super) fn decode_frame<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
+pub(crate) fn decode_frame<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
     let (value, remainder) = postcard::take_from_bytes(bytes).map_err(|error| worker_error(error.to_string()))?;
     if !remainder.is_empty() {
         return Err(worker_error("worker frame has trailing bytes"));
@@ -27,7 +27,7 @@ pub(super) fn decode_frame<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
     Ok(value)
 }
 
-pub(super) fn read_bounded_frame(reader: &mut impl Read, max: usize) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read_bounded_frame(reader: &mut impl Read, max: usize) -> std::io::Result<Vec<u8>> {
     let mut prefix = [0; FRAME_LENGTH_BYTES];
     loop {
         match reader.read(&mut prefix[..1]) {
@@ -63,13 +63,13 @@ fn truncated_frame(error: std::io::Error) -> std::io::Error {
     }
 }
 
-pub(super) struct BoundedBuffer {
-    pub(super) bytes: Vec<u8>,
+pub(crate) struct BoundedBuffer {
+    pub(crate) bytes: Vec<u8>,
     max: usize,
 }
 
 impl BoundedBuffer {
-    pub(super) fn new(max: usize) -> Self {
+    pub(crate) fn new(max: usize) -> Self {
         Self {
             bytes: Vec::with_capacity(max.min(8 * 1024)),
             max,
@@ -94,7 +94,7 @@ impl Write for BoundedBuffer {
     }
 }
 
-pub(super) fn write_bounded_frame(writer: &mut impl Write, value: &impl Serialize, max: usize) -> Result<()> {
+pub(crate) fn write_bounded_frame(writer: &mut impl Write, value: &impl Serialize, max: usize) -> Result<()> {
     let mut frame = BoundedBuffer::new(max);
     postcard::to_io(value, &mut frame).map_err(|error| worker_error(error.to_string()))?;
     let length = u32::try_from(frame.bytes.len()).map_err(|_| worker_error("worker frame length exceeds u32"))?;
@@ -107,8 +107,74 @@ fn write_response(writer: &mut impl Write, id: u64, response: WorkerResponse) ->
     write_bounded_frame(writer, &ResponseFrame { id, response }, MAX_WORKER_FRAME_BYTES)
 }
 
+/// Terminate the worker as soon as the owning parent process disappears.
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn install_parent_lifeline() -> Result<()> {
+    use std::os::fd::{FromRawFd, OwnedFd};
+
+    let Some(raw_fd) = std::env::var_os(super::PARENT_LIFELINE_FD_ENV) else {
+        return Ok(());
+    };
+    let raw_fd = raw_fd
+        .to_str()
+        .ok_or_else(|| worker_error("parent lifeline descriptor is not valid UTF-8"))?
+        .parse::<i32>()
+        .map_err(|error| worker_error(format!("invalid parent lifeline descriptor: {error}")))?;
+    if raw_fd < 0 {
+        return Err(worker_error("parent lifeline descriptor is negative"));
+    }
+    // Duplicate instead of adopting the inherited descriptor: fcntl validates it
+    // and returns a fresh descriptor, so a spoofed or already-owned value in the
+    // environment can never be double-closed through OwnedFd.
+    // SAFETY: fcntl(F_DUPFD_CLOEXEC) either fails or returns a new descriptor
+    // whose sole owner is the OwnedFd constructed below.
+    let duplicated = unsafe { libc::fcntl(raw_fd, libc::F_DUPFD_CLOEXEC, 3) };
+    if duplicated < 0 {
+        return Err(worker_error(std::io::Error::last_os_error()));
+    }
+    // SAFETY: `duplicated` was just created by fcntl and has independent ownership.
+    let descriptor = unsafe { OwnedFd::from_raw_fd(duplicated) };
+    std::thread::Builder::new()
+        .name("servo-fetch-parent-lifeline".into())
+        .spawn(move || {
+            let mut pipe = std::fs::File::from(descriptor);
+            let mut byte = [0];
+            loop {
+                match pipe.read(&mut byte) {
+                    Ok(0) => {
+                        // SAFETY: parent loss requires process-wide termination without Servo static destructors.
+                        unsafe { libc::_exit(0) };
+                    }
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(_) => {
+                        // SAFETY: a broken lifeline is equivalent to losing the owning parent.
+                        unsafe { libc::_exit(1) };
+                    }
+                }
+            }
+        })
+        .map_err(worker_error)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn install_parent_lifeline() -> Result<()> {
+    Ok(())
+}
+
+/// Reject a response frame whose id does not match the awaited request.
+pub(crate) fn validate_response(response: &ResponseFrame, id: u64) -> Result<()> {
+    if response.id != id {
+        return Err(worker_error("worker response id mismatch"));
+    }
+    Ok(())
+}
+
 /// Run the isolated worker protocol before any Servo use.
 pub fn run_worker_stdio() -> Result<()> {
+    install_parent_lifeline()?;
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut reader = stdin.lock();
@@ -116,7 +182,7 @@ pub fn run_worker_stdio() -> Result<()> {
     run_worker(&mut reader, &mut writer)
 }
 
-pub(super) fn run_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<()> {
+pub(crate) fn run_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<()> {
     write_bounded_frame(
         writer,
         &WorkerProtocolInfo {
@@ -148,7 +214,7 @@ pub(super) fn run_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> R
     }
 }
 
-pub(super) fn handle_worker_initialize(config: InitializeSession, state: &mut WorkerState) -> WorkerResponse {
+pub(crate) fn handle_worker_initialize(config: InitializeSession, state: &mut WorkerState) -> WorkerResponse {
     if !matches!(state, WorkerState::AwaitingInitialize) {
         let message = if matches!(state, WorkerState::Ready { .. }) {
             "worker session is already initialized"
@@ -189,11 +255,11 @@ pub(super) fn handle_worker_initialize(config: InitializeSession, state: &mut Wo
     }
 }
 
-pub(super) struct ValidatedInitialize {
-    pub(super) policy: NetworkPolicy,
-    pub(super) user_agent: Option<String>,
+pub(crate) struct ValidatedInitialize {
+    pub(crate) policy: NetworkPolicy,
+    pub(crate) user_agent: Option<String>,
     cookies: Vec<crate::cookies::CookieSpec>,
-    pub(super) cookie_scope: Option<String>,
+    pub(crate) cookie_scope: Option<String>,
     config_dir: PathBuf,
     temporary_storage: bool,
 }
@@ -201,7 +267,7 @@ pub(super) struct ValidatedInitialize {
 impl ValidatedInitialize {
     const MAX_USER_AGENT_BYTES: usize = 8 * 1024;
 
-    pub(super) fn from_wire(config: InitializeSession) -> Result<Self> {
+    pub(crate) fn from_wire(config: InitializeSession) -> Result<Self> {
         let policy = if config.permissive_network {
             NetworkPolicy::PERMISSIVE
         } else {
@@ -276,14 +342,14 @@ fn handle_worker_fetch(id: u64, fetch: FetchWire, state: &WorkerState, writer: &
 }
 
 #[derive(Default)]
-pub(super) struct CrawlProgressState {
+pub(crate) struct CrawlProgressState {
     processed: u64,
     emitted: u64,
     suppressed: u64,
 }
 
 impl CrawlProgressState {
-    pub(super) fn observe(&mut self, event: crate::crawl::CrawlSessionEvent) -> WorkerResponse {
+    pub(crate) fn observe(&mut self, event: crate::crawl::CrawlSessionEvent) -> WorkerResponse {
         self.processed = self.processed.saturating_add(1);
         match event {
             crate::crawl::CrawlSessionEvent::Result(result) => {
@@ -330,36 +396,36 @@ fn handle_worker_crawl(id: u64, crawl: CrawlWire, state: &WorkerState, writer: &
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub(super) enum WorkerState {
+pub(crate) enum WorkerState {
     AwaitingInitialize,
     Ready { user_agent: Option<String> },
     Failed,
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct WorkerProtocolInfo {
-    pub(super) magic: [u8; 8],
-    pub(super) package_version: String,
+pub(crate) struct WorkerProtocolInfo {
+    pub(crate) magic: [u8; 8],
+    pub(crate) package_version: String,
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct InitializeSession {
-    pub(super) permissive_network: bool,
-    pub(super) user_agent: Option<String>,
-    pub(super) cookies: Vec<CookieWire>,
-    pub(super) cookie_scope: Option<String>,
-    pub(super) config_dir: PathBuf,
-    pub(super) temporary_storage: bool,
+pub(crate) struct InitializeSession {
+    pub(crate) permissive_network: bool,
+    pub(crate) user_agent: Option<String>,
+    pub(crate) cookies: Vec<CookieWire>,
+    pub(crate) cookie_scope: Option<String>,
+    pub(crate) config_dir: PathBuf,
+    pub(crate) temporary_storage: bool,
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct RequestFrame {
-    pub(super) id: u64,
-    pub(super) request: WorkerRequest,
+pub(crate) struct RequestFrame {
+    pub(crate) id: u64,
+    pub(crate) request: WorkerRequest,
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) enum WorkerRequest {
+pub(crate) enum WorkerRequest {
     Initialize(InitializeSession),
     Fetch(FetchWire),
     Crawl(CrawlWire),
@@ -367,13 +433,13 @@ pub(super) enum WorkerRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct ResponseFrame {
-    pub(super) id: u64,
-    pub(super) response: WorkerResponse,
+pub(crate) struct ResponseFrame {
+    pub(crate) id: u64,
+    pub(crate) response: WorkerResponse,
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) enum WorkerResponse {
+pub(crate) enum WorkerResponse {
     SessionInitialized,
     FetchResult(PageWire),
     ScreenshotChunk(Vec<u8>),

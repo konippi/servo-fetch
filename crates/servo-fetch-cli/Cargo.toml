@@ -33,6 +33,10 @@ path = "tests/parallel.rs"
 name = "rpc"
 path = "tests/rpc.rs"
 
+[[test]]
+name = "session"
+path = "tests/session.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }

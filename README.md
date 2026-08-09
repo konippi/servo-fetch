@@ -44,6 +44,7 @@ const md = await fetch("https://example.com");
 - **Layout- and visibility-aware extraction** — strips navbars, sidebars, footers by rendered position, plus cookie banners, modals, and CSS-hidden content (`opacity:0`, `aria-hidden`, sr-only)
 - **Schema-driven JSON** — declarative CSS-selector schema pulls structured data
 - **Parallel batch fetch** — multiple URLs fetched concurrently
+- **Isolated browser sessions** — one-use worker process per session keeps cookies and storage fully separated
 - **Site crawling** — BFS link traversal with robots.txt, same-site scope, and rate limiting
 - **URL discovery** — sitemap-based URL mapping without rendering (fast, lightweight)
 - **Screenshots without GPU** — software renderer captures PNG/full-page screenshots anywhere

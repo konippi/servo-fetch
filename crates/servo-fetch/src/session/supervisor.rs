@@ -43,7 +43,7 @@ const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
 const REAP_GRACE: Duration = Duration::from_secs(2);
 const READER_SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Lifecycle {
+enum Lifecycle {
     Force,
 }
 
@@ -436,13 +436,9 @@ struct WorkerProcess {
 }
 
 impl WorkerProcess {
-    pub(super) fn spawn(
-        command: &WorkerCommand,
-        permit: OwnedSemaphorePermit,
-        lifecycle: Receiver<Lifecycle>,
-    ) -> Result<Self> {
+    fn spawn(command: &WorkerCommand, permit: OwnedSemaphorePermit, lifecycle: Receiver<Lifecycle>) -> Result<Self> {
         command.validate()?;
-        let mut owner = SupervisorOwner::new(permit)?;
+        let owner = SupervisorOwner::new(permit)?;
         #[cfg(unix)]
         let (lifeline_read, lifeline_write) = create_parent_lifeline()?;
         let mut process = Command::new(&command.program);
@@ -456,10 +452,7 @@ impl WorkerProcess {
         let child = process.spawn();
         let mut child = match child {
             Ok(child) => child,
-            Err(error) => {
-                owner.release();
-                return Err(worker_error(error));
-            }
+            Err(error) => return Err(worker_error(error)),
         };
         #[cfg(unix)]
         drop(lifeline_read);
@@ -469,7 +462,6 @@ impl WorkerProcess {
             Err(error) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                owner.release();
                 return Err(error);
             }
         };
@@ -477,12 +469,10 @@ impl WorkerProcess {
         let process_tree = Arc::new(ProcessTree::attach(&child));
         let Some(stdin) = child.stdin.take() else {
             force_reap(&mut child, &process_tree);
-            owner.release();
             return Err(worker_error("worker stdin unavailable"));
         };
         let Some(stdout) = child.stdout.take() else {
             force_reap(&mut child, &process_tree);
-            owner.release();
             return Err(worker_error("worker stdout unavailable"));
         };
         let (frames_tx, frames) = crossbeam_channel::bounded(1);
@@ -515,7 +505,6 @@ impl WorkerProcess {
             Ok(reader) => reader,
             Err(error) => {
                 force_reap(&mut child, &process_tree);
-                owner.release();
                 return Err(worker_error(error));
             }
         };
@@ -534,7 +523,7 @@ impl WorkerProcess {
         })
     }
 
-    pub(super) fn config_dir(&self) -> PathBuf {
+    fn config_dir(&self) -> PathBuf {
         self.owner.config_dir()
     }
 
@@ -559,7 +548,7 @@ impl WorkerProcess {
         Ok(())
     }
 
-    pub(super) fn initialize_session(&mut self, initialization: InitializeSession) -> Result<()> {
+    fn initialize_session(&mut self, initialization: InitializeSession) -> Result<()> {
         let id = self.write_request(WorkerRequest::Initialize(initialization))?;
         match self.recv_response(id, BOOTSTRAP_TIMEOUT, "session initialization")? {
             WorkerResponse::SessionInitialized => Ok(()),

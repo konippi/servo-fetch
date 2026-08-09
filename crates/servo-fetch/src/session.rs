@@ -656,7 +656,6 @@ impl BrowserSession {
         F: FnMut(CrawlResult),
     {
         validate_session_crawl(opts)?;
-        crate::net::validate_url(&opts.url)?;
         let mut request = opts.clone();
         request.robots_user_agent.clone_from(&self.user_agent);
         let (events, receive_events) = crossbeam_channel::bounded(1);
@@ -693,7 +692,6 @@ impl BrowserSession {
         F: FnMut(CrawlResult),
     {
         validate_session_crawl(opts)?;
-        crate::net::validate_url(&opts.url)?;
         let mut request = opts.clone();
         request.robots_user_agent.clone_from(&self.user_agent);
         let (events, receive_events) = crossbeam_channel::bounded(1);

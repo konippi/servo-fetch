@@ -63,13 +63,13 @@ fn truncated_frame(error: std::io::Error) -> std::io::Error {
     }
 }
 
-pub(crate) struct BoundedBuffer {
-    pub(crate) bytes: Vec<u8>,
+pub(super) struct BoundedBuffer {
+    pub(super) bytes: Vec<u8>,
     max: usize,
 }
 
 impl BoundedBuffer {
-    pub(crate) fn new(max: usize) -> Self {
+    pub(super) fn new(max: usize) -> Self {
         Self {
             bytes: Vec::with_capacity(max.min(8 * 1024)),
             max,
@@ -182,7 +182,7 @@ pub fn run_worker_stdio() -> Result<()> {
     run_worker(&mut reader, &mut writer)
 }
 
-pub(crate) fn run_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<()> {
+pub(super) fn run_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> Result<()> {
     write_bounded_frame(
         writer,
         &WorkerProtocolInfo {
@@ -214,7 +214,7 @@ pub(crate) fn run_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> R
     }
 }
 
-pub(crate) fn handle_worker_initialize(config: InitializeSession, state: &mut WorkerState) -> WorkerResponse {
+pub(super) fn handle_worker_initialize(config: InitializeSession, state: &mut WorkerState) -> WorkerResponse {
     if !matches!(state, WorkerState::AwaitingInitialize) {
         let message = if matches!(state, WorkerState::Ready { .. }) {
             "worker session is already initialized"
@@ -255,7 +255,7 @@ pub(crate) fn handle_worker_initialize(config: InitializeSession, state: &mut Wo
     }
 }
 
-pub(crate) struct ValidatedInitialize {
+pub(super) struct ValidatedInitialize {
     pub(crate) policy: NetworkPolicy,
     pub(crate) user_agent: Option<String>,
     cookies: Vec<crate::cookies::CookieSpec>,
@@ -396,7 +396,7 @@ fn handle_worker_crawl(id: u64, crawl: CrawlWire, state: &WorkerState, writer: &
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) enum WorkerState {
+pub(super) enum WorkerState {
     AwaitingInitialize,
     Ready { user_agent: Option<String> },
     Failed,

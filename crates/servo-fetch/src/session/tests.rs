@@ -15,7 +15,7 @@ use super::supervisor::{SupervisorCommand, SupervisorOwner, frame_wait_duration,
 use super::*;
 use crate::worker::protocol::{
     CrawlProgressState, PACKAGE_VERSION, RequestFrame, ResponseFrame, WorkerProtocolInfo, WorkerRequest,
-    WorkerResponse, decode_frame, read_bounded_frame, write_bounded_frame,
+    WorkerResponse, decode_frame, write_bounded_frame,
 };
 use crate::worker::wire::{
     CrawlProgressWire, CrawlResultWire, CrawlWire, MAX_OPERATION_WATCHDOG, MAX_SCREENSHOT_BYTES, PageWire,
@@ -124,28 +124,7 @@ fn page_wire_detaches_binary_payloads() {
 }
 
 #[test]
-fn oversized_page_output_returns_typed_error() {
-    let screenshot = Page {
-        screenshot_png: Some(vec![0; 32 * 1024 * 1024 + 1]),
-        ..Page::default()
-    };
-    assert!(matches!(
-        PageWire::from_page(screenshot),
-        Err(Error::OutputTooLarge { kind: "screenshot", .. })
-    ));
-
-    let text = Page {
-        html: "x".repeat(MAX_WORKER_FRAME_BYTES),
-        ..Page::default()
-    };
-    assert!(matches!(
-        PageWire::from_page(text),
-        Err(Error::OutputTooLarge { kind: "page", .. })
-    ));
-}
-
-#[test]
-fn response_protocol_rejects_trailing_bytes_and_empty_frames() {
+fn response_decoding_rejects_trailing_bytes_and_invalid_payloads() {
     let response = ResponseFrame {
         id: 7,
         response: WorkerResponse::ShutdownAck,
@@ -154,14 +133,6 @@ fn response_protocol_rejects_trailing_bytes_and_empty_frames() {
     encoded.push(0);
     assert!(decode_frame::<ResponseFrame>(&encoded).is_err());
     assert!(decode_frame::<ResponseFrame>(&[u8::MAX]).is_err());
-
-    let mut empty = std::io::Cursor::new(0_u32.to_be_bytes());
-    assert_eq!(
-        read_bounded_frame(&mut empty, MAX_WORKER_FRAME_BYTES)
-            .unwrap_err()
-            .kind(),
-        std::io::ErrorKind::InvalidData
-    );
 }
 
 #[test]

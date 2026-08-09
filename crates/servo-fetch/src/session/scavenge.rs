@@ -5,17 +5,12 @@ use std::sync::Once;
 
 const OWNER_MARKER: &str = "owner.pid";
 
-/// Record the owning process in `config_dir` so future processes can tell a
-/// stale directory from one belonging to a live broker.
+/// Record the owning process so future processes can tell stale storage from a live broker's.
 pub(super) fn write_owner_marker(config_dir: &Path) {
     let _ = std::fs::write(config_dir.join(OWNER_MARKER), std::process::id().to_string());
 }
 
-/// Delete session directories whose recorded owner is no longer alive.
-///
-/// Runs once per process on a background thread. Deletion is conservative:
-/// directories without a readable marker or with a live owner are left alone,
-/// so a false positive can never remove another broker's storage.
+/// Delete session directories whose recorded owner is dead; unreadable markers and live owners are always kept.
 pub(super) fn scavenge_stale_sessions_once() {
     static SCAVENGE: Once = Once::new();
     SCAVENGE.call_once(|| {

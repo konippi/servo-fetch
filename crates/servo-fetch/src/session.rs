@@ -39,7 +39,7 @@ pub struct WorkerCommand {
 }
 
 impl WorkerCommand {
-    /// Construct a command that enters [`run_worker_stdio`] before using Servo.
+    /// Construct a command that enters [`run_worker_stdio`](crate::run_worker_stdio) before using Servo.
     pub fn new(program: impl Into<PathBuf>) -> Self {
         Self {
             program: program.into(),

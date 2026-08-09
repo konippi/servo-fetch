@@ -69,6 +69,23 @@ pages = client.crawl("https://app.example.com", cookies_file="cookies.txt", max_
 A missing or malformed file raises `servo_fetch.CookieError`. Cookies are scoped
 to the target's site, so out-of-scope entries in the file are ignored.
 
+## Isolated Sessions
+
+Each `Session` runs in its own one-use worker process, so cookies and storage
+persist across fetches within the session and never leak between sessions:
+
+```python
+import servo_fetch
+
+with servo_fetch.Session() as session:
+    session.fetch("https://example.com/login")
+    page = session.fetch("https://example.com/dashboard")
+
+# async
+async with servo_fetch.AsyncSession() as session:
+    page = await session.fetch("https://example.com")
+```
+
 ## Custom Headers
 
 Pass a `dict[str, str]` via `headers` to add request headers (e.g. API tokens).

@@ -18,6 +18,8 @@ def test_public_api() -> None:
         "fetch_async",
         "Client",
         "AsyncClient",
+        "Session",
+        "AsyncSession",
         "Page",
         "Schema",
         "Field",
@@ -49,5 +51,7 @@ def test_docstrings_present() -> None:
     assert servo_fetch.Field.__doc__
     assert servo_fetch.Client.__doc__
     assert servo_fetch.AsyncClient.__doc__
+    assert servo_fetch.Session.__doc__
+    assert servo_fetch.AsyncSession.__doc__
     assert servo_fetch.fetch.__doc__
     assert servo_fetch.fetch_async.__doc__

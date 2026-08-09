@@ -15,13 +15,15 @@ from ._native import (
     Schema,
     SchemaError,
     ServoFetchError,
+    Session,
     __version__,
     fetch,
 )
-from .async_api import AsyncClient, fetch_async
+from .async_api import AsyncClient, AsyncSession, fetch_async
 
 __all__ = [
     "AsyncClient",
+    "AsyncSession",
     "Client",
     "ConsoleMessage",
     "CookieError",
@@ -36,6 +38,7 @@ __all__ = [
     "Schema",
     "SchemaError",
     "ServoFetchError",
+    "Session",
     "__version__",
     "fetch",
     "fetch_async",

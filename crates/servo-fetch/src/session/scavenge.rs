@@ -7,8 +7,6 @@ const OWNER_MARKER: &str = "owner.pid";
 
 /// Record the owning process so future processes can tell stale storage from a live broker's.
 pub(super) fn write_owner_marker(config_dir: &Path) {
-    // Write-then-rename publishes the marker atomically: a scavenger can never
-    // observe a partially written PID under the final name.
     let staged = config_dir.join("owner.pid.tmp");
     if std::fs::write(&staged, std::process::id().to_string()).is_ok() {
         let _ = std::fs::rename(&staged, config_dir.join(OWNER_MARKER));
@@ -70,7 +68,6 @@ fn process_is_alive(pid: u32) -> bool {
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if handle.is_null() {
-            // Only "no such process" proves death; every other failure keeps the directory.
             const ERROR_INVALID_PARAMETER: i32 = 87;
             return std::io::Error::last_os_error().raw_os_error() != Some(ERROR_INVALID_PARAMETER);
         }

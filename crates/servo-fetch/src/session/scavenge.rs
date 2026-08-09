@@ -7,7 +7,12 @@ const OWNER_MARKER: &str = "owner.pid";
 
 /// Record the owning process so future processes can tell stale storage from a live broker's.
 pub(super) fn write_owner_marker(config_dir: &Path) {
-    let _ = std::fs::write(config_dir.join(OWNER_MARKER), std::process::id().to_string());
+    // Write-then-rename publishes the marker atomically: a scavenger can never
+    // observe a partially written PID under the final name.
+    let staged = config_dir.join("owner.pid.tmp");
+    if std::fs::write(&staged, std::process::id().to_string()).is_ok() {
+        let _ = std::fs::rename(&staged, config_dir.join(OWNER_MARKER));
+    }
 }
 
 /// Delete session directories whose recorded owner is dead.
@@ -65,7 +70,9 @@ fn process_is_alive(pid: u32) -> bool {
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if handle.is_null() {
-            return std::io::Error::last_os_error().raw_os_error() == Some(5);
+            // Only "no such process" proves death; every other failure keeps the directory.
+            const ERROR_INVALID_PARAMETER: i32 = 87;
+            return std::io::Error::last_os_error().raw_os_error() != Some(ERROR_INVALID_PARAMETER);
         }
         CloseHandle(handle);
         true
@@ -102,6 +109,7 @@ mod tests {
         let unmarked = stale_dir(root.path(), "servo-fetch-session-unmarked", None);
         let malformed = stale_dir(root.path(), "servo-fetch-session-bad", Some("not-a-pid"));
         let unrelated = stale_dir(root.path(), "other-app-data", Some("999999999"));
+        let overflow = stale_dir(root.path(), "servo-fetch-session-overflow", Some(&u32::MAX.to_string()));
 
         scavenge_stale_sessions(root.path());
 
@@ -110,5 +118,21 @@ mod tests {
         assert!(unmarked.exists(), "unmarked directories must be preserved");
         assert!(malformed.exists(), "malformed markers must be preserved");
         assert!(unrelated.exists(), "non-session directories must be ignored");
+        assert!(overflow.exists(), "owners beyond i32::MAX must be treated as alive");
+    }
+
+    #[test]
+    fn owner_marker_is_published_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        write_owner_marker(dir.path());
+        let owner: u32 = std::fs::read_to_string(dir.path().join(OWNER_MARKER))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(owner, std::process::id());
+        assert!(
+            !dir.path().join("owner.pid.tmp").exists(),
+            "staging file must not survive"
+        );
     }
 }

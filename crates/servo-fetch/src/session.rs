@@ -1,5 +1,6 @@
 //! Strong browser-state isolation using one one-use OS process per logical session.
 
+mod scavenge;
 mod supervisor;
 
 use std::ffi::OsString;
@@ -360,6 +361,7 @@ impl SessionBroker {
             config.worker_command = WorkerCommand::resolved()?;
         }
         config.validate()?;
+        scavenge::scavenge_stale_sessions_once();
         let permits = Arc::new(Semaphore::new(config.max_sessions));
         let mut prewarmed = Vec::with_capacity(config.prewarm);
         for _ in 0..config.prewarm {

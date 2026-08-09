@@ -265,6 +265,7 @@ impl SupervisorOwner {
             .prefix("servo-fetch-session-")
             .tempdir()
             .map_err(worker_error)?;
+        super::scavenge::write_owner_marker(temp_dir.path());
         Ok(Self {
             temp_dir: Some(temp_dir),
             permit: Some(permit),

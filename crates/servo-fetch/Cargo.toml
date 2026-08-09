@@ -17,6 +17,7 @@ servo = { workspace = true }
 anyhow = { workspace = true }
 bitflags = { workspace = true }
 cookie = { workspace = true }
+crossbeam-channel = { workspace = true }
 cssparser = { workspace = true }
 dom_query = { workspace = true }
 dom_smoothie = { workspace = true }
@@ -32,6 +33,7 @@ psl = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -49,9 +51,9 @@ os_pipe = "1"
 
 [target.'cfg(windows)'.dependencies]
 servo = { workspace = true, features = ["no-wgl"] }
+windows-sys = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "test-util"] }
 wiremock = { workspace = true }
 

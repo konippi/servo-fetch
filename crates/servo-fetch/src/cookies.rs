@@ -39,6 +39,22 @@ pub(crate) struct CookieWire {
     include_subdomains: bool,
 }
 impl CookieWire {
+    pub(crate) fn from_specs(specs: &[CookieSpec]) -> Vec<Self> {
+        specs
+            .iter()
+            .map(|spec| Self {
+                name: spec.name.clone(),
+                value: spec.value.clone(),
+                domain: spec.domain.clone(),
+                path: spec.path.clone(),
+                secure: spec.secure,
+                http_only: spec.http_only,
+                include_subdomains: spec.include_subdomains,
+                expires: spec.expires,
+            })
+            .collect()
+    }
+
     pub(crate) fn into_specs(wires: Vec<Self>) -> std::result::Result<Vec<CookieSpec>, &'static str> {
         if wires.len() > MAX_COOKIES {
             return Err("too many cookies in worker request");

@@ -6439,6 +6439,7 @@ dependencies = [
  "anyhow",
  "bitflags 2.13.1",
  "cookie 0.18.1",
+ "crossbeam-channel",
  "cssparser 0.36.0",
  "dom_query",
  "dom_smoothie",
@@ -6466,6 +6467,7 @@ dependencies = [
  "tracing",
  "ureq",
  "url",
+ "windows-sys 0.61.2",
  "wiremock",
 ]
 

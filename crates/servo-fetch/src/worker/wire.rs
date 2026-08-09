@@ -1,16 +1,15 @@
 //! Serializable request, result, progress, and error types for isolated sessions.
 
 use std::io::Write;
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 use super::{MAX_WORKER_FRAME_BYTES, worker_error};
 use crate::error::{Error, Result};
-#[cfg(test)]
-use crate::fetch::FetchMode;
-use crate::fetch::{ConsoleMessage, FetchOptions, Page};
-use crate::{CrawlOptions, CrawlResult, VisibilityPolicy};
+use crate::fetch::{ConsoleLevel, ConsoleMessage, FetchMode, FetchOptions, Page};
+use crate::{CrawlOptions, CrawlPage, CrawlResult, VisibilityPolicy};
 
 const MAX_ERROR_KIND_BYTES: usize = 64;
 const MAX_ERROR_MESSAGE_BYTES: usize = 8 * 1024;
@@ -46,7 +45,7 @@ fn error_kind(error: &Error) -> &'static str {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct WorkerErrorWire {
+pub(crate) struct WorkerErrorWire {
     kind: String,
     message: String,
     #[serde(default)]
@@ -64,7 +63,7 @@ pub(super) struct WorkerErrorWire {
 }
 
 impl WorkerErrorWire {
-    pub(super) fn failure(kind: impl Into<String>, message: impl Into<String>) -> Self {
+    pub(crate) fn failure(kind: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             kind: bounded_text(kind.into(), MAX_ERROR_KIND_BYTES),
             message: bounded_text(message.into(), MAX_ERROR_MESSAGE_BYTES),
@@ -77,7 +76,7 @@ impl WorkerErrorWire {
         }
     }
 
-    pub(super) fn from_error(error: &Error) -> Self {
+    pub(crate) fn from_error(error: &Error) -> Self {
         let (url, timeout_ms, host) = match error {
             Error::Timeout { url, timeout } => (
                 Some(url.clone()),
@@ -117,9 +116,106 @@ impl WorkerErrorWire {
             max,
         }
     }
+
+    pub(crate) fn into_error(self) -> Error {
+        match self.kind.as_str() {
+            "timeout" => Error::Timeout {
+                url: self.url.unwrap_or_default(),
+                timeout: Duration::from_millis(self.timeout_ms.unwrap_or_default()),
+            },
+            "invalid_url" => Error::InvalidUrl {
+                url: self.url.unwrap_or_default(),
+                reason: self.message,
+            },
+            "address_not_allowed" => Error::AddressNotAllowed {
+                host: self.host.unwrap_or_default(),
+            },
+            "javascript" => Error::javascript(self.message, self.url),
+            "screenshot" => Error::screenshot(self.message, self.url),
+            "output_too_large" => Error::OutputTooLarge {
+                kind: match self.output_kind.as_deref() {
+                    Some("screenshot") => "screenshot",
+                    Some("page") => "page",
+                    _ => "worker output",
+                },
+                size: usize::try_from(self.size.unwrap_or(u64::MAX)).unwrap_or(usize::MAX),
+                max: usize::try_from(self.max.unwrap_or(u64::MAX)).unwrap_or(usize::MAX),
+            },
+            "engine" => Error::engine(self.message, self.url),
+            _ => worker_error(format!("{}: {}", self.kind, self.message)),
+        }
+    }
 }
 
-pub(super) const MAX_WIRE_DURATION: Duration = Duration::from_secs(24 * 60 * 60);
+#[cfg(test)]
+pub(crate) fn fetch_watchdog(opts: &FetchOptions) -> Duration {
+    fetch_wire_watchdog(&FetchWire::from_options(opts))
+}
+
+#[cfg(test)]
+pub(crate) fn crawl_watchdog(opts: &CrawlOptions) -> Duration {
+    crawl_wire_watchdog(&CrawlWire::from_options(opts))
+}
+
+#[cfg(test)]
+pub(crate) fn crawl_absolute_watchdog(opts: &CrawlOptions) -> Duration {
+    crawl_wire_absolute_watchdog(&CrawlWire::from_options(opts))
+}
+
+pub(crate) const MAX_OPERATION_WATCHDOG: Duration = Duration::from_secs(24 * 60 * 60);
+
+fn saturating_duration_mul(mut duration: Duration, mut factor: usize) -> Duration {
+    let mut total = Duration::ZERO;
+    while factor > 0 {
+        if factor & 1 == 1 {
+            total = total.saturating_add(duration);
+        }
+        factor >>= 1;
+        if factor > 0 {
+            duration = duration.saturating_add(duration);
+        }
+    }
+    total
+}
+
+pub(crate) fn fetch_wire_watchdog(wire: &FetchWire) -> Duration {
+    Duration::from_millis(wire.timeout_ms)
+        .saturating_add(Duration::from_millis(wire.settle_ms))
+        .saturating_add(Duration::from_secs(15))
+        .min(MAX_OPERATION_WATCHDOG)
+}
+
+pub(crate) fn crawl_wire_watchdog(wire: &CrawlWire) -> Duration {
+    let dispatch_slots = wire.concurrency.min(wire.limit).max(1);
+    let dispatch_wait = saturating_duration_mul(
+        wire.delay_ms.map_or(Duration::ZERO, Duration::from_millis),
+        dispatch_slots,
+    );
+    Duration::from_millis(wire.timeout_ms)
+        .saturating_mul(2)
+        .saturating_add(Duration::from_millis(wire.settle_ms))
+        .saturating_add(dispatch_wait)
+        .saturating_add(Duration::from_secs(15))
+        .min(MAX_OPERATION_WATCHDOG)
+}
+
+pub(crate) fn crawl_wire_absolute_watchdog(wire: &CrawlWire) -> Duration {
+    let concurrency = wire.concurrency.max(1);
+    let waves = wire.limit.max(1).div_ceil(concurrency);
+    let page_budget = Duration::from_millis(wire.timeout_ms)
+        .saturating_mul(2)
+        .saturating_add(Duration::from_millis(wire.settle_ms))
+        .saturating_add(Duration::from_secs(15));
+    let total_delay = saturating_duration_mul(
+        wire.delay_ms.map_or(Duration::ZERO, Duration::from_millis),
+        wire.limit.saturating_sub(1),
+    );
+    saturating_duration_mul(page_budget, waves)
+        .saturating_add(total_delay)
+        .min(MAX_OPERATION_WATCHDOG)
+}
+
+pub(crate) const MAX_WIRE_DURATION: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_WIRE_USER_AGENT_BYTES: usize = 8 * 1024;
 const MAX_WIRE_URL_BYTES: usize = 2 * 1024 * 1024;
 const MAX_WIRE_SCRIPT_BYTES: usize = 4 * 1024 * 1024;
@@ -129,7 +225,7 @@ const MAX_WIRE_SCOPE_PATTERNS: usize = 1024;
 const MAX_WIRE_SCOPE_PATTERN_BYTES: usize = 256 * 1024;
 const MAX_WIRE_CRAWL_LIMIT: usize = 100_000;
 const MAX_WIRE_CRAWL_DEPTH: usize = 1024;
-pub(super) const MAX_WIRE_CRAWL_CONCURRENCY: usize = 64;
+pub(crate) const MAX_WIRE_CRAWL_CONCURRENCY: usize = 64;
 
 fn ensure_bytes(value: &str, field: &str, max: usize) -> Result<()> {
     if value.len() > max {
@@ -193,7 +289,6 @@ struct SchemaWire {
     json: Vec<u8>,
 }
 impl SchemaWire {
-    #[cfg(test)]
     fn from_schema(schema: &crate::schema::ExtractSchema) -> Self {
         Self {
             json: serde_json::to_vec(schema).expect("schema serializes"),
@@ -212,7 +307,7 @@ impl SchemaWire {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub(super) struct FetchWire {
+pub(crate) struct FetchWire {
     url: String,
     timeout_ms: u64,
     settle_ms: u64,
@@ -223,8 +318,7 @@ pub(super) struct FetchWire {
 }
 
 impl FetchWire {
-    #[cfg(test)]
-    pub(super) fn from_options(opts: &FetchOptions) -> Self {
+    pub(crate) fn from_options(opts: &FetchOptions) -> Self {
         Self {
             url: opts.url.clone(),
             timeout_ms: u64::try_from(opts.effective_timeout().as_millis()).unwrap_or(u64::MAX),
@@ -242,7 +336,7 @@ impl FetchWire {
         }
     }
 
-    pub(super) fn into_options(self) -> Result<FetchOptions> {
+    pub(crate) fn into_options(self) -> Result<FetchOptions> {
         ensure_bytes(&self.url, "fetch URL", MAX_WIRE_URL_BYTES)?;
         if let FetchModeWire::JavaScript(expression) = &self.mode {
             ensure_bytes(expression, "JavaScript expression", MAX_WIRE_SCRIPT_BYTES)?;
@@ -270,7 +364,7 @@ impl FetchWire {
     }
 }
 
-pub(super) const MAX_SCREENSHOT_BYTES: usize = 32 * 1024 * 1024;
+pub(crate) const MAX_SCREENSHOT_BYTES: usize = 32 * 1024 * 1024;
 const RESPONSE_FRAME_HEADROOM: usize = 64;
 
 #[derive(Default)]
@@ -294,7 +388,7 @@ fn encoded_size(value: &impl Serialize) -> Result<usize> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct PageWire {
+pub(crate) struct PageWire {
     html: String,
     inner_text: String,
     title: Option<String>,
@@ -309,7 +403,7 @@ pub(super) struct PageWire {
 }
 
 impl PageWire {
-    pub(super) fn from_page(mut page: Page) -> Result<(Self, Option<Vec<u8>>)> {
+    pub(crate) fn from_page(mut page: Page) -> Result<(Self, Option<Vec<u8>>)> {
         let screenshot_size = page.screenshot_png.as_ref().map_or(0, Vec::len);
         if screenshot_size > MAX_SCREENSHOT_BYTES {
             return Err(Error::OutputTooLarge {
@@ -355,6 +449,61 @@ impl PageWire {
         }
         Ok((wire, screenshot_png))
     }
+
+    pub(crate) fn screenshot_png_bytes(&self) -> Option<usize> {
+        self.screenshot_png_bytes.and_then(|size| usize::try_from(size).ok())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_screenshot_png_bytes(&mut self, size: Option<u32>) {
+        self.screenshot_png_bytes = size;
+    }
+
+    pub(crate) fn into_page(self, screenshot_png: Option<Vec<u8>>) -> Result<Page> {
+        let actual_size = screenshot_png.as_ref().map(Vec::len);
+        let expected_size = self.screenshot_png_bytes.and_then(|size| usize::try_from(size).ok());
+        if actual_size != expected_size {
+            return Err(worker_error(format!(
+                "screenshot payload size mismatch: expected {expected_size:?}, got {actual_size:?}"
+            )));
+        }
+        let extracted = self
+            .extracted_json
+            .as_deref()
+            .map(serde_json::from_slice)
+            .transpose()
+            .map_err(worker_error)?;
+        let a11y = self
+            .accessibility_tree
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(worker_error)?
+            .map(Arc::new);
+        let console_messages = self
+            .console_messages
+            .into_iter()
+            .map(ConsoleMessageWire::into_message)
+            .collect::<Result<Vec<_>>>()?;
+        let visibility = crate::VisibilityFlags::from_bits(self.visibility_bits)
+            .ok_or_else(|| worker_error("worker page contains unknown visibility flags"))?;
+        Ok(Page {
+            html: self.html,
+            inner_text: self.inner_text,
+            title: self.title,
+            layout_json: self.layout_json,
+            visibility_json: self.visibility_json,
+            js_result: self.js_result,
+            console_messages,
+            accessibility_tree: self.accessibility_tree,
+            extracted,
+            screenshot_png,
+            a11y,
+            visibility_policy: VisibilityPolicy {
+                strip_if_any: visibility,
+            },
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -370,10 +519,27 @@ impl ConsoleMessageWire {
             message: message.message,
         }
     }
+
+    fn into_message(self) -> Result<ConsoleMessage> {
+        let level = match self.level.as_str() {
+            "log" => ConsoleLevel::Log,
+            "debug" => ConsoleLevel::Debug,
+            "info" => ConsoleLevel::Info,
+            "warn" => ConsoleLevel::Warn,
+            "error" => ConsoleLevel::Error,
+            "trace" => ConsoleLevel::Trace,
+            "dir" => ConsoleLevel::Dir,
+            _ => return Err(worker_error("worker page contains an unknown console level")),
+        };
+        Ok(ConsoleMessage {
+            level,
+            message: self.message,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct CrawlWire {
+pub(crate) struct CrawlWire {
     url: String,
     limit: usize,
     max_depth: usize,
@@ -390,8 +556,7 @@ pub(super) struct CrawlWire {
 }
 
 impl CrawlWire {
-    #[cfg(test)]
-    pub(super) fn from_options(opts: &CrawlOptions) -> Self {
+    pub(crate) fn from_options(opts: &CrawlOptions) -> Self {
         Self {
             url: opts.url.clone(),
             limit: opts.limit,
@@ -411,7 +576,7 @@ impl CrawlWire {
         }
     }
 
-    pub(super) fn into_options(self, fallback_user_agent: Option<&str>) -> Result<CrawlOptions> {
+    pub(crate) fn into_options(self, fallback_user_agent: Option<&str>) -> Result<CrawlOptions> {
         ensure_bytes(&self.url, "crawl URL", MAX_WIRE_URL_BYTES)?;
         if self.limit > MAX_WIRE_CRAWL_LIMIT {
             return Err(worker_error(format!(
@@ -463,14 +628,14 @@ impl CrawlWire {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub(super) struct CrawlProgressWire {
-    pub(super) processed: u64,
-    pub(super) emitted: u64,
-    pub(super) suppressed: u64,
+pub(crate) struct CrawlProgressWire {
+    pub(crate) processed: u64,
+    pub(crate) emitted: u64,
+    pub(crate) suppressed: u64,
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct CrawlResultWire {
+pub(crate) struct CrawlResultWire {
     url: String,
     depth: usize,
     fetched_at_ms: u64,
@@ -491,7 +656,7 @@ struct CrawlPageWire {
 }
 
 impl CrawlResultWire {
-    pub(super) fn from_result(result: CrawlResult) -> Self {
+    pub(crate) fn from_result(result: CrawlResult) -> Self {
         let fetched_at_ms = result
             .fetched_at
             .duration_since(UNIX_EPOCH)
@@ -515,9 +680,28 @@ impl CrawlResultWire {
             },
         }
     }
+
+    pub(crate) fn into_result(self) -> Result<CrawlResult> {
+        let outcome = match self.outcome {
+            CrawlOutcomeWire::Page(page) => Ok(CrawlPage {
+                title: page.title,
+                content: page.content,
+                links_found: page.links_found,
+            }),
+            CrawlOutcomeWire::Error(error) => Err(error.into_error()),
+        };
+        let fetched_at = UNIX_EPOCH
+            .checked_add(Duration::from_millis(self.fetched_at_ms))
+            .ok_or_else(|| worker_error("worker crawl result timestamp is out of range"))?;
+        Ok(CrawlResult {
+            url: self.url,
+            depth: self.depth,
+            fetched_at,
+            outcome,
+        })
+    }
 }
 
-#[cfg(test)]
 fn encode_headers(headers: &http::HeaderMap) -> Vec<(String, Vec<u8>)> {
     headers
         .iter()

@@ -17,6 +17,7 @@ Looking for the CLI? See [`servo-fetch-cli`](https://crates.io/crates/servo-fetc
 - **PDF auto-detection** — URLs returning PDF are automatically extracted as text
 - **Typed errors** — `Error::Timeout`, `Error::InvalidUrl`, etc. for match-based retry logic
 - **SSRF protection** — blocks private IPs, reserved ranges, and metadata endpoints
+- **Isolated browser sessions** — one-use worker process per session keeps cookies and storage fully separated
 
 ## Quick Start
 
@@ -156,6 +157,8 @@ let page = client.fetch("https://example.com")?;
 | Variable | Description |
 | -------- | ----------- |
 | `SERVO_FETCH_USER_AGENT` | Default User-Agent string (overridden by `.user_agent()`) |
+| `SERVO_FETCH_WORKER` | Worker executable for isolated sessions (defaults to the current executable) |
+| `SERVO_FETCH_PREWARM` | Number of session worker processes to start eagerly (default 0) |
 
 ## API Overview
 
@@ -171,6 +174,7 @@ Every function is available in both async (top-level) and sync (`blocking::*`) f
 | `crawl_each(opts, cb)` | Streaming results via callback |
 | `map(opts)` | `Vec<MappedUrl>` (URL discovery) |
 | `Client` / `ClientBuilder` | Reusable client with defaults |
+| `SessionBroker` / `BrowserSession` | Process-isolated browser sessions |
 
 See [docs.rs](https://docs.rs/servo-fetch) for the full API reference and [`examples/`](examples/) for complete runnable programs.
 

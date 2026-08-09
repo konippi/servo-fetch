@@ -58,6 +58,17 @@ where
 
 const MAX_WIRE_HEADERS: usize = 128;
 const MAX_WIRE_HEADER_BYTES: usize = 64 * 1024;
+/// Validate a header map against the same limits as the worker wire format.
+pub(crate) fn validate_map(headers: &HeaderMap) -> Result<()> {
+    from_wire_pairs(
+        headers
+            .iter()
+            .map(|(name, value)| (name.as_str().to_owned(), value.as_bytes().to_vec()))
+            .collect(),
+    )
+    .map(drop)
+}
+
 pub(crate) fn from_wire_pairs(headers: Vec<(String, Vec<u8>)>) -> Result<HeaderMap> {
     if headers.len() > MAX_WIRE_HEADERS {
         return Err(Error::invalid_header("too many custom headers in worker request"));

@@ -3,6 +3,13 @@
 use std::fs;
 use std::future::Future;
 use std::str::from_utf8;
+#[cfg(unix)]
+use std::{
+    io::Read as _,
+    os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+    process::Stdio,
+    time::{Duration, Instant},
+};
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -93,6 +100,52 @@ fn internal_worker_dispatches_before_clap_and_logging() {
     let info: WorkerProtocolInfo = postcard::from_bytes(&output.stdout[4..]).unwrap();
     assert_eq!(info.magic, *b"SFETCHW\0");
     assert_eq!(info.package_version, env!("CARGO_PKG_VERSION"));
+}
+
+#[cfg(unix)]
+#[test]
+#[allow(unsafe_code)]
+fn internal_worker_exits_when_parent_lifeline_closes() {
+    let mut descriptors = [-1; 2];
+    assert_eq!(unsafe { libc::pipe(descriptors.as_mut_ptr()) }, 0);
+    let read_end = unsafe { OwnedFd::from_raw_fd(descriptors[0]) };
+    let write_end = unsafe { OwnedFd::from_raw_fd(descriptors[1]) };
+    let flags = unsafe { libc::fcntl(write_end.as_raw_fd(), libc::F_GETFD) };
+    assert!(flags >= 0);
+    assert_eq!(
+        unsafe { libc::fcntl(write_end.as_raw_fd(), libc::F_SETFD, flags | libc::FD_CLOEXEC) },
+        0
+    );
+
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_servo-fetch"))
+        .arg("__worker")
+        .env(
+            "SERVO_FETCH_INTERNAL_PARENT_LIFELINE_FD",
+            read_end.as_raw_fd().to_string(),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(read_end);
+    let _stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let mut prefix = [0; 4];
+    stdout.read_exact(&mut prefix).unwrap();
+    let mut info = vec![0; usize::try_from(u32::from_be_bytes(prefix)).unwrap()];
+    stdout.read_exact(&mut info).unwrap();
+    drop(write_end);
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < deadline, "worker survived parent lifeline closure");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 const TIMEOUT: &str = "--timeout=30";

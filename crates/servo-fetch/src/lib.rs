@@ -1,5 +1,4 @@
 //! Fetch, render, and extract web content as Markdown, JSON, or screenshots with an embedded Servo browser engine.
-//! No Chromium and no external services; optional [`BrowserSession`]s isolate browser state in one-use worker processes.
 //!
 //! ## Async usage
 //!

@@ -114,26 +114,6 @@ An empty `selector` (`""`) reads from the matched element itself — useful
 inside `nested_list` to grab each item's own text or attribute. For
 programmatic construction, see [`ExtractSchema::builder()`].
 
-### Isolated browser sessions
-
-Each `BrowserSession` runs in its own one-use OS process, so cookies, storage,
-and caches never leak between sessions. Requires a worker command (the
-`servo-fetch` CLI configures itself automatically; library embedders point it
-at their own binary that calls `run_worker_stdio()` early in `main`):
-
-```rust,no_run
-use servo_fetch::{BrowserSessionConfig, FetchOptions, SessionBroker, SessionBrokerConfig, WorkerCommand};
-
-# async fn example() -> Result<(), servo_fetch::Error> {
-servo_fetch::set_default_worker_command(WorkerCommand::new("/path/to/my-app").arg("__worker"))?;
-let broker = SessionBroker::new(SessionBrokerConfig::default())?;
-let session = broker.session(BrowserSessionConfig::new()).await?;
-let page = session.fetch(&FetchOptions::new("https://example.com")).await?;
-// Dropping the session tears down its worker process and deletes its storage.
-# Ok(())
-# }
-```
-
 ### Error handling
 
 ```rust

@@ -10,7 +10,7 @@ pub(super) fn write_owner_marker(config_dir: &Path) {
     let _ = std::fs::write(config_dir.join(OWNER_MARKER), std::process::id().to_string());
 }
 
-/// Delete session directories whose recorded owner is dead; unreadable markers and live owners are always kept.
+/// Delete session directories whose recorded owner is dead.
 pub(super) fn scavenge_stale_sessions_once() {
     static SCAVENGE: Once = Once::new();
     SCAVENGE.call_once(|| {
@@ -65,7 +65,6 @@ fn process_is_alive(pid: u32) -> bool {
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if handle.is_null() {
-            // Access denied means the process exists; treat other failures as dead.
             return std::io::Error::last_os_error().raw_os_error() == Some(5);
         }
         CloseHandle(handle);

@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0](https://github.com/konippi/servo-fetch/compare/0.13.1..0.14.0) - 2026-08-10
+
+
+### Breaking Changes
+
+- *(deps)* Bump Servo to 0.4.0 (#381)
+
+### Features
+
+- *(node)* Expose isolated browser sessions over the RPC server ([#408](https://github.com/konippi/servo-fetch/pull/408))
+- *(session)* Add process-isolated browser sessions (#405)
+- *(worker)* Add bounded stdio protocol (#393)
+
+### Bug Fixes
+
+- *(screenshot)* Stabilize full-page captures after resize ([#394](https://github.com/konippi/servo-fetch/pull/394))
+- *(mcp)* Use canonical tool argument names ([#389](https://github.com/konippi/servo-fetch/pull/389))
+- *(cli)* Make healthcheck probe deterministic ([#388](https://github.com/konippi/servo-fetch/pull/388))
+- *(session)* Scavenge stale session storage at broker startup (#406)
+- *(runtime)* Support sync calls from multithread Tokio ([#385](https://github.com/konippi/servo-fetch/pull/385))
+- *(pdf)* Preserve request context during PDF fetch (#384)
+- *(crawl)* Preserve page load timeout errors ([#382](https://github.com/konippi/servo-fetch/pull/382))
+
+### Refactor
+
+- *(crawl)* Add fallible session event adapter ([#390](https://github.com/konippi/servo-fetch/pull/390))
+- *(crawl)* Surface duplicate-content suppression events ([#383](https://github.com/konippi/servo-fetch/pull/383))
+- *(engine)* Route fetches through an EngineMsg dispatch envelope (#351)
+
+### Dependencies
+
+- *(deps)* [**breaking**] Bump Servo to 0.4.0 (#381)
+- *(deps)* Bump rmcp from 1 to 2 ([#350](https://github.com/konippi/servo-fetch/pull/350))
+
 ## [0.13.1](https://github.com/konippi/servo-fetch/compare/0.13.0..0.13.1) - 2026-06-18
 
 ### Bug Fixes

@@ -57,6 +57,23 @@ const products = await extractSchema("https://shop.example.com", {
 });
 ```
 
+## Isolated Sessions
+
+Each `Session` runs in its own one-use worker process, so cookies and storage
+persist across fetches within the session and never leak between sessions:
+
+```ts
+import { Session } from "servo-fetch";
+
+const session = await Session.open();
+try {
+  await session.fetch("https://example.com/login");
+  const page = await session.fetch("https://example.com/dashboard");
+} finally {
+  await session.close();
+}
+```
+
 ## CLI
 
 The bundled binary is also runnable directly:

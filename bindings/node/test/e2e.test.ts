@@ -38,4 +38,45 @@ describe.runIf(e2e)("real binary E2E", () => {
     expect(err).toBeInstanceOf(InvalidUrlError);
     expect((err as { kind: string }).kind).toBe("invalidUrl");
   });
+
+  it("session fetches within an isolated worker and closes cleanly", async () => {
+    const { Session } = await import("../src/index.js");
+    const session = await Session.open();
+    try {
+      const markdown = await session.fetch(URL);
+      expect(typeof markdown).toBe("string");
+      expect(markdown.length).toBeGreaterThan(0);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("closed session is rejected with a typed error", async () => {
+    const { Session, ServoFetchError } = await import("../src/index.js");
+    const session = await Session.open();
+    expect(session.isClosed()).toBe(false);
+    await session.close();
+    await session.close();
+    expect(session.isClosed()).toBe(true);
+    const err = await session.fetch(URL).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ServoFetchError);
+    expect((err as Error).message).toContain("browser session is closed");
+  });
+
+  it("session handle from a previous server process is rejected", async () => {
+    const { Session, ServoFetchError } = await import("../src/index.js");
+    const { shutdown } = await import("../src/rpc-client.js");
+    const stale = await Session.open();
+    shutdown();
+    const err = await stale.fetch(URL).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ServoFetchError);
+    expect((err as Error).message).toContain("previous server process");
+    await stale.close();
+  });
 });

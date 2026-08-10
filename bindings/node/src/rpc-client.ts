@@ -238,10 +238,20 @@ function abortError(): ServoFetchError {
 }
 
 let current: RpcClient | undefined;
+let currentGeneration = 0;
 
 function client(): RpcClient {
-  if (!current) current = new RpcClient();
+  if (!current) {
+    current = new RpcClient();
+    currentGeneration += 1;
+  }
   return current;
+}
+
+/** Monotonic id of the server process behind `request`; bumps on respawn. */
+export function generation(): number {
+  client();
+  return currentGeneration;
 }
 
 export function request<T>(method: string, params: unknown, signal?: AbortSignal): Promise<T> {

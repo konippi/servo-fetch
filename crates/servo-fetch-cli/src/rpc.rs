@@ -18,12 +18,15 @@ use tokio_util::codec::LinesCodecError;
 use tokio_util::sync::CancellationToken;
 
 type Cancellations = Arc<Mutex<HashMap<RequestId, CancellationToken>>>;
+pub(crate) type SessionSlot = Arc<tokio::sync::Mutex<Option<servo_fetch::BrowserSession>>>;
+pub(crate) type Sessions = Arc<tokio::sync::Mutex<HashMap<u64, SessionSlot>>>;
 
 /// Serve JSON-RPC over stdio until stdin closes or an `exit` notification arrives.
 pub(crate) async fn run() -> anyhow::Result<()> {
     let (tx, rx) = mpsc::unbounded_channel::<String>();
     let writer = tokio::spawn(transport::write_loop(tokio::io::stdout(), rx));
     let cancels: Cancellations = Arc::new(Mutex::new(HashMap::new()));
+    let sessions: Sessions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
     let mut reader = transport::frame_reader(tokio::io::stdin());
 
     while let Some(frame) = reader.next().await {
@@ -54,7 +57,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             }
         };
         match incoming.id {
-            Some(id) => spawn_request(id, incoming.method, incoming.params, &tx, &cancels),
+            Some(id) => spawn_request(id, incoming.method, incoming.params, &tx, &cancels, &sessions),
             None => match incoming.method.as_str() {
                 "$/cancelRequest" => cancel(incoming.params, &cancels),
                 "exit" => break,
@@ -71,7 +74,14 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn spawn_request(id: RequestId, method: String, params: Value, tx: &UnboundedSender<String>, cancels: &Cancellations) {
+fn spawn_request(
+    id: RequestId,
+    method: String,
+    params: Value,
+    tx: &UnboundedSender<String>,
+    cancels: &Cancellations,
+    sessions: &Sessions,
+) {
     let token = CancellationToken::new();
     {
         let mut guard = cancels.lock().expect("cancellations poisoned");
@@ -86,8 +96,9 @@ fn spawn_request(id: RequestId, method: String, params: Value, tx: &UnboundedSen
 
     let tx = tx.clone();
     let cancels = cancels.clone();
+    let sessions = sessions.clone();
     tokio::spawn(async move {
-        let dispatched = AssertUnwindSafe(dispatch::dispatch(&method, params, &id, &tx)).catch_unwind();
+        let dispatched = AssertUnwindSafe(dispatch::dispatch(&method, params, &id, &tx, &sessions)).catch_unwind();
         let outcome = tokio::select! {
             biased;
             () = token.cancelled() => Err(ResponseError::cancelled()),

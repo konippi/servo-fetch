@@ -40,8 +40,12 @@ fn assert_tool_error<E: std::fmt::Debug>(result: Result<rmcp::model::CallToolRes
 async fn initialize_returns_server_info() {
     let client = connect().await;
     let info = client.peer_info().unwrap();
-    assert!(info.server_info.name.contains("servo-fetch"));
-    assert!(!info.server_info.version.is_empty());
+    let server_info = info
+        .server_info
+        .as_ref()
+        .expect("server should advertise its implementation info");
+    assert!(server_info.name.contains("servo-fetch"));
+    assert!(!server_info.version.is_empty());
     assert!(info.instructions.as_deref().unwrap_or("").contains("Servo"));
 }
 

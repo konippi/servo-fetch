@@ -1,3 +1,4 @@
+import { ServoFetchError } from "./errors.js";
 import type {
   Article,
   CrawlEvent,
@@ -13,8 +14,13 @@ import type {
   SchemaExtractRequest,
   SchemaExtractResult,
   ScreenshotRequest,
+  SessionCloseRequest,
+  SessionFetchRequest,
+  SessionOpenRequest,
+  SessionOpenResult,
+  Visibility,
 } from "./generated/index.js";
-import { request, stream } from "./rpc-client.js";
+import { generation, request, stream } from "./rpc-client.js";
 import { type Schema, schemaToValue } from "./schema.js";
 import type { BatchResult, CrawlOptions, CrawlResult, FetchOptions, MapOptions } from "./types.js";
 
@@ -251,4 +257,83 @@ export function map(url: string, options: MapOptions = {}): Promise<MappedUrl[]>
 export async function version(): Promise<string> {
   const info = await request<InitializeResult>("initialize", {});
   return info.serverInfo.version;
+}
+/** Options for `Session.fetch`; session identity (user agent, cookies) is fixed at `Session.open`. */
+export interface SessionFetchOptions {
+  /** Seconds to wait for the page (default: 30). */
+  timeout?: number;
+  /** Extra milliseconds to wait after load for late JS (default: 0). */
+  settle?: number;
+  /** CSS selector to extract a specific section. */
+  selector?: string;
+  /** Visibility filtering policy (default: moderate). */
+  visibility?: Visibility;
+  /** Custom request headers. */
+  headers?: Record<string, string>;
+  /** Abort the in-flight request. */
+  signal?: AbortSignal;
+}
+
+/** A process-isolated browser session; state persists across fetches and never leaks between sessions. */
+export class Session {
+  #closed = false;
+
+  private constructor(
+    private readonly id: number,
+    private readonly boundGeneration: number,
+  ) {}
+
+  /** Whether `close` has been called. */
+  isClosed(): boolean {
+    return this.#closed;
+  }
+
+  /** Open a new isolated session backed by a dedicated worker process. */
+  static async open(options: { userAgent?: string } = {}): Promise<Session> {
+    const bound = generation();
+    const result = await request<SessionOpenResult>("session/open", {
+      userAgent: options.userAgent,
+    } satisfies SessionOpenRequest);
+    return new Session(result.sessionId, bound);
+  }
+
+  private guard(): void {
+    if (this.#closed) {
+      throw new ServoFetchError("browser session is closed", "requestCancelled");
+    }
+    if (generation() !== this.boundGeneration) {
+      throw new ServoFetchError("session belongs to a previous server process", "requestCancelled");
+    }
+  }
+
+  /** Fetch a URL inside this session and return readable Markdown. */
+  async fetch(url: string, options: SessionFetchOptions = {}): Promise<string> {
+    this.guard();
+    return await request(
+      "session/fetch",
+      {
+        sessionId: this.id,
+        url,
+        format: "markdown",
+        selector: options.selector,
+        visibility: options.visibility,
+        timeout: options.timeout,
+        settleMs: options.settle,
+        headers: options.headers,
+      } satisfies SessionFetchRequest,
+      options.signal,
+    );
+  }
+
+  /** Close the session, tearing down its worker process and storage. */
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    if (generation() !== this.boundGeneration) return;
+    await request("session/close", { sessionId: this.id } satisfies SessionCloseRequest);
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close();
+  }
 }

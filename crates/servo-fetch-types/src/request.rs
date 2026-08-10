@@ -87,6 +87,96 @@ pub struct FetchRequest {
     pub options: RequestOptions,
 }
 
+/// Request options for `session/fetch`; session identity (user agent, cookies) is fixed at open.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRequestOptions {
+    /// Page-load timeout in seconds (default: 30).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+    pub timeout: Option<u64>,
+    /// Extra wait in milliseconds after the load event (default: 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+    pub settle_ms: Option<u64>,
+    /// Custom request headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub headers: Option<BTreeMap<String, String>>,
+}
+
+/// Parameters for the `session/open` method.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOpenRequest {
+    /// User-Agent for every request in the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub user_agent: Option<String>,
+}
+
+/// Result of the `session/open` method.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOpenResult {
+    /// Identifier for subsequent `session/fetch` and `session/close` calls.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub session_id: u64,
+}
+
+/// Parameters for the `session/fetch` method (returns the formatted page as a string).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SessionFetchRequest {
+    /// Session obtained from `session/open`.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub session_id: u64,
+    /// URL to fetch (http/https only).
+    pub url: String,
+    /// Output format (default: markdown).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub format: Option<FetchFormat>,
+    /// CSS selector to extract a specific section (Markdown only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub selector: Option<String>,
+    /// Truncate the result to this many characters (default: 5000).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+    pub max_length: Option<u64>,
+    /// Character offset to start the result from, for pagination (default: 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+    pub start_index: Option<u64>,
+    /// Visibility filtering policy (default: moderate).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub visibility: Option<Visibility>,
+    /// Per-request options valid inside a session.
+    #[serde(flatten)]
+    pub options: SessionRequestOptions,
+}
+
+/// Parameters for the `session/close` method.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCloseRequest {
+    /// Session obtained from `session/open`.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub session_id: u64,
+}
+
 /// Parameters for the `batchFetch` method.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]

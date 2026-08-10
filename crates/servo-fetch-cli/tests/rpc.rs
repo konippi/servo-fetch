@@ -279,3 +279,20 @@ async fn cancel_aborts_in_flight_crawl() {
 
     assert_eq!(code, Some(-32800), "expected RequestCancelled (-32800)");
 }
+
+#[test]
+fn session_fetch_on_unknown_session_is_invalid_params() {
+    let frames = run_rpc(
+        r#"{"jsonrpc":"2.0","id":1,"method":"session/fetch","params":{"sessionId":42,"url":"https://example.com"}}"#,
+    );
+    let error = &frames[0]["error"];
+    assert_eq!(error["code"], -32602);
+    assert!(error["message"].as_str().unwrap().contains("unknown session 42"));
+}
+
+#[test]
+fn session_close_is_idempotent_for_unknown_sessions() {
+    let frames = run_rpc(r#"{"jsonrpc":"2.0","id":1,"method":"session/close","params":{"sessionId":42}}"#);
+    assert_eq!(frames[0]["result"], Value::Null);
+    assert!(frames[0].get("error").is_none());
+}

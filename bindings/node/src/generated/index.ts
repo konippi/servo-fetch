@@ -584,6 +584,95 @@ name: string,
 version: string, };
 
 /**
+ * Parameters for the `session/close` method.
+ */
+export type SessionCloseRequest = { 
+/**
+ * Session obtained from `session/open`.
+ */
+sessionId: number, };
+
+/**
+ * Parameters for the `session/fetch` method (returns the formatted page as a string).
+ */
+export type SessionFetchRequest = { 
+/**
+ * Session obtained from `session/open`.
+ */
+sessionId: number, 
+/**
+ * URL to fetch (http/https only).
+ */
+url: string, 
+/**
+ * Output format (default: markdown).
+ */
+format?: FetchFormat, 
+/**
+ * CSS selector to extract a specific section (Markdown only).
+ */
+selector?: string, 
+/**
+ * Truncate the result to this many characters (default: 5000).
+ */
+maxLength?: number, 
+/**
+ * Character offset to start the result from, for pagination (default: 0).
+ */
+startIndex?: number, 
+/**
+ * Visibility filtering policy (default: moderate).
+ */
+visibility?: Visibility, 
+/**
+ * Page-load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, };
+
+/**
+ * Parameters for the `session/open` method.
+ */
+export type SessionOpenRequest = { 
+/**
+ * User-Agent for every request in the session.
+ */
+userAgent?: string, };
+
+/**
+ * Result of the `session/open` method.
+ */
+export type SessionOpenResult = { 
+/**
+ * Identifier for subsequent `session/fetch` and `session/close` calls.
+ */
+sessionId: number, };
+
+/**
+ * Request options for `session/fetch`; session identity (user agent, cookies) is fixed at open.
+ */
+export type SessionRequestOptions = { 
+/**
+ * Page-load timeout in seconds (default: 30).
+ */
+timeout?: number, 
+/**
+ * Extra wait in milliseconds after the load event (default: 0).
+ */
+settleMs?: number, 
+/**
+ * Custom request headers.
+ */
+headers?: { [key in string]: string }, };
+
+/**
  * Visibility-aware filtering policy applied during extraction.
  */
 export type Visibility = "moderate" | "strict" | "off";

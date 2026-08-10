@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 use servo_fetch::FetchOptions;
 use servo_fetch_types::{
     CrawlRequest, CrawlStats, ErrorKind, EvaluateRequest, ExtractRequest, FetchRequest, InitializeResult, MapRequest,
-    SchemaExtractRequest, ScreenshotRequest, ServerCapabilities, ServerInfo,
+    SchemaExtractRequest, ScreenshotRequest, ServerCapabilities, ServerInfo, SessionCloseRequest, SessionFetchRequest,
+    SessionOpenRequest, SessionOpenResult,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -22,6 +23,7 @@ pub(crate) async fn dispatch(
     params: Value,
     id: &RequestId,
     tx: &UnboundedSender<String>,
+    sessions: &super::Sessions,
 ) -> Result<Value, ResponseError> {
     match method {
         "initialize" => Ok(initialize()),
@@ -32,8 +34,80 @@ pub(crate) async fn dispatch(
         "extractSchema" => extract_schema(params).await,
         "map" => map(params).await,
         "crawl" => crawl(params, id, tx).await,
+        "session/open" => session_open(params, sessions).await,
+        "session/fetch" => session_fetch(params, sessions).await,
+        "session/close" => session_close(params, sessions).await,
         other => Err(ResponseError::method_not_found(other)),
     }
+}
+
+static NEXT_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+async fn session_open(params: Value, sessions: &super::Sessions) -> Result<Value, ResponseError> {
+    let req: SessionOpenRequest = parse(params)?;
+    let mut config = servo_fetch::BrowserSessionConfig::new();
+    if let Some(user_agent) = req.user_agent {
+        config = config.user_agent(user_agent);
+    }
+    let session = servo_fetch::BrowserSession::new(config)
+        .await
+        .map_err(|e| ResponseError::from(ToolError::from(e)))?;
+    let session_id = NEXT_SESSION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    sessions
+        .lock()
+        .await
+        .insert(session_id, std::sync::Arc::new(tokio::sync::Mutex::new(Some(session))));
+    Ok(serde_json::to_value(SessionOpenResult { session_id })?)
+}
+
+async fn session_fetch(params: Value, sessions: &super::Sessions) -> Result<Value, ResponseError> {
+    let req: SessionFetchRequest = parse(params)?;
+    let url = tools::validated_url(&req.url)?;
+    tools::validate_selector(req.selector.as_deref())?;
+
+    let slot = sessions
+        .lock()
+        .await
+        .get(&req.session_id)
+        .cloned()
+        .ok_or_else(|| ResponseError::invalid_params(format!("unknown session {}", req.session_id)))?;
+
+    let format = req.format.unwrap_or_default();
+    let opts = tools::content_options(&url, format, tools::visibility_policy(req.visibility))
+        .timeout(tools::resolve_timeout(req.options.timeout))
+        .settle(tools::resolve_settle(req.options.settle_ms))
+        .headers(tools::build_headers(req.options.headers)?);
+    let mut guard = slot.lock().await;
+    let session = guard
+        .as_mut()
+        .ok_or_else(|| ResponseError::invalid_params(format!("session {} is closed", req.session_id)))?;
+    let page = session
+        .fetch(&opts)
+        .await
+        .map_err(|e| ResponseError::from(ToolError::from(e)))?;
+    drop(guard);
+
+    let full = tools::render_page(&page, &url, format, req.selector.as_deref())?;
+    let sanitized = servo_fetch::sanitize::sanitize(&full);
+    let content = tools::paginate_opt(&sanitized, req.start_index, req.max_length);
+    Ok(json!(content))
+}
+
+async fn session_close(params: Value, sessions: &super::Sessions) -> Result<Value, ResponseError> {
+    let req: SessionCloseRequest = parse(params)?;
+    let slot = sessions.lock().await.remove(&req.session_id);
+    let Some(slot) = slot else {
+        return Ok(Value::Null);
+    };
+    // Waits for an in-flight fetch on this session; concurrent holders then observe `None`.
+    let session = slot.lock().await.take();
+    if let Some(session) = session {
+        session
+            .close()
+            .await
+            .map_err(|e| ResponseError::from(ToolError::from(e)))?;
+    }
+    Ok(Value::Null)
 }
 
 fn initialize() -> Value {

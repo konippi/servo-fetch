@@ -512,15 +512,16 @@ fn graceful_close_sends_shutdown_reaps_descendants_and_deletes_storage() {
     let session = broker.session_blocking(BrowserSessionConfig::new()).unwrap();
     let config_dir = session.supervisor.as_ref().unwrap().config_dir.clone();
     let deadline = Instant::now() + Duration::from_secs(1);
-    while !child_pid.exists() {
+    let pid = loop {
+        if let Some(pid) = std::fs::read_to_string(&child_pid)
+            .ok()
+            .and_then(|content| content.trim().parse::<i32>().ok())
+        {
+            break pid;
+        }
         assert!(Instant::now() < deadline, "worker descendant did not start");
         std::thread::sleep(Duration::from_millis(5));
-    }
-    let pid = std::fs::read_to_string(&child_pid)
-        .unwrap()
-        .trim()
-        .parse::<i32>()
-        .unwrap();
+    };
 
     session.close_blocking().unwrap();
     assert!(!config_dir.exists());

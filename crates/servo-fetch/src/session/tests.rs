@@ -511,8 +511,6 @@ fn graceful_close_sends_shutdown_reaps_descendants_and_deletes_storage() {
     );
     let session = broker.session_blocking(BrowserSessionConfig::new()).unwrap();
     let config_dir = session.supervisor.as_ref().unwrap().config_dir.clone();
-    // Poll for parseable content, not mere existence: the shell's redirection
-    // creates the file before the pid is written.
     let deadline = Instant::now() + Duration::from_secs(1);
     let pid = loop {
         if let Some(pid) = std::fs::read_to_string(&child_pid)

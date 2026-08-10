@@ -6,7 +6,7 @@ import concurrent.futures
 
 import pytest
 
-from servo_fetch import AsyncClient, Schema, fetch_async
+from servo_fetch import AsyncClient, AsyncSession, Schema, ServoFetchError, fetch_async
 
 
 @pytest.mark.asyncio
@@ -57,3 +57,14 @@ def test_schema_base_selector_thread_safe() -> None:
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         results = list(ex.map(lambda _: schema.extract(html), range(20)))
     assert all(r == expected for r in results)
+
+
+@pytest.mark.asyncio
+async def test_async_session_close_is_terminal_and_idempotent() -> None:
+    session = AsyncSession()
+    assert not session.is_closed
+    await session.close()
+    await session.close()
+    assert session.is_closed
+    with pytest.raises(ServoFetchError, match="browser session is closed"):
+        await session.fetch("https://example.com")

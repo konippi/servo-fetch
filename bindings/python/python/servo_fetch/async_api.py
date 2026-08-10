@@ -9,10 +9,11 @@ from collections.abc import AsyncIterator
 from typing import Self, cast
 
 from ._native import Client as _SyncClient
-from ._native import CrawlResult, MappedUrl, Page, Schema
+from ._native import CrawlResult, MappedUrl, Page, Schema, ServoFetchError
+from ._native import Session as _SyncSession
 from ._native import fetch as _sync_fetch
 
-__all__ = ["AsyncClient", "fetch_async"]
+__all__ = ["AsyncClient", "AsyncSession", "fetch_async"]
 
 _SENTINEL = object()
 
@@ -180,3 +181,75 @@ class AsyncClient:
 
     async def __aexit__(self, *_: object) -> None:
         """No-op; the engine is process-global. Provided for forward compatibility."""
+
+
+class AsyncSession:
+    """Async wrapper over an isolated browser session."""
+
+    def __init__(
+        self,
+        *,
+        user_agent: str | None = None,
+        cookies_file: str | os.PathLike[str] | None = None,
+        cookies_url: str | None = None,
+    ) -> None:
+        self._user_agent = user_agent
+        self._cookies_file = cookies_file
+        self._cookies_url = cookies_url
+        self._inner: _SyncSession | None = None
+        self._closed = False
+        self._lock = asyncio.Lock()
+
+    async def _session(self) -> _SyncSession:
+        async with self._lock:
+            if self._closed:
+                msg = "browser session is closed"
+                raise ServoFetchError(msg)
+            if self._inner is None:
+                self._inner = await asyncio.to_thread(
+                    _SyncSession,
+                    user_agent=self._user_agent,
+                    cookies_file=self._cookies_file,
+                    cookies_url=self._cookies_url,
+                )
+            return self._inner
+
+    async def fetch(
+        self,
+        url: str,
+        *,
+        timeout: float | None = None,
+        settle: float | None = None,
+        screenshot: bool = False,
+        javascript: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Page:
+        session = await self._session()
+        return await asyncio.to_thread(
+            session.fetch,
+            url,
+            timeout=timeout,
+            settle=settle,
+            screenshot=screenshot,
+            javascript=javascript,
+            headers=headers,
+        )
+
+    @property
+    def is_closed(self) -> bool:
+        """Whether ``close`` has been called."""
+        return self._closed
+
+    async def close(self) -> None:
+        async with self._lock:
+            self._closed = True
+            if self._inner is not None:
+                inner, self._inner = self._inner, None
+                await asyncio.to_thread(inner.close)
+
+    async def __aenter__(self) -> Self:
+        await self._session()
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.close()

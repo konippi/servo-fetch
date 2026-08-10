@@ -99,6 +99,33 @@ class MappedUrl:
     def lastmod(self) -> str | None: ...
 
 @final
+class Session:
+    def __new__(
+        cls,
+        *,
+        user_agent: str | None = None,
+        cookies_file: str | os.PathLike[str] | None = None,
+        cookies_url: str | None = None,
+    ) -> Session: ...
+    def fetch(
+        self,
+        url: str,
+        *,
+        timeout: float | None = None,
+        settle: float | None = None,
+        screenshot: bool = False,
+        javascript: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Page: ...
+    def close(self) -> None: ...
+    @property
+    def is_closed(self) -> bool: ...
+    def __enter__(self) -> Session: ...
+    def __exit__(self, *args: object) -> None: ...
+
+def run_worker_stdio() -> None: ...
+
+@final
 class Client:
     def __new__(
         cls,

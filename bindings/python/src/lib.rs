@@ -12,6 +12,7 @@ mod errors;
 mod opts;
 mod page;
 mod schema;
+mod session;
 mod validate;
 
 use crate::errors::map_error;
@@ -64,6 +65,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<schema::Schema>()?;
     m.add_class::<schema::Field>()?;
     m.add_class::<client::Client>()?;
+    m.add_class::<session::Session>()?;
+    m.add_function(wrap_pyfunction!(session::run_worker_stdio, m)?)?;
     m.add_class::<console::ConsoleMessage>()?;
     m.add_class::<crawl::CrawlResult>()?;
     m.add_class::<crawl::MappedUrl>()?;

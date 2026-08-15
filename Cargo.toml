@@ -21,7 +21,7 @@ bitflags = "2"
 clap = { version = "4", features = ["derive"] }
 console = "0.16"
 cookie = "0.18"
-crossbeam-channel = "=0.5.15"
+crossbeam-channel = "=0.5.16"
 cssparser = "0.36"
 dom_query = "0.28"
 dom_smoothie = "0.18"

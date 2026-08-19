@@ -445,6 +445,7 @@ impl WorkerProcess {
         let mut process = Command::new(&command.program);
         process
             .args(&command.args)
+            .current_dir(owner.config_dir())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());

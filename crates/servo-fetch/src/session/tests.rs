@@ -368,6 +368,29 @@ fn scripted_broker(script: &str, args: impl IntoIterator<Item = OsString>, queue
 }
 
 #[cfg(unix)]
+#[test]
+fn worker_starts_in_private_session_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let reported_cwd = directory.path().join("worker-cwd");
+    let script = format!(
+        "pwd -P > \"$1\"; {}read_frame; {}read_frame; {}",
+        scripted_worker_prefix(),
+        initialized_shell(1),
+        shutdown_ack_shell(2)
+    );
+    let broker = scripted_broker(&script, [reported_cwd.clone().into_os_string()], 0);
+    let session = broker.session_blocking(BrowserSessionConfig::new()).unwrap();
+    let config_dir = session.supervisor.as_ref().unwrap().config_dir.clone();
+    let worker_cwd = std::fs::read_to_string(reported_cwd).unwrap();
+
+    assert_eq!(
+        std::fs::canonicalize(worker_cwd.trim()).unwrap(),
+        std::fs::canonicalize(config_dir).unwrap()
+    );
+    session.close_blocking().unwrap();
+}
+
+#[cfg(unix)]
 fn assert_fetch_protocol_failure(responses: &str) {
     let script = format!(
         "{}read_frame; {}read_frame; {responses}exec sleep 10",

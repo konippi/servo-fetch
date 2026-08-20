@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.1](https://github.com/konippi/servo-fetch/compare/0.14.0..0.14.1) - 2026-08-20
+
+### Bug Fixes
+
+- *(session)* Isolate worker current directory ([#425](https://github.com/konippi/servo-fetch/pull/425))
+
+### Miscellaneous
+
+- Update Cargo.lock dependencies
+
 ## [0.14.0](https://github.com/konippi/servo-fetch/compare/0.13.1..0.14.0) - 2026-08-10
 
 

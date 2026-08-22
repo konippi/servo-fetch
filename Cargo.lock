@@ -1101,9 +1101,9 @@ dependencies = [
 
 [[package]]
 name = "cookie"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ddef33a339a91ea89fb53151bd0a4689cfce27055c291dfa69945475d22c747"
+checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
 dependencies = [
  "time",
  "version_check",
@@ -5110,9 +5110,9 @@ dependencies = [
 
 [[package]]
 name = "psl"
-version = "2.1.223"
+version = "2.1.226"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0dedad316e05de220cbf3fd8bfb69f3df8755dde2d7d479211827b595168a93"
+checksum = "7bc88482eea924ca3a2f56a547454169af58deef35567965eb4fc2392a834841"
 dependencies = [
  "psl-types",
 ]
@@ -6040,7 +6040,7 @@ checksum = "01a05ffce7829e67e41c5cb4e10849924cbd781d0ea0d6332d81afe8476d8a89"
 dependencies = [
  "accesskit",
  "bitflags 2.13.1",
- "cookie 0.18.1",
+ "cookie 0.18.2",
  "crossbeam-channel",
  "dpi",
  "env_logger",
@@ -6406,7 +6406,7 @@ dependencies = [
  "accesskit",
  "bitflags 2.13.1",
  "content-security-policy",
- "cookie 0.18.1",
+ "cookie 0.18.2",
  "crossbeam-channel",
  "euclid 0.22.14",
  "http 1.5.0",
@@ -6438,7 +6438,7 @@ version = "0.14.0"
 dependencies = [
  "anyhow",
  "bitflags 2.13.1",
- "cookie 0.18.1",
+ "cookie 0.18.2",
  "crossbeam-channel",
  "cssparser 0.36.0",
  "dom_query",
@@ -6632,7 +6632,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3b2e4387d12ebe7eaea401b3596d53e70addd9179effa479e0d75f3c395a818"
 dependencies = [
- "cookie 0.18.1",
+ "cookie 0.18.2",
  "headers",
  "http 1.5.0",
  "hyper",
@@ -6971,7 +6971,7 @@ dependencies = [
  "bytes",
  "chrono",
  "content-security-policy",
- "cookie 0.18.1",
+ "cookie 0.18.2",
  "crossbeam-channel",
  "data-url",
  "fst",
@@ -7036,7 +7036,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "033b26560fdfeb4e82f0f027363f15410da5464a842e36aa7fedc94a60d1aea2"
 dependencies = [
  "content-security-policy",
- "cookie 0.18.1",
+ "cookie 0.18.2",
  "crossbeam-channel",
  "data-url",
  "headers",
@@ -7221,7 +7221,7 @@ dependencies = [
  "chardetng",
  "chrono",
  "content-security-policy",
- "cookie 0.18.1",
+ "cookie 0.18.2",
  "crossbeam-channel",
  "crypto-bigint",
  "cshake",

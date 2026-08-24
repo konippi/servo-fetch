@@ -71,10 +71,7 @@ servo-fetch "https://example.com" --selector ".main-content" --format json
 
 ### Visibility filtering
 
-Hidden patterns (cookie banners, modals, `aria-hidden`, `opacity:0`, sr-only)
-are stripped under the default `moderate` policy. Use `strict` to also drop
-screen-reader-only content, or `off` to disable flag-based stripping (semantic
-hides like `[hidden]` / modal dialogs always apply).
+Hidden patterns (cookie banners, modals, `aria-hidden`, `opacity:0`, sr-only) are stripped under the default `moderate` policy. Use `strict` to also drop screen-reader-only content, or `off` to disable flag-based stripping (semantic hides like `[hidden]` / modal dialogs always apply).
 
 ```bash
 servo-fetch "https://example.com" --visibility moderate   # default
@@ -239,10 +236,7 @@ RUST_LOG="servo_fetch=trace,servo=debug" servo-fetch "..." # include Servo inter
 
 ## Exit codes
 
-`0` on success. On failure the human-readable message goes to stderr and the
-exit code carries the failure category, following the
-[`sysexits.h`](https://man.freebsd.org/cgi/man.cgi?sysexits) convention so
-scripts can branch without parsing stderr:
+`0` on success. On failure the human-readable message goes to stderr and the exit code carries the failure category, following the [`sysexits.h`](https://man.freebsd.org/cgi/man.cgi?sysexits) convention so scripts can branch without parsing stderr:
 
 | Code | Name | Cause |
 | ---- | ---- | ----- |
@@ -262,6 +256,8 @@ scripts can branch without parsing stderr:
 | -------- | ----------- |
 | `SERVO_FETCH_USER_AGENT` | Default User-Agent string (overridden by `--user-agent`) |
 | `SERVO_FETCH_NO_STDERR_FILTER` | Disable Apple OpenGL driver noise filter (debug use) |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` | Route requests through a proxy. Basic authentication is supported through URL credentials, for example `http://user:password@proxy.example:8080`. Lowercase variants are also accepted. |
+| `NO_PROXY` | Comma-separated hosts that bypass the configured proxy. The lowercase variant is also accepted. |
 | `RUST_LOG` | Fine-grained log filter (overrides `-v`/`-q`) |
 
 ## MCP Server

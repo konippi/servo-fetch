@@ -447,45 +447,59 @@ fn protocol_info_validation_fails_closed() {
 }
 
 #[cfg(unix)]
+fn read_pid(path: &std::path::Path) -> i32 {
+    let content = std::fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("failed to read worker descendant PID from {}: {error}", path.display()));
+    content.trim().parse::<i32>().unwrap_or_else(|error| {
+        panic!(
+            "failed to parse worker descendant PID from {} ({content:?}): {error}",
+            path.display()
+        )
+    })
+}
+
+#[cfg(unix)]
+fn assert_pid_absent(pid: i32, operation: &str) {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        // SAFETY: signal 0 only probes the PID captured from the test child.
+        #[allow(unsafe_code)]
+        let result = unsafe { libc::kill(pid, 0) };
+        if result == -1 {
+            let error = std::io::Error::last_os_error();
+            assert_eq!(
+                error.raw_os_error(),
+                Some(libc::ESRCH),
+                "failed to probe worker descendant PID {pid} after {operation}: {error}"
+            );
+            return;
+        }
+        assert!(Instant::now() < deadline, "worker descendant survived {operation}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(unix)]
 #[tokio::test]
 async fn force_close_terminates_worker_process_group() {
     let directory = tempfile::tempdir().unwrap();
     let child_pid = directory.path().join("child-pid");
     let script = format!(
-        "{}read_frame; {}sleep 60 & echo $! > \"$1\"; exec sleep 60",
+        "{}read_frame; sleep 60 & echo $! > \"$1\" || exit 1; {}exec sleep 60",
         scripted_worker_prefix(),
         initialized_shell(1)
     );
     let broker = scripted_broker(&script, [child_pid.clone().into_os_string()], 0);
     let session = broker.session(BrowserSessionConfig::new()).await.unwrap();
     let config_dir = session.supervisor.as_ref().unwrap().config_dir.clone();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while !child_pid.exists() {
-        assert!(Instant::now() < deadline, "worker descendant did not start");
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    let pid = std::fs::read_to_string(&child_pid)
-        .unwrap()
-        .trim()
-        .parse::<i32>()
-        .unwrap();
+    let pid = read_pid(&child_pid);
 
     tokio::time::timeout(Duration::from_secs(3), session.force_close())
         .await
         .expect("process-group cleanup must be bounded")
         .unwrap();
     assert!(!config_dir.exists());
-    let deadline = Instant::now() + Duration::from_secs(1);
-    loop {
-        // SAFETY: signal 0 only probes the PID captured from the test child.
-        #[allow(unsafe_code)]
-        let alive = unsafe { libc::kill(pid, 0) } == 0;
-        if !alive {
-            break;
-        }
-        assert!(Instant::now() < deadline, "worker descendant survived force close");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    assert_pid_absent(pid, "force close");
 }
 
 #[cfg(unix)]
@@ -518,7 +532,7 @@ fn graceful_close_sends_shutdown_reaps_descendants_and_deletes_storage() {
     let shutdown_request = directory.path().join("shutdown-request");
     let child_pid = directory.path().join("child-pid");
     let script = format!(
-        "{}read_frame \"$1\"; {}sleep 60 & echo $! > \"$3\"; read_frame \"$2\"; {}exit 0",
+        "{}read_frame \"$1\"; sleep 60 & echo $! > \"$3\" || exit 1; {}read_frame \"$2\"; {}exit 0",
         scripted_worker_prefix(),
         initialized_shell(1),
         shutdown_ack_shell(2)
@@ -534,17 +548,7 @@ fn graceful_close_sends_shutdown_reaps_descendants_and_deletes_storage() {
     );
     let session = broker.session_blocking(BrowserSessionConfig::new()).unwrap();
     let config_dir = session.supervisor.as_ref().unwrap().config_dir.clone();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    let pid = loop {
-        if let Some(pid) = std::fs::read_to_string(&child_pid)
-            .ok()
-            .and_then(|content| content.trim().parse::<i32>().ok())
-        {
-            break pid;
-        }
-        assert!(Instant::now() < deadline, "worker descendant did not start");
-        std::thread::sleep(Duration::from_millis(5));
-    };
+    let pid = read_pid(&child_pid);
 
     session.close_blocking().unwrap();
     assert!(!config_dir.exists());
@@ -557,20 +561,7 @@ fn graceful_close_sends_shutdown_reaps_descendants_and_deletes_storage() {
     let shutdown: RequestFrame = decode_frame(&std::fs::read(shutdown_request).unwrap()).unwrap();
     assert!(matches!(shutdown.request, WorkerRequest::Shutdown));
 
-    let deadline = Instant::now() + Duration::from_secs(1);
-    loop {
-        // SAFETY: signal 0 only probes the PID captured from the test child.
-        #[allow(unsafe_code)]
-        let alive = unsafe { libc::kill(pid, 0) } == 0;
-        if !alive {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "worker descendant survived graceful shutdown"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    assert_pid_absent(pid, "graceful shutdown");
 }
 
 #[cfg(unix)]

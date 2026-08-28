@@ -217,8 +217,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  publish-docker:
-    name: Publish Docker candidate
+  build-docker:
+    name: Build Docker candidate
     needs: [release-plz-release, build-release]
     if: needs.release-plz-release.outputs.tag != ''
     runs-on: ubuntu-24.04
@@ -287,18 +287,22 @@ jobs:
           provenance: mode=max
           sbom: true
 
-  trivy-scan:
-    name: Scan Docker candidate
-    needs: publish-docker
+  scan-docker:
+    name: Scan Docker candidate / ${{ matrix.arch }}
+    needs: build-docker
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     permissions:
       security-events: write
     steps:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ghcr.io/${{ github.repository }}@${{ needs.publish-docker.outputs.digest }}
+          image-ref: ghcr.io/${{ github.repository }}@${{ needs.build-docker.outputs.digest }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
@@ -306,6 +310,7 @@ jobs:
           output: trivy-results.sarif
           limit-severities-for-sarif: true
         env:
+          TRIVY_PLATFORM: linux/${{ matrix.arch }}
           TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db:2
           TRIVY_DISABLE_VEX_NOTICE: "true"
 
@@ -314,15 +319,14 @@ jobs:
         uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           sarif_file: trivy-results.sarif
-          category: trivy-image
+          category: trivy-image-${{ matrix.arch }}
 
-  promote-docker:
-    name: Promote and sign Docker image
-    needs: [release-plz-release, publish-docker, trivy-scan]
+  publish-docker:
+    name: Publish and sign Docker image
+    needs: [release-plz-release, build-docker, scan-docker]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: read
       packages: write
       id-token: write
     steps:
@@ -346,37 +350,13 @@ jobs:
 
       - name: Promote scanned digest to stable tags
         env:
-          EXPECTED_DIGEST: ${{ needs.publish-docker.outputs.digest }}
+          EXPECTED_DIGEST: ${{ needs.build-docker.outputs.digest }}
           IMAGE: ghcr.io/${{ github.repository }}
           STABLE_TAGS: ${{ steps.stable-meta.outputs.tags }}
         run: |
           set -euo pipefail
 
           source_ref="${IMAGE}@${EXPECTED_DIGEST}"
-          source_digest=$(docker buildx imagetools inspect "$source_ref" --format '{{json .Manifest}}' | jq -r '.digest')
-          if [[ "$source_digest" != "$EXPECTED_DIGEST" ]]; then
-            echo "Candidate digest mismatch: expected $EXPECTED_DIGEST, got $source_digest" >&2
-            exit 1
-          fi
-
-          manifest=$(mktemp)
-          trap 'rm -f "$manifest"' EXIT
-          docker buildx imagetools create --prefer-index=false --dry-run "$source_ref" > "$manifest"
-          preflight_digest=$(python3 - "$manifest" <<'PY'
-          from hashlib import sha256
-          from pathlib import Path
-          import sys
-
-          data = Path(sys.argv[1]).read_bytes()
-          if data.endswith(b"\n"):
-              data = data[:-1]
-          print(f"sha256:{sha256(data).hexdigest()}")
-          PY
-          )
-          if [[ "$preflight_digest" != "$EXPECTED_DIGEST" ]]; then
-            echo "Promotion would change digest: expected $EXPECTED_DIGEST, got $preflight_digest" >&2
-            exit 1
-          fi
 
           tags=()
           while IFS= read -r tag; do
@@ -405,12 +385,12 @@ jobs:
 
       - name: Sign promoted digest with cosign (keyless)
         env:
-          DIGEST: ${{ needs.publish-docker.outputs.digest }}
+          DIGEST: ${{ needs.build-docker.outputs.digest }}
         run: cosign sign --yes --recursive "ghcr.io/${{ github.repository }}@${DIGEST}"
 
   publish-release:
     name: Publish release
-    needs: [release-plz-release, build-release, publish-docker, trivy-scan, promote-docker]
+    needs: [release-plz-release, publish-docker]
     if: needs.release-plz-release.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5

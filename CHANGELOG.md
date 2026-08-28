@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.2](https://github.com/konippi/servo-fetch/compare/0.14.1..0.14.2) - 2026-08-28
+
+### Bug Fixes
+
+- *(tests)* Eliminate worker PID publication race ([#437](https://github.com/konippi/servo-fetch/pull/437))
+- *(session)* Isolate worker current directory ([#425](https://github.com/konippi/servo-fetch/pull/425))
+
+### Miscellaneous
+
+- Update Cargo.lock dependencies
+
 ## [0.14.1](https://github.com/konippi/servo-fetch/compare/0.14.0..0.14.1) - 2026-08-28
 
 ### Bug Fixes

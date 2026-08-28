@@ -2,13 +2,16 @@
 
 use std::fs;
 use std::future::Future;
+use std::io::{Read as _, Write as _};
+use std::net::TcpListener;
 use std::str::from_utf8;
+use std::sync::mpsc;
+use std::time::Duration;
 #[cfg(unix)]
 use std::{
-    io::Read as _,
     os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
     process::Stdio,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use assert_cmd::Command;
@@ -149,6 +152,56 @@ fn internal_worker_exits_when_parent_lifeline_closes() {
 }
 
 const TIMEOUT: &str = "--timeout=30";
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn authenticated_https_proxy_sends_basic_authorization() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind proxy listener");
+    let proxy_address = listener.local_addr().expect("proxy address");
+    let (request_tx, request_rx) = mpsc::channel();
+    let proxy = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept proxy connection");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("set proxy read timeout");
+        let mut request = Vec::new();
+        let mut buffer = [0; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let bytes_read = stream.read(&mut buffer).expect("read proxy request");
+            assert!(bytes_read > 0, "proxy request ended before headers completed");
+            request.extend_from_slice(&buffer[..bytes_read]);
+        }
+        request_tx
+            .send(String::from_utf8(request).expect("proxy request is UTF-8"))
+            .expect("send captured proxy request");
+        stream
+            .write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+            .expect("write proxy response");
+    });
+
+    servo_fetch()
+        .env("HTTPS_PROXY", format!("http://servo-fetch:secret@{proxy_address}"))
+        .env_remove("https_proxy")
+        .env_remove("ALL_PROXY")
+        .env_remove("all_proxy")
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy")
+        .args(["--timeout=5", "https://example.com"])
+        .assert()
+        .success();
+
+    let request = request_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("proxy request was captured");
+    proxy.join().expect("proxy thread completed");
+    assert!(request.starts_with("CONNECT example.com:443 HTTP/1.1\r\n"));
+    assert!(
+        request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("Proxy-Authorization: Basic c2Vydm8tZmV0Y2g6c2VjcmV0")),
+        "proxy authorization header missing from CONNECT request: {request}"
+    );
+}
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]

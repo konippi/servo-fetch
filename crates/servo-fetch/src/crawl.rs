@@ -272,7 +272,7 @@ where
         move || crate::robots::RobotsRules::fetch(&seed, user_agent.as_deref(), &headers, timeout)
     })
     .await
-    .unwrap_or(RobotsPolicy::Unreachable);
+    .map_err(crate::worker::worker_error)?;
     run(plan, robots, &bridge::ServoFetcher, |event| {
         on_event(match event {
             CrawlRunEvent::Result(result) => CrawlSessionEvent::Result(CrawlResult::from_internal(result)),
@@ -483,7 +483,7 @@ pub(crate) async fn run(
 
     let concurrency = opts.concurrency.max(1);
 
-    loop {
+    let failure = 'crawl: loop {
         while in_flight.len() < concurrency && completed + in_flight.len() < opts.limit {
             let Some((url, depth)) = frontier.pop() else {
                 break;
@@ -495,16 +495,9 @@ pub(crate) async fn run(
         }
 
         let outcome = match in_flight.join_next().await {
-            None => break,
-            Some(Ok(o)) => o,
-            Some(Err(e)) if e.is_panic() => {
-                tracing::error!(err = %e, "crawl fetch task panicked");
-                continue;
-            }
-            Some(Err(e)) => {
-                tracing::warn!(err = %e, "crawl fetch task cancelled");
-                continue;
-            }
+            None => break None,
+            Some(Ok(outcome)) => outcome,
+            Some(Err(error)) => break Some(crate::worker::worker_error(error)),
         };
 
         let FetchOutcome {
@@ -516,7 +509,9 @@ pub(crate) async fn run(
         let page = match result {
             Ok(p) => p,
             Err(err) => {
-                on_event(CrawlRunEvent::Result(error_result(&url, depth, err, fetched_at)))?;
+                if let Err(error) = on_event(CrawlRunEvent::Result(error_result(&url, depth, err, fetched_at))) {
+                    break 'crawl Some(error);
+                }
                 completed += 1;
                 continue;
             }
@@ -530,13 +525,25 @@ pub(crate) async fn run(
         };
         match process_ok_fetch(&mut ctx, &url, depth, &page, budget_used, fetched_at) {
             event @ CrawlRunEvent::Result(_) => {
-                on_event(event)?;
+                if let Err(error) = on_event(event) {
+                    break 'crawl Some(error);
+                }
                 completed += 1;
             }
-            event @ CrawlRunEvent::Suppressed(_) => on_event(event)?,
+            event @ CrawlRunEvent::Suppressed(_) => {
+                if let Err(error) = on_event(event) {
+                    break 'crawl Some(error);
+                }
+            }
         }
+    };
+
+    if let Some(error) = failure {
+        in_flight.shutdown().await;
+        Err(error)
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
 fn spawn_fetch(
@@ -608,17 +615,18 @@ fn process_ok_fetch(
         .with_selector(ctx.opts.selector.as_deref());
 
     let content = if ctx.opts.json {
-        crate::extract::extract_article(&input)
-            .ok()
-            .and_then(|a| serde_json::to_string(&a).ok())
+        crate::extract::extract_article(&input).and_then(|article| serde_json::to_string(&article).map_err(Into::into))
     } else {
-        crate::extract::extract_text(&input).ok()
+        crate::extract::extract_text(&input)
+    };
+    let content = match content {
+        Ok(content) => content,
+        Err(error) => {
+            return CrawlRunEvent::Result(error_result(url, depth, error.into(), fetched_at));
+        }
     };
 
-    if content
-        .as_ref()
-        .is_some_and(|content| ctx.frontier.is_duplicate_content(content))
-    {
+    if ctx.frontier.is_duplicate_content(&content) {
         return CrawlRunEvent::Suppressed(SuppressedPage {
             url: url.to_string(),
             depth,
@@ -656,7 +664,7 @@ fn process_ok_fetch(
         depth,
         status: CrawlStatus::Ok,
         title,
-        content: content.map(|c| crate::sanitize::sanitize(&c).into_owned()),
+        content: Some(crate::sanitize::sanitize(&content).into_owned()),
         error: None,
         links_found,
         fetched_at,
@@ -687,7 +695,10 @@ fn error_result(url: &Url, depth: usize, error: crate::error::Error, fetched_at:
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Barrier, Mutex};
+
+    use tokio::sync::oneshot;
 
     use super::*;
 
@@ -772,6 +783,92 @@ mod tests {
         }
     }
 
+    struct PanicSignal(Option<oneshot::Sender<()>>);
+
+    impl Drop for PanicSignal {
+        fn drop(&mut self) {
+            if let Some(sender) = self.0.take() {
+                let _ = sender.send(());
+            }
+        }
+    }
+
+    struct ControlledFailureState {
+        start: Barrier,
+        panicked: Mutex<Option<oneshot::Sender<()>>>,
+        release: Mutex<Option<oneshot::Receiver<()>>>,
+        blocking_completed: AtomicBool,
+    }
+
+    #[derive(Clone)]
+    struct ControlledFailureFetcher(Arc<ControlledFailureState>);
+
+    impl PageFetcher for ControlledFailureFetcher {
+        fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
+            match Url::parse(opts.url).expect("test URL").path() {
+                "/" => Ok(bridge::ServoPage {
+                    html: page(&["/controlled", "/block"]),
+                    ..Default::default()
+                }),
+                "/block" => {
+                    self.0.start.wait();
+                    self.0
+                        .release
+                        .lock()
+                        .unwrap()
+                        .take()
+                        .expect("blocking task waits once")
+                        .blocking_recv()
+                        .expect("test releases blocking task");
+                    self.0.blocking_completed.store(true, Ordering::SeqCst);
+                    Ok(bridge::ServoPage {
+                        html: distinct_page("block"),
+                        ..Default::default()
+                    })
+                }
+                "/controlled" => {
+                    self.0.start.wait();
+                    let panicked = self.0.panicked.lock().unwrap().take();
+                    if panicked.is_some() {
+                        let _signal = PanicSignal(panicked);
+                        panic!("intentional crawl fetch panic");
+                    }
+                    Ok(bridge::ServoPage {
+                        html: distinct_page("controlled"),
+                        ..Default::default()
+                    })
+                }
+                path => panic!("unexpected test path {path}"),
+            }
+        }
+    }
+
+    fn controlled_fetcher(panicked: Option<oneshot::Sender<()>>) -> (ControlledFailureFetcher, oneshot::Sender<()>) {
+        let (release_tx, release) = oneshot::channel();
+        let fetcher = ControlledFailureFetcher(Arc::new(ControlledFailureState {
+            start: Barrier::new(2),
+            panicked: Mutex::new(panicked),
+            release: Mutex::new(Some(release)),
+            blocking_completed: AtomicBool::new(false),
+        }));
+        (fetcher, release_tx)
+    }
+
+    fn controlled_plan() -> CrawlPlan {
+        let mut plan = test_plan("https://example.com/");
+        plan.concurrency = 2;
+        plan
+    }
+
+    async fn assert_crawl_pending(crawling: &mut tokio::task::JoinHandle<crate::error::Result<()>>) {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), crawling)
+                .await
+                .is_err(),
+            "crawl returned while a started blocking sibling was still running"
+        );
+    }
+
     fn page(links: &[&str]) -> String {
         use std::fmt::Write as _;
         let mut anchors = String::new();
@@ -842,19 +939,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn crawl_propagates_event_sink_failure() {
-        let root = "https://example.com/";
-        let fetcher = MockFetcher::new(&[(root, &page(&["/a"])), ("https://example.com/a", &distinct_page("a"))]);
-        let mut events = 0;
-        let error = run(test_plan(root), RobotsPolicy::Unavailable, &fetcher, |_| {
-            events += 1;
-            Err(crate::error::Error::engine("sink closed", None))
-        })
-        .await
-        .unwrap_err();
+    async fn crawl_event_sink_failure_waits_for_started_blocking_sibling() {
+        let (fetcher, release_tx) = controlled_fetcher(None);
+        let state = Arc::clone(&fetcher.0);
+        let (sink_tx, sink_rx) = oneshot::channel();
+        let mut sink_tx = Some(sink_tx);
+        let mut crawling = tokio::spawn(async move {
+            run(controlled_plan(), RobotsPolicy::Unavailable, &fetcher, |event| {
+                if matches!(event, CrawlRunEvent::Result(ref result) if result.url.ends_with("/controlled")) {
+                    sink_tx
+                        .take()
+                        .expect("one controlled event")
+                        .send(())
+                        .expect("test waits");
+                    Err(crate::error::Error::SessionCancelled)
+                } else {
+                    Ok(())
+                }
+            })
+            .await
+        });
 
-        assert_eq!(events, 1);
-        assert!(error.to_string().contains("sink closed"));
+        sink_rx.await.expect("sink failed after blocking sibling started");
+        assert_crawl_pending(&mut crawling).await;
+
+        release_tx.send(()).expect("blocking sibling still running");
+        let error = crawling.await.expect("crawl joins").expect_err("sink failure returned");
+        assert!(matches!(error, crate::error::Error::SessionCancelled));
+        assert!(state.blocking_completed.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -879,6 +991,41 @@ mod tests {
             Some(crate::error::Error::Timeout { ref url, timeout })
                 if url == "https://example.com/" && timeout == Duration::from_secs(7)
         ));
+    }
+
+    #[tokio::test]
+    async fn crawl_preserves_invalid_selector_as_page_error() {
+        check(
+            &[("https://example.com/", &page(&[]))],
+            |o| o.selector = Some("[".to_string()),
+            |r| {
+                assert_eq!(r.len(), 1);
+                assert!(matches!(
+                    r[0].error,
+                    Some(crate::error::Error::Extract(
+                        crate::extract::ExtractError::InvalidSelector
+                    ))
+                ));
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_fetch_task_join_failure_waits_for_started_blocking_sibling() {
+        let (panicked_tx, panicked_rx) = oneshot::channel();
+        let (fetcher, release_tx) = controlled_fetcher(Some(panicked_tx));
+        let state = Arc::clone(&fetcher.0);
+        let mut crawling =
+            tokio::spawn(async move { run(controlled_plan(), RobotsPolicy::Unavailable, &fetcher, |_| Ok(())).await });
+
+        panicked_rx.await.expect("failing task panicked");
+        assert_crawl_pending(&mut crawling).await;
+
+        release_tx.send(()).expect("blocking sibling still running");
+        let error = crawling.await.expect("crawl joins").expect_err("join failure returned");
+        assert!(matches!(error, crate::error::Error::WorkerUnavailable { .. }));
+        assert!(state.blocking_completed.load(Ordering::SeqCst));
     }
 
     #[tokio::test]

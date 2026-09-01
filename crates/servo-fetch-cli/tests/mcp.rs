@@ -50,18 +50,42 @@ async fn initialize_returns_server_info() {
 }
 
 #[tokio::test]
-async fn list_tools_returns_expected_tools() {
+async fn list_tools_preserves_all_request_schemas() {
     let client = connect().await;
-    let tools = client.list_tools(None).await.unwrap();
+    let listed = client.list_tools(None).await.unwrap();
 
-    assert_eq!(tools.tools.len(), 6);
-    let names: Vec<&str> = tools.tools.iter().map(|t| t.name.as_ref()).collect();
-    assert!(names.contains(&"fetch"));
-    assert!(names.contains(&"batch_fetch"));
-    assert!(names.contains(&"screenshot"));
-    assert!(names.contains(&"execute_js"));
-    assert!(names.contains(&"crawl"));
-    assert!(names.contains(&"map"));
+    assert_eq!(listed.tools.len(), 6);
+    let expectations = [
+        ("fetch", &["url"][..], &["maxLength", "startIndex"][..]),
+        ("batch_fetch", &["urls"][..], &["maxLength", "settleMs"][..]),
+        ("screenshot", &["url"][..], &["fullPage", "userAgent"][..]),
+        ("execute_js", &["url", "expression"][..], &["settleMs"][..]),
+        ("crawl", &["url"][..], &["maxDepth", "delayMs", "maxLength"][..]),
+        ("map", &["url"][..], &["noFallback", "userAgent"][..]),
+    ];
+
+    for (name, required, properties) in expectations {
+        let tool = listed
+            .tools
+            .iter()
+            .find(|tool| tool.name == name)
+            .unwrap_or_else(|| panic!("missing {name} tool"));
+        let actual_required = tool.input_schema["required"]
+            .as_array()
+            .expect("schema required fields")
+            .iter()
+            .map(|field| field.as_str().expect("required field name"))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            actual_required,
+            required.iter().copied().collect(),
+            "{name} required fields"
+        );
+        let actual_properties = tool.input_schema["properties"].as_object().expect("schema properties");
+        for property in properties {
+            assert!(actual_properties.contains_key(*property), "{name} missing {property}");
+        }
+    }
 }
 
 #[tokio::test]
@@ -71,6 +95,72 @@ async fn fetch_rejects_private_ip() {
         .call_tool(call_params("fetch", &serde_json::json!({"url": "http://127.0.0.1/"})))
         .await;
     assert_tool_error(result);
+}
+
+#[tokio::test]
+async fn unknown_tool_remains_invalid_params_protocol_error() {
+    let client = connect().await;
+    let error = client
+        .call_tool(call_params("unknown", &serde_json::json!({})))
+        .await
+        .expect_err("unknown tool should be a protocol error");
+
+    match error {
+        rmcp::ServiceError::McpError(error) => {
+            assert_eq!(error.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+        }
+        other => panic!("expected MCP protocol error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn malformed_arguments_for_all_tools_are_bounded_sanitized_tool_errors() {
+    let cases = [
+        ("fetch", serde_json::json!({"url": "https://example.com", "format": 1})),
+        (
+            "screenshot",
+            serde_json::json!({"url": "https://example.com", "fullPage": "yes"}),
+        ),
+        (
+            "execute_js",
+            serde_json::json!({"url": "https://example.com", "expression": 1}),
+        ),
+        ("batch_fetch", serde_json::json!({"urls": "https://example.com"})),
+        (
+            "crawl",
+            serde_json::json!({"url": "https://example.com", "limit": "many"}),
+        ),
+        (
+            "map",
+            serde_json::json!({"url": "https://example.com", "limit": "many"}),
+        ),
+    ];
+
+    let client = connect().await;
+    for (tool, arguments) in cases {
+        let result = client
+            .call_tool(call_params(tool, &arguments))
+            .await
+            .unwrap_or_else(|error| panic!("{tool} malformed arguments returned a protocol error: {error:?}"));
+        assert_eq!(result.is_error, Some(true), "{tool}");
+        assert!(serde_json::to_vec(&result).unwrap().len() <= 1_000_000, "{tool}");
+    }
+
+    let malformed = format!("bad\u{1b}[31mvisible{}", "x".repeat(1_100_000));
+    let result = client
+        .call_tool(call_params(
+            "fetch",
+            &serde_json::json!({"url": "https://example.com", "format": malformed}),
+        ))
+        .await
+        .expect("malformed fetch arguments should be an isError tool result");
+    let serialized = serde_json::to_vec(&result).unwrap();
+    let text = result.content[0].as_text().expect("text error block");
+    assert_eq!(result.is_error, Some(true));
+    assert!(serialized.len() <= 1_000_000);
+    assert!(!text.text.contains('\u{1b}'));
+    assert!(text.text.contains("visible"));
+    assert!(text.text.ends_with("<output truncated>"));
 }
 
 #[tokio::test]
@@ -149,6 +239,35 @@ async fn execute_js_returns_title() {
 }
 
 #[tokio::test]
+async fn batch_and_crawl_invalid_shared_options_remain_tool_errors() {
+    let cases = [
+        (
+            "batch_fetch",
+            serde_json::json!({
+                "urls": ["https://example.com"],
+                "headers": {"bad\nname": "value"}
+            }),
+        ),
+        (
+            "crawl",
+            serde_json::json!({
+                "url": "https://example.com",
+                "headers": {"bad\nname": "value"}
+            }),
+        ),
+    ];
+
+    let client = connect().await;
+    for (tool, arguments) in cases {
+        let result = client
+            .call_tool(call_params(tool, &arguments))
+            .await
+            .unwrap_or_else(|error| panic!("{tool} invalid input returned a protocol error: {error:?}"));
+        assert_eq!(result.is_error, Some(true), "{tool}");
+    }
+}
+
+#[tokio::test]
 async fn fetch_rejects_metadata_ip_in_pdf_probe() {
     let client = connect().await;
     let result = client
@@ -204,6 +323,41 @@ async fn crawl_rejects_file_scheme() {
         .call_tool(call_params("crawl", &serde_json::json!({"url": "file:///etc/passwd"})))
         .await;
     assert_tool_error(result);
+}
+
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn crawl_invalid_selector_is_a_tool_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(mock_page("<html><body><p>content</p></body></html>"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/robots.txt"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+
+    let client = connect_loopback().await;
+    let result = client
+        .call_tool(call_params(
+            "crawl",
+            &serde_json::json!({
+                "url": server.uri(),
+                "selector": "[",
+                "limit": 1,
+                "delayMs": 0,
+                "timeout": 30
+            }),
+        ))
+        .await
+        .expect("invalid crawl selector should be a tool result");
+
+    assert_eq!(result.is_error, Some(true));
+    let text = result.content[0].as_text().expect("text error block");
+    assert!(text.text.contains("invalid CSS selector"));
 }
 
 #[tokio::test]

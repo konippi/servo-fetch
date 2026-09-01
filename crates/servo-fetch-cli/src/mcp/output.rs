@@ -117,7 +117,7 @@ pub(super) fn bounded_text(value: impl fmt::Display) -> String {
     bounded_format(format_args!("{value}"), MAX_MCP_PREBUILD_TEXT_CHARS)
 }
 
-pub(super) fn labeled_content(url: &str, content: &str) -> String {
+pub(super) fn labeled_content(url: &str, content: impl fmt::Display) -> String {
     bounded_format(format_args!("URL: {url}\n\n{content}"), MAX_MCP_PREBUILD_TEXT_CHARS)
 }
 
@@ -316,7 +316,7 @@ pub(super) fn checked_base64_length(raw_len: usize, encoded_limit: usize) -> Res
         .and_then(|groups| groups.checked_mul(4))
         .ok_or_else(|| ToolError::internal("screenshot base64 size overflow"))?;
     if encoded_len > encoded_limit {
-        return Err(ToolError::internal(format!(
+        return Err(ToolError::operation(format!(
             "screenshot base64 data exceeds {encoded_limit} byte MCP response limit"
         )));
     }
@@ -515,8 +515,8 @@ mod tests {
             "<response truncated: omitted 2 content blocks>",
         )]);
         let mut output = TextOutput::with_limit(false, serialized_len(&summary));
-        assert!(!output.push(labeled_content("https://example.com/a", &"x".repeat(200))));
-        assert!(!output.push(labeled_content("https://example.com/b", &"y".repeat(200))));
+        assert!(!output.push(labeled_content("https://example.com/a", "x".repeat(200))));
+        assert!(!output.push(labeled_content("https://example.com/b", "y".repeat(200))));
         let result = output.finish();
         assert_eq!(
             text_blocks(&result),
@@ -593,9 +593,13 @@ mod tests {
     }
 
     #[test]
-    fn checked_base64_length_handles_cap_and_arithmetic_overflow_without_allocation() {
+    fn checked_base64_length_classifies_cap_as_operation_and_overflow_as_internal() {
         assert_eq!(checked_base64_length(6, 8).unwrap(), 8);
-        assert!(checked_base64_length(7, 8).is_err());
-        assert!(checked_base64_length(usize::MAX, usize::MAX).is_err());
+
+        let over_cap = checked_base64_length(7, 8).expect_err("encoded output exceeds cap");
+        assert!(over_cap.is_operation());
+
+        let overflow = checked_base64_length(usize::MAX, usize::MAX).expect_err("arithmetic overflows");
+        assert!(overflow.is_internal());
     }
 }

@@ -81,6 +81,27 @@ async fn fetch_rejects_missing_url() {
 }
 
 #[tokio::test]
+async fn fetch_sanitizes_controls_in_malformed_url_error() {
+    let client = connect().await;
+    let result = client
+        .call_tool(call_params(
+            "fetch",
+            &serde_json::json!({
+                "url": "not a \u{1b}[31mURL\u{1b}[0m/visible\u{202e}\u{0}"
+            }),
+        ))
+        .await
+        .expect("expected an isError tool result, not a protocol error");
+
+    assert_eq!(result.is_error, Some(true));
+    let text = result.content[0].as_text().expect("text error block");
+    assert!(text.text.starts_with("invalid URL 'not a URL/visible"));
+    assert!(!text.text.contains('\u{1b}'));
+    assert!(!text.text.contains('\u{202e}'));
+    assert!(!text.text.contains('\u{0}'));
+}
+
+#[tokio::test]
 async fn screenshot_rejects_private_ip() {
     let client = connect().await;
     let result = client
@@ -224,6 +245,13 @@ async fn crawl_returns_multiple_pages() {
         .await
         .expect("crawl tool call failed");
     assert!(!result.content.is_empty());
+    for block in &result.content {
+        let text = block.as_text().expect("crawl content should be text");
+        assert!(
+            text.text.starts_with("URL: ") || text.text.contains("response truncated"),
+            "crawl page blocks should be URL-labeled"
+        );
+    }
 }
 
 #[tokio::test]
@@ -257,4 +285,19 @@ async fn batch_fetch_returns_multiple_results() {
         .await
         .unwrap();
     assert_eq!(result.content.len(), 2, "should return one content entry per URL");
+    let texts: Vec<&str> = result
+        .content
+        .iter()
+        .map(|block| block.as_text().expect("batch content should be text").text.as_str())
+        .collect();
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.starts_with(&format!("URL: {}/a", server.uri())))
+    );
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.starts_with(&format!("URL: {}/b", server.uri())))
+    );
 }

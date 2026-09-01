@@ -1,5 +1,6 @@
 //! MCP server — exposes Servo's web rendering capabilities to AI agents.
 
+mod output;
 mod server;
 mod tools;
 

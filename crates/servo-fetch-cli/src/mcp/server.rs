@@ -1,7 +1,5 @@
 //! MCP server handler — tool routing and server info.
 
-use std::fmt::Write as _;
-
 use base64::Engine as _;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -12,8 +10,8 @@ use servo_fetch_types::{
     BatchFetchRequest, CrawlRequest, EvaluateRequest, FetchRequest, MapRequest, ScreenshotRequest,
 };
 
-use super::tools;
-use crate::tools::limits::{DEFAULT_MAX_LENGTH, MAX_BATCH_URLS, MAX_JS_LEN, to_len};
+use super::{output, tools};
+use crate::tools::limits::{CRAWL_LIMIT, DEFAULT_MAX_LENGTH, MAX_BATCH_URLS, MAX_JS_LEN, clamp_count, to_len};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ServoFetchMcp {
@@ -69,7 +67,7 @@ impl ServoFetchMcp {
     }
 
     #[tool(
-        description = "Fetch multiple URLs in parallel and extract readable content. Results are returned as separate content entries, one per URL, in completion order. Failed URLs are reported inline without aborting the batch.",
+        description = "Fetch multiple URLs in parallel and extract readable content. Results are returned as separate content entries in completion order. Failed URLs are reported inline without aborting the batch.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -109,6 +107,7 @@ impl ServoFetchMcp {
 }
 
 async fn run_fetch(p: FetchRequest) -> Result<CallToolResult, tools::ToolError> {
+    let max_length = output::effective_item_length(to_len(p.max_length, DEFAULT_MAX_LENGTH), 1);
     let url = tools::validated_url(&p.url)?;
     tools::validate_selector(p.selector.as_deref())?;
     let format = p.format.unwrap_or_default();
@@ -118,9 +117,11 @@ async fn run_fetch(p: FetchRequest) -> Result<CallToolResult, tools::ToolError> 
     let content = tools::paginate(
         &servo_fetch::sanitize::sanitize(&full),
         to_len(p.start_index, 0),
-        to_len(p.max_length, DEFAULT_MAX_LENGTH),
+        max_length,
     );
-    Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
+    let mut output = output::TextOutput::success();
+    output.push(content);
+    Ok(output.finish())
 }
 
 async fn run_screenshot(p: ScreenshotRequest) -> Result<CallToolResult, tools::ToolError> {
@@ -130,6 +131,7 @@ async fn run_screenshot(p: ScreenshotRequest) -> Result<CallToolResult, tools::T
     let png = page
         .screenshot_png()
         .ok_or_else(|| tools::ToolError::internal("screenshot capture failed"))?;
+    output::checked_base64_length(png.len(), output::MAX_MCP_SCREENSHOT_BASE64_BYTES)?;
     Ok(CallToolResult::success(vec![ContentBlock::image(
         base64::engine::general_purpose::STANDARD.encode(png),
         "image/png",
@@ -145,19 +147,19 @@ async fn run_execute_js(p: EvaluateRequest) -> Result<CallToolResult, tools::Too
     let url = tools::validated_url(&p.url)?;
     let opts = FetchOptions::javascript(&url, &p.expression);
     let page = tools::fetch_with(tools::apply_options(opts, p.options)?).await?;
-    let mut result = tools::clamp_js_output(page.js_result.unwrap_or_default());
-    if !page.console_messages.is_empty() {
-        result.push_str("\n\n--- console output ---\n");
-        for msg in &page.console_messages {
-            let _ = writeln!(result, "[{:?}] {}", msg.level, msg.message);
-        }
-    }
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-        servo_fetch::sanitize::sanitize(&result).into_owned(),
-    )]))
+    let result = output::javascript_text(
+        page.js_result.as_deref().unwrap_or_default(),
+        page.console_messages
+            .iter()
+            .map(|msg| (format!("{:?}", msg.level), msg.message.as_str())),
+    );
+    let mut output = output::TextOutput::success();
+    output.push(result);
+    Ok(output.finish())
 }
 
 async fn run_batch_fetch(p: BatchFetchRequest) -> Result<CallToolResult, tools::ToolError> {
+    let requested_max_length = to_len(p.max_length, DEFAULT_MAX_LENGTH);
     if p.urls.is_empty() {
         return Err(tools::ToolError::invalid_params("urls must not be empty"));
     }
@@ -167,6 +169,7 @@ async fn run_batch_fetch(p: BatchFetchRequest) -> Result<CallToolResult, tools::
         )));
     }
     tools::validate_selector(p.selector.as_deref())?;
+    let max_len = output::effective_item_length(requested_max_length, p.urls.len());
     let validated: Vec<String> = p
         .urls
         .iter()
@@ -176,19 +179,22 @@ async fn run_batch_fetch(p: BatchFetchRequest) -> Result<CallToolResult, tools::
         urls: &validated,
         format: p.format.unwrap_or_default(),
         selector: p.selector.as_deref(),
-        max_len: to_len(p.max_length, DEFAULT_MAX_LENGTH),
+        max_len,
         visibility: tools::visibility_policy(p.visibility),
         options: p.options,
     })
     .await;
-    let contents: Vec<ContentBlock> = results
-        .into_iter()
-        .map(|(_url, text)| ContentBlock::text(text))
-        .collect();
-    Ok(CallToolResult::success(contents))
+    let mut output = output::TextOutput::success();
+    for (url, text) in results {
+        output.push(output::labeled_content(&url, &text));
+    }
+    Ok(output.finish())
 }
 
 async fn run_crawl(p: CrawlRequest) -> Result<CallToolResult, tools::ToolError> {
+    let requested_max_length = to_len(p.max_length, DEFAULT_MAX_LENGTH);
+    let page_limit = clamp_count(p.limit, CRAWL_LIMIT);
+    let max_len = output::effective_item_length(requested_max_length, page_limit);
     let url = tools::validated_url(&p.url)?;
     tools::validate_selector(p.selector.as_deref())?;
     let results = tools::crawl_pages(
@@ -204,14 +210,14 @@ async fn run_crawl(p: CrawlRequest) -> Result<CallToolResult, tools::ToolError> 
             delay_ms: p.delay_ms,
             options: p.options,
         },
-        to_len(p.max_length, DEFAULT_MAX_LENGTH),
+        max_len,
     )
     .await?;
-    let contents: Vec<ContentBlock> = results
-        .into_iter()
-        .map(|(_url, text)| ContentBlock::text(text))
-        .collect();
-    Ok(CallToolResult::success(contents))
+    let mut output = output::TextOutput::success();
+    for (url, text) in results {
+        output.push(output::labeled_content(&url, &text));
+    }
+    Ok(output.finish())
 }
 
 async fn run_map(p: MapRequest) -> Result<CallToolResult, tools::ToolError> {
@@ -226,13 +232,10 @@ async fn run_map(p: MapRequest) -> Result<CallToolResult, tools::ToolError> {
         timeout: p.timeout,
         headers: p.headers,
     })?;
-    let urls = tools::map_with(opts)
-        .await?
-        .into_iter()
-        .map(|entry| entry.url)
-        .collect::<Vec<_>>()
-        .join("\n");
-    Ok(CallToolResult::success(vec![ContentBlock::text(urls)]))
+    let text = output::map_text(tools::map_with(opts).await?.into_iter().map(|entry| entry.url));
+    let mut output = output::TextOutput::success();
+    output.push(text);
+    Ok(output.finish())
 }
 
 #[tool_handler]

@@ -48,7 +48,7 @@ pub(crate) fn paginate(content: &str, start: usize, max_len: usize) -> String {
         return format!("<no content at startIndex={start}, total_length={total}>");
     }
     let byte = |char_idx: usize| content.char_indices().nth(char_idx).map_or(content.len(), |(i, _)| i);
-    let end = (start + max_len).min(total);
+    let end = start.saturating_add(max_len).min(total);
     let chunk = &content[byte(start)..byte(end)];
     if end < total {
         format!("{chunk}\n\n<content truncated. total_length={total}, next startIndex={end}>")
@@ -107,6 +107,16 @@ mod tests {
         assert!(r.starts_with("日本"));
         assert!(r.contains("total_length=3"));
         assert!(r.contains("next startIndex=2"));
+    }
+
+    #[test]
+    fn paginate_saturates_end_at_usize_max() {
+        assert_eq!(paginate("abc", 1, usize::MAX), "bc");
+    }
+
+    #[test]
+    fn paginate_saturates_multibyte_start_and_length() {
+        assert!(paginate("café", usize::MAX, usize::MAX).contains("no content"));
     }
 
     #[test]

@@ -24,6 +24,8 @@ description: "Fetch and render web pages using the Servo browser engine — a si
 
 Start the MCP server: `servo-fetch mcp` (stdio) or `servo-fetch mcp --port 8080` (Streamable HTTP)
 
+Large multi-block responses can omit URL-labeled blocks and include an omitted-count summary; paginate `fetch` output with `maxLength` and `startIndex`.
+
 ### fetch
 
 Extract readable content from a URL. JavaScript is executed, CSS layout is computed, and navigation noise (navbars, sidebars, footers, cookie banners) is stripped automatically.

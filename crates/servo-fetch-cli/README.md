@@ -281,6 +281,11 @@ Built-in [Model Context Protocol](https://modelcontextprotocol.io/) server over 
 
 Streamable HTTP: `servo-fetch mcp --port 8080`
 
+MCP-only response limits:
+
+- Serialized text tool results are capped at 1,000,000 bytes. Oversized multi-block results may omit whole URL-labeled blocks and report the omitted count.
+- Screenshot base64 data is capped at 8,000,000 bytes and checked before encoding. This does not bound capture-time memory.
+
 All page-fetching tools (`fetch`, `batch_fetch`, `crawl`, `screenshot`, `execute_js`) accept these **common options**:
 
 | Option | Type | Description |

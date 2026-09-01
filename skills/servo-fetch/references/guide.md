@@ -16,13 +16,13 @@ fetch(url: "https://...", startIndex: 5000)
 
 ## Batch fetching
 
-Use `batch_fetch` to fetch multiple URLs in a single call. Results stream back in completion order — faster pages arrive first.
+Use `batch_fetch` to fetch multiple URLs in a single call.
 
 ```text
 batch_fetch(urls: ["https://a.com", "https://b.com", "https://c.com"])
 ```
 
-Each URL becomes a separate content entry in the response. Failed URLs are reported inline (prefixed with `[error]`) without aborting the batch.
+Batch and crawl return URL-labeled blocks that preserve completion order, each starting with its canonical URL. Oversized results may omit whole blocks and include an omitted-count summary. Failed URLs are reported inline (prefixed with `[error]`) without aborting the batch.
 
 CLI equivalent:
 
@@ -35,14 +35,14 @@ servo-fetch URL1 URL2 --output-dir ./out/                             # One file
 
 ## Crawling
 
-Use `crawl` to follow links within a site and extract content from multiple pages. Results stream as each page completes.
+Use `crawl` to follow links within a site and extract content from multiple pages.
 
 ```text
 crawl(url: "https://docs.example.com", limit: 20, maxDepth: 3)
 crawl(url: "https://docs.example.com", include: ["/guide/**"])
 ```
 
-Crawl follows same-site links only (eTLD+1), respects `robots.txt`, and applies a 500ms interval between requests by default (CLI: `--delay-ms`, library: `CrawlOptions::delay()`). Output is one content entry per page.
+Crawl follows same-site links only (eTLD+1), respects `robots.txt`, and applies a 500ms interval between requests by default (CLI: `--delay-ms`, library: `CrawlOptions::delay()`).
 
 CLI equivalent:
 

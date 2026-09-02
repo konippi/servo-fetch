@@ -2,6 +2,7 @@
 
 use servo_fetch_types::ErrorKind;
 
+// MCP disposition and legacy HTTP/RPC error kind are intentionally independent.
 #[derive(Debug, Clone, Copy)]
 enum ToolErrorClass {
     InvalidInput(ErrorKind),

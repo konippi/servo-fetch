@@ -50,7 +50,7 @@ async fn initialize_returns_server_info() {
 }
 
 #[tokio::test]
-async fn list_tools_preserves_all_request_schemas() {
+async fn list_tools_preserves_required_and_representative_camel_case_fields() {
     let client = connect().await;
     let listed = client.list_tools(None).await.unwrap();
 

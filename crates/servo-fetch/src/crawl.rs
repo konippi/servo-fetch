@@ -538,6 +538,7 @@ pub(crate) async fn run(
         }
     };
 
+    // Drain started `spawn_blocking` tasks, which cannot be aborted.
     if let Some(error) = failure {
         in_flight.shutdown().await;
         Err(error)

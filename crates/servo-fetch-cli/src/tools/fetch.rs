@@ -51,6 +51,7 @@ pub(crate) struct BatchSpec<'a> {
 pub(crate) async fn batch_fetch_pages(spec: BatchSpec<'_>) -> ToolResult<Vec<(String, ToolResult<String>)>> {
     let mut set = JoinSet::new();
 
+    // Drain started `spawn_blocking` tasks, which cannot be aborted.
     for url in spec.urls {
         let permit = match fetch_semaphore().acquire().await {
             Ok(permit) => permit,
@@ -73,14 +74,13 @@ pub(crate) async fn batch_fetch_pages(spec: BatchSpec<'_>) -> ToolResult<Vec<(St
         });
     }
 
-    collect_batch_tasks(set, spec.urls.len()).await
+    collect_batch_tasks(set).await
 }
 
 async fn collect_batch_tasks(
     mut set: JoinSet<(String, ToolResult<String>)>,
-    capacity: usize,
 ) -> ToolResult<Vec<(String, ToolResult<String>)>> {
-    let mut results = Vec::with_capacity(capacity);
+    let mut results = Vec::with_capacity(set.len());
     while let Some(joined) = set.join_next().await {
         match joined {
             Ok(result) => results.push(result),
@@ -146,7 +146,7 @@ mod tests {
             panic!("intentional batch task panic");
         });
 
-        let mut collecting = Box::pin(collect_batch_tasks(set, 2));
+        let mut collecting = Box::pin(collect_batch_tasks(set));
         panicked_rx.await.expect("failing task panicked");
         assert!(
             tokio::time::timeout(Duration::from_millis(100), &mut collecting)

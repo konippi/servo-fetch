@@ -18,6 +18,7 @@ use servo_fetch_types::{
 use super::{output, tools};
 use crate::tools::limits::{CRAWL_LIMIT, DEFAULT_MAX_LENGTH, MAX_BATCH_URLS, MAX_JS_LEN, clamp_count, to_len};
 
+// Defer decoding to the bounded error boundary while preserving the DTO schema.
 #[derive(serde::Deserialize)]
 #[serde(transparent, bound(deserialize = ""))]
 struct RawArguments<T> {
@@ -54,8 +55,11 @@ where
     F: FnOnce(T) -> Fut,
     Fut: Future<Output = Result<CallToolResult, tools::ToolError>>,
 {
-    let request = serde_json::from_value(serde_json::Value::Object(arguments.value))
-        .map_err(|error| tools::ToolError::invalid_params(format!("failed to deserialize parameters: {error}")));
+    let request = serde_json::from_value(serde_json::Value::Object(arguments.value)).map_err(|error| {
+        tools::ToolError::invalid_params(output::bounded_text(format_args!(
+            "failed to deserialize parameters: {error}"
+        )))
+    });
     match request {
         Ok(request) => complete_tool_call(tool, run(request).await),
         Err(error) => complete_tool_call(tool, Err(error)),
@@ -386,6 +390,13 @@ mod tests {
             IdentitySchema::schema_name()
         );
         assert_eq!(RawArguments::<IdentitySchema>::schema_id(), IdentitySchema::schema_id());
+
+        let mut raw_generator = SchemaGenerator::default();
+        let mut identity_generator = SchemaGenerator::default();
+        assert_eq!(
+            RawArguments::<IdentitySchema>::json_schema(&mut raw_generator),
+            IdentitySchema::json_schema(&mut identity_generator)
+        );
     }
 
     #[test]
@@ -426,10 +437,7 @@ mod tests {
             ("https://example.com/ok".to_string(), Ok("body".to_string())),
             (
                 "https://example.com/failed".to_string(),
-                Err(tools::ToolError::from(servo_fetch::Error::Timeout {
-                    url: "https://example.com/failed".to_string(),
-                    timeout: std::time::Duration::from_secs(1),
-                })),
+                Err(tools::ToolError::operation("ordinary failure")),
             ),
         ];
         let result = labeled_results(results).expect("ordinary per-item failures should be partial results");
@@ -438,9 +446,13 @@ mod tests {
             .iter()
             .map(|block| block.as_text().expect("text block").text.as_str())
             .collect();
-        assert_eq!(text.len(), 2);
-        assert_eq!(text[0], "URL: https://example.com/ok\n\nbody");
-        assert!(text[1].starts_with("URL: https://example.com/failed\n\n[error] page load timed out"));
+        assert_eq!(
+            text,
+            [
+                "URL: https://example.com/ok\n\nbody",
+                "URL: https://example.com/failed\n\n[error] ordinary failure",
+            ]
+        );
 
         let invalid_input = labeled_results(vec![(
             "https://example.com/invalid".to_string(),

@@ -59,20 +59,20 @@ fn resolve_delay(delay_ms: Option<u64>) -> Option<Duration> {
     }
 }
 
-pub(crate) async fn crawl_pages(spec: CrawlSpec<'_>, max_len: usize) -> ToolResult<Vec<(String, String)>> {
+pub(crate) async fn crawl_pages(spec: CrawlSpec<'_>, max_len: usize) -> ToolResult<Vec<(String, ToolResult<String>)>> {
     let builder = build_crawl_options(&spec)?;
     tokio::task::spawn_blocking(move || {
         let mut results = Vec::new();
         servo_fetch::blocking::crawl_each(&builder, |r| {
-            let text = match &r.outcome {
-                Ok(page) => paginate(&servo_fetch::sanitize::sanitize(&page.content), 0, max_len),
-                Err(e) => format!("[error] {e}"),
+            let content = match r.outcome {
+                Ok(page) => Ok(paginate(&servo_fetch::sanitize::sanitize(&page.content), 0, max_len)),
+                Err(e) => Err(ToolError::from(e)),
             };
-            results.push((r.url, text));
+            results.push((r.url, content));
         })
         .map_err(ToolError::from)?;
         Ok(results)
     })
     .await
-    .map_err(|e| ToolError::internal(format!("spawn_blocking failed: {e}")))?
+    .map_err(|e| ToolError::internal(format!("crawl task failed: {e}")))?
 }

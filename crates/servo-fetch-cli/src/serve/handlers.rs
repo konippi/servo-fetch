@@ -106,11 +106,8 @@ pub(super) async fn batch_fetch(Json(req): Json<BatchFetchRequest>) -> Result<Ax
         visibility: tools::visibility_policy(req.visibility),
         options: req.options,
     })
-    .await;
-    let results = raw
-        .into_iter()
-        .map(|(url, content)| FetchResponse { url, content })
-        .collect();
+    .await?;
+    let results = raw.into_iter().map(flatten_page_result).collect();
     Ok(AxumJson(BatchFetchResponse { results }))
 }
 
@@ -134,11 +131,13 @@ pub(super) async fn crawl(Json(req): Json<CrawlRequest>) -> Result<AxumJson<Craw
         to_len(req.max_length, DEFAULT_MAX_LENGTH),
     )
     .await?;
-    let results = pages
-        .into_iter()
-        .map(|(url, content)| FetchResponse { url, content })
-        .collect();
+    let results = pages.into_iter().map(flatten_page_result).collect();
     Ok(AxumJson(CrawlResponse { results }))
+}
+
+fn flatten_page_result((url, content): (String, Result<String, ToolError>)) -> FetchResponse {
+    let content = content.unwrap_or_else(|error| format!("[error] {error}"));
+    FetchResponse { url, content }
 }
 
 pub(super) async fn map(Json(req): Json<MapRequest>) -> Result<AxumJson<MapResponse>, ApiError> {
@@ -160,4 +159,20 @@ pub(super) async fn map(Json(req): Json<MapRequest>) -> Result<AxumJson<MapRespo
         .map(|entry| entry.url)
         .collect();
     Ok(AxumJson(MapResponse { urls }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_item_error_keeps_http_url_and_inline_error_shape() {
+        let page = flatten_page_result((
+            "https://example.com/failed".to_string(),
+            Err(ToolError::internal("existing detail")),
+        ));
+
+        assert_eq!(page.url, "https://example.com/failed");
+        assert_eq!(page.content, "[error] existing detail");
+    }
 }

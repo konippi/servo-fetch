@@ -1,10 +1,15 @@
 //! MCP server handler — tool routing and server info.
 
+use std::future::Future;
+use std::marker::PhantomData;
+
 use base64::Engine as _;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ContentBlock, ProtocolVersion, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ContentBlock, JsonObject, ProtocolVersion, ServerCapabilities, ServerInfo};
+use rmcp::schemars::{JsonSchema, Schema, SchemaGenerator};
 use rmcp::{ErrorData, ServerHandler, tool, tool_handler, tool_router};
+use serde::de::DeserializeOwned;
 use servo_fetch::FetchOptions;
 use servo_fetch_types::{
     BatchFetchRequest, CrawlRequest, EvaluateRequest, FetchRequest, MapRequest, ScreenshotRequest,
@@ -12,6 +17,54 @@ use servo_fetch_types::{
 
 use super::{output, tools};
 use crate::tools::limits::{CRAWL_LIMIT, DEFAULT_MAX_LENGTH, MAX_BATCH_URLS, MAX_JS_LEN, clamp_count, to_len};
+
+// Defer decoding to the bounded error boundary while preserving the DTO schema.
+#[derive(serde::Deserialize)]
+#[serde(transparent, bound(deserialize = ""))]
+struct RawArguments<T> {
+    value: JsonObject,
+    #[serde(skip)]
+    request: PhantomData<fn() -> T>,
+}
+
+impl<T: JsonSchema> JsonSchema for RawArguments<T> {
+    fn inline_schema() -> bool {
+        T::inline_schema()
+    }
+
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        T::schema_name()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        T::schema_id()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        T::json_schema(generator)
+    }
+}
+
+async fn complete_decoded_tool_call<T, F, Fut>(
+    tool: &'static str,
+    arguments: RawArguments<T>,
+    run: F,
+) -> Result<CallToolResult, ErrorData>
+where
+    T: DeserializeOwned,
+    F: FnOnce(T) -> Fut,
+    Fut: Future<Output = Result<CallToolResult, tools::ToolError>>,
+{
+    let request = serde_json::from_value(serde_json::Value::Object(arguments.value)).map_err(|error| {
+        tools::ToolError::invalid_params(output::bounded_text(format_args!(
+            "failed to deserialize parameters: {error}"
+        )))
+    });
+    match request {
+        Ok(request) => complete_tool_call(tool, run(request).await),
+        Err(error) => complete_tool_call(tool, Err(error)),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ServoFetchMcp {
@@ -36,8 +89,8 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn fetch(&self, Parameters(p): Parameters<FetchRequest>) -> Result<CallToolResult, ErrorData> {
-        Ok(run_fetch(p).await.unwrap_or_else(tools::tool_error))
+    async fn fetch(&self, Parameters(p): Parameters<RawArguments<FetchRequest>>) -> Result<CallToolResult, ErrorData> {
+        complete_decoded_tool_call("fetch", p, run_fetch).await
     }
 
     #[tool(
@@ -49,8 +102,11 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn screenshot(&self, Parameters(p): Parameters<ScreenshotRequest>) -> Result<CallToolResult, ErrorData> {
-        Ok(run_screenshot(p).await.unwrap_or_else(tools::tool_error))
+    async fn screenshot(
+        &self,
+        Parameters(p): Parameters<RawArguments<ScreenshotRequest>>,
+    ) -> Result<CallToolResult, ErrorData> {
+        complete_decoded_tool_call("screenshot", p, run_screenshot).await
     }
 
     #[tool(
@@ -62,8 +118,11 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn execute_js(&self, Parameters(p): Parameters<EvaluateRequest>) -> Result<CallToolResult, ErrorData> {
-        Ok(run_execute_js(p).await.unwrap_or_else(tools::tool_error))
+    async fn execute_js(
+        &self,
+        Parameters(p): Parameters<RawArguments<EvaluateRequest>>,
+    ) -> Result<CallToolResult, ErrorData> {
+        complete_decoded_tool_call("execute_js", p, run_execute_js).await
     }
 
     #[tool(
@@ -75,8 +134,11 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn batch_fetch(&self, Parameters(p): Parameters<BatchFetchRequest>) -> Result<CallToolResult, ErrorData> {
-        Ok(run_batch_fetch(p).await.unwrap_or_else(tools::tool_error))
+    async fn batch_fetch(
+        &self,
+        Parameters(p): Parameters<RawArguments<BatchFetchRequest>>,
+    ) -> Result<CallToolResult, ErrorData> {
+        complete_decoded_tool_call("batch_fetch", p, run_batch_fetch).await
     }
 
     #[tool(
@@ -88,8 +150,8 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn crawl(&self, Parameters(p): Parameters<CrawlRequest>) -> Result<CallToolResult, ErrorData> {
-        Ok(run_crawl(p).await.unwrap_or_else(tools::tool_error))
+    async fn crawl(&self, Parameters(p): Parameters<RawArguments<CrawlRequest>>) -> Result<CallToolResult, ErrorData> {
+        complete_decoded_tool_call("crawl", p, run_crawl).await
     }
 
     #[tool(
@@ -101,9 +163,43 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn map(&self, Parameters(p): Parameters<MapRequest>) -> Result<CallToolResult, ErrorData> {
-        Ok(run_map(p).await.unwrap_or_else(tools::tool_error))
+    async fn map(&self, Parameters(p): Parameters<RawArguments<MapRequest>>) -> Result<CallToolResult, ErrorData> {
+        complete_decoded_tool_call("map", p, run_map).await
     }
+}
+
+const INTERNAL_ERROR_MESSAGE: &str = "Internal server error";
+
+fn complete_tool_call(
+    tool: &'static str,
+    result: Result<CallToolResult, tools::ToolError>,
+) -> Result<CallToolResult, ErrorData> {
+    match result {
+        Ok(result) => Ok(result),
+        Err(error) if error.is_internal() => {
+            tracing::error!(tool, kind = ?error.kind(), error = ?error, "MCP tool internal failure");
+            Err(ErrorData::internal_error(INTERNAL_ERROR_MESSAGE, None))
+        }
+        Err(error) => Ok(tools::tool_error(error)),
+    }
+}
+
+fn labeled_results(
+    results: Vec<(String, Result<String, tools::ToolError>)>,
+) -> Result<CallToolResult, tools::ToolError> {
+    let mut output = output::TextOutput::success();
+    for (url, result) in results {
+        match result {
+            Ok(content) => {
+                output.push(output::labeled_content(&url, content));
+            }
+            Err(error) if error.is_operation() => {
+                output.push(output::labeled_content(&url, format_args!("[error] {error}")));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(output.finish())
 }
 
 async fn run_fetch(p: FetchRequest) -> Result<CallToolResult, tools::ToolError> {
@@ -183,12 +279,8 @@ async fn run_batch_fetch(p: BatchFetchRequest) -> Result<CallToolResult, tools::
         visibility: tools::visibility_policy(p.visibility),
         options: p.options,
     })
-    .await;
-    let mut output = output::TextOutput::success();
-    for (url, text) in results {
-        output.push(output::labeled_content(&url, &text));
-    }
-    Ok(output.finish())
+    .await?;
+    labeled_results(results)
 }
 
 async fn run_crawl(p: CrawlRequest) -> Result<CallToolResult, tools::ToolError> {
@@ -213,11 +305,7 @@ async fn run_crawl(p: CrawlRequest) -> Result<CallToolResult, tools::ToolError> 
         max_len,
     )
     .await?;
-    let mut output = output::TextOutput::success();
-    for (url, text) in results {
-        output.push(output::labeled_content(&url, &text));
-    }
-    Ok(output.finish())
+    labeled_results(results)
 }
 
 async fn run_map(p: MapRequest) -> Result<CallToolResult, tools::ToolError> {
@@ -269,5 +357,115 @@ mod tests {
         assert!(info.server_info.name.contains("servo-fetch"));
         assert!(!info.server_info.version.is_empty());
         assert!(info.instructions.is_some());
+    }
+
+    struct IdentitySchema;
+
+    impl JsonSchema for IdentitySchema {
+        fn inline_schema() -> bool {
+            true
+        }
+
+        fn schema_name() -> std::borrow::Cow<'static, str> {
+            "identity-name".into()
+        }
+
+        fn schema_id() -> std::borrow::Cow<'static, str> {
+            "identity-id".into()
+        }
+
+        fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+            serde_json::json!({"type": "object"}).try_into().expect("valid schema")
+        }
+    }
+
+    #[test]
+    fn raw_arguments_delegate_schema_identity() {
+        assert_eq!(
+            RawArguments::<IdentitySchema>::inline_schema(),
+            IdentitySchema::inline_schema()
+        );
+        assert_eq!(
+            RawArguments::<IdentitySchema>::schema_name(),
+            IdentitySchema::schema_name()
+        );
+        assert_eq!(RawArguments::<IdentitySchema>::schema_id(), IdentitySchema::schema_id());
+
+        let mut raw_generator = SchemaGenerator::default();
+        let mut identity_generator = SchemaGenerator::default();
+        assert_eq!(
+            RawArguments::<IdentitySchema>::json_schema(&mut raw_generator),
+            IdentitySchema::json_schema(&mut identity_generator)
+        );
+    }
+
+    #[test]
+    fn validation_and_operation_failures_remain_tool_errors() {
+        let validation = complete_tool_call("fetch", Err(tools::ToolError::invalid_params("caller can fix this")))
+            .expect("validation should be a tool result");
+        assert_eq!(validation.is_error, Some(true));
+
+        let operation = complete_tool_call(
+            "fetch",
+            Err(tools::ToolError::from(servo_fetch::Error::Timeout {
+                url: "https://example.com".to_string(),
+                timeout: std::time::Duration::from_secs(1),
+            })),
+        )
+        .expect("operation failure should be a tool result");
+        assert_eq!(operation.is_error, Some(true));
+    }
+
+    #[test]
+    fn internal_failure_is_generic_json_rpc_error_without_data_or_detail() {
+        let detail = "sensitive worker transport detail";
+        let failure = servo_fetch::Error::WorkerUnavailable {
+            source: std::io::Error::other(detail).into(),
+        };
+        let error = complete_tool_call("fetch", Err(tools::ToolError::from(failure)))
+            .expect_err("internal failure should be a JSON-RPC error");
+
+        assert_eq!(error.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
+        assert_eq!(error.message, INTERNAL_ERROR_MESSAGE);
+        assert_eq!(error.data, None);
+        assert!(!serde_json::to_string(&error).unwrap().contains(detail));
+    }
+
+    #[test]
+    fn batch_and_crawl_typed_partial_results_keep_labels_and_propagate_input_and_internal_errors() {
+        let results = vec![
+            ("https://example.com/ok".to_string(), Ok("body".to_string())),
+            (
+                "https://example.com/failed".to_string(),
+                Err(tools::ToolError::operation("ordinary failure")),
+            ),
+        ];
+        let result = labeled_results(results).expect("ordinary per-item failures should be partial results");
+        let text: Vec<_> = result
+            .content
+            .iter()
+            .map(|block| block.as_text().expect("text block").text.as_str())
+            .collect();
+        assert_eq!(
+            text,
+            [
+                "URL: https://example.com/ok\n\nbody",
+                "URL: https://example.com/failed\n\n[error] ordinary failure",
+            ]
+        );
+
+        let invalid_input = labeled_results(vec![(
+            "https://example.com/invalid".to_string(),
+            Err(tools::ToolError::invalid_params("invalid shared option")),
+        )])
+        .expect_err("invalid per-item input must become an isError tool result");
+        assert_eq!(invalid_input.to_string(), "invalid shared option");
+
+        let internal = labeled_results(vec![(
+            "https://example.com/private".to_string(),
+            Err(tools::ToolError::internal("private detail")),
+        )])
+        .expect_err("internal per-item failure must not be returned inline");
+        assert_eq!(internal.to_string(), "private detail");
     }
 }

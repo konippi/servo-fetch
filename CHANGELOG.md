@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.3](https://github.com/konippi/servo-fetch/compare/0.14.2..0.14.3) - 2026-09-02
+
+### Bug Fixes
+
+- *(mcp)* Separate tool and internal errors (#451)
+- *(mcp)* Bound and sanitize tool responses ([#449](https://github.com/konippi/servo-fetch/pull/449))
+
 ## [0.14.2](https://github.com/konippi/servo-fetch/compare/0.14.1..0.14.2) - 2026-08-28
 
 ### Bug Fixes

@@ -232,7 +232,7 @@ fn tempdir_is_deleted_before_permit_release() {
             observed.send(config_dir.exists()).unwrap();
         }
     });
-    owner.release();
+    owner.release().unwrap();
     assert!(!receive.recv_timeout(Duration::from_secs(1)).unwrap());
     contender.join().unwrap();
 }
@@ -566,6 +566,50 @@ fn graceful_close_sends_shutdown_reaps_descendants_and_deletes_storage() {
 
 #[cfg(unix)]
 #[test]
+fn cancellation_after_shutdown_ack_terminates_before_reap_and_resource_release() {
+    let directory = tempfile::tempdir().unwrap();
+    let observing = directory.path().join("observing");
+    let child_pid = directory.path().join("child-pid");
+    let script = format!(
+        "{}read_frame; sleep 60 & echo $! > \"$2\" || exit 1; {}read_frame; {}touch \"$1\"; exec sleep 60",
+        scripted_worker_prefix(),
+        initialized_shell(1),
+        shutdown_ack_shell(2)
+    );
+    let broker = scripted_broker(
+        &script,
+        [observing.clone().into_os_string(), child_pid.clone().into_os_string()],
+        0,
+    );
+    let cancellation = SessionCancellation::new();
+    let session = broker
+        .session_blocking_with_cancellation(BrowserSessionConfig::new(), &cancellation)
+        .unwrap();
+    let config_dir = session.supervisor.as_ref().unwrap().config_dir.clone();
+    let pid = read_pid(&child_pid);
+    let close = std::thread::spawn(move || session.close_blocking());
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !observing.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "worker never reached graceful-exit observation"
+        );
+        std::thread::yield_now();
+    }
+    cancellation.cancel();
+
+    let close_error = close.join().unwrap().unwrap_err();
+    assert!(
+        !config_dir.exists(),
+        "storage survived explicit close error {close_error}: {:?}",
+        std::fs::read_dir(&config_dir).map(|entries| entries.flatten().map(|entry| entry.path()).collect::<Vec<_>>())
+    );
+    assert_pid_absent(pid, "cancellation during graceful-exit observation");
+}
+
+#[cfg(unix)]
+#[test]
 fn shutdown_faults_are_bounded_and_cleanup_storage() {
     let cases = [
         format!("{}exec sleep 10", shutdown_ack_shell(2)),
@@ -870,9 +914,10 @@ fn stalled_crawl_consumer_does_not_block_force_close() {
         }))
     };
     let script = format!(
-        "{}read_frame; {}read_frame; {}{}exec sleep 10",
+        "{}read_frame; {}read_frame; {}{}{}exec sleep 10",
         scripted_worker_prefix(),
         initialized_shell(1),
+        response_shell(2, event()),
         response_shell(2, event()),
         response_shell(2, event())
     );
@@ -881,7 +926,7 @@ fn stalled_crawl_consumer_does_not_block_force_close() {
     let mut session = broker
         .session_blocking_with_cancellation(BrowserSessionConfig::new(), &cancellation)
         .unwrap();
-    let (events, _receive_events) = crossbeam_channel::bounded(1);
+    let (events, receive_events) = crossbeam_channel::bounded(1);
     let (reply, receive) = response_channel();
     session
         .supervisor_mut()
@@ -892,7 +937,12 @@ fn stalled_crawl_consumer_does_not_block_force_close() {
             reply,
         })
         .unwrap();
-    std::thread::sleep(Duration::from_millis(50));
+    receive_events.recv().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while receive_events.is_empty() {
+        assert!(Instant::now() < deadline, "worker never queued the next crawl event");
+        std::thread::yield_now();
+    }
 
     cancellation.cancel();
     assert!(receive_response(&receive, "crawl cancellation").is_err());

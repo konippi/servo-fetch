@@ -7,7 +7,9 @@ use std::path::PathBuf;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use super::wire::{CrawlProgressWire, CrawlResultWire, CrawlWire, FetchWire, PageWire, WorkerErrorWire};
+use super::wire::{
+    CrawlProgressWire, CrawlResultWire, CrawlWire, FetchWire, PageWire, WorkerErrorKind, WorkerErrorWire,
+};
 use super::{
     MAX_WORKER_BLOB_CHUNK_BYTES, MAX_WORKER_FRAME_BYTES, MAX_WORKER_PROTOCOL_INFO_BYTES,
     MAX_WORKER_REQUEST_FRAME_BYTES, WORKER_PROTOCOL_MAGIC, worker_error,
@@ -221,7 +223,7 @@ pub(super) fn handle_worker_initialize(config: InitializeSession, state: &mut Wo
         } else {
             "worker session initialization has already been attempted"
         };
-        return WorkerResponse::failure("protocol", message);
+        return WorkerResponse::failure(WorkerErrorKind::Generic("protocol".into()), message);
     }
     let config = match ValidatedInitialize::from_wire(config) {
         Ok(config) => config,
@@ -321,7 +323,10 @@ fn handle_worker_fetch(id: u64, fetch: FetchWire, state: &WorkerState, writer: &
         return write_response(
             writer,
             id,
-            WorkerResponse::failure("protocol", "worker session is not initialized"),
+            WorkerResponse::failure(
+                WorkerErrorKind::Generic("protocol".into()),
+                "worker session is not initialized",
+            ),
         );
     }
     let result = fetch
@@ -379,7 +384,10 @@ fn handle_worker_crawl(id: u64, crawl: CrawlWire, state: &WorkerState, writer: &
         return write_response(
             writer,
             id,
-            WorkerResponse::failure("protocol", "worker session is not initialized"),
+            WorkerResponse::failure(
+                WorkerErrorKind::Generic("protocol".into()),
+                "worker session is not initialized",
+            ),
         );
     };
     let outcome = crawl.into_options(user_agent.as_deref()).and_then(|opts| {
@@ -456,7 +464,7 @@ impl WorkerResponse {
         Self::Error(WorkerErrorWire::from_error(error))
     }
 
-    fn failure(kind: impl Into<String>, message: impl Into<String>) -> Self {
+    fn failure(kind: WorkerErrorKind, message: impl Into<String>) -> Self {
         Self::Error(WorkerErrorWire::failure(kind, message))
     }
 }

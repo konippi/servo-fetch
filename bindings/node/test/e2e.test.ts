@@ -1,24 +1,28 @@
 import { describe, expect, it } from "vitest";
 
+import { useLocalServer } from "./helpers/local-server.js";
+
 const e2e = process.env.SERVO_FETCH_E2E === "1";
-const URL = process.env.SERVO_FETCH_TEST_URL ?? "https://example.com";
 
 describe.runIf(e2e)("real binary E2E", () => {
+  const server = useLocalServer();
+  const pageUrl = () => process.env.SERVO_FETCH_TEST_URL ?? server.url;
+
   it("reports a semver version", async () => {
     const { version } = await import("../src/index.js");
     expect(await version()).toMatch(/^\d+\.\d+\.\d+/);
   });
 
-  it("fetches a real URL and renders non-empty markdown", async () => {
+  it("fetches a page and renders non-empty markdown", async () => {
     const { fetch } = await import("../src/index.js");
-    const markdown = await fetch(URL);
+    const markdown = await fetch(pageUrl());
     expect(typeof markdown).toBe("string");
     expect(markdown.length).toBeGreaterThan(0);
   });
 
   it("crawl output still matches the CrawlResult type", async () => {
     const { crawlAll } = await import("../src/index.js");
-    const [first] = await crawlAll(URL, { limit: 1 });
+    const [first] = await crawlAll(pageUrl(), { limit: 1 });
     expect(first?.ok).toBe(true);
     if (first?.ok) {
       expect(typeof first.url).toBe("string");
@@ -43,7 +47,7 @@ describe.runIf(e2e)("real binary E2E", () => {
     const { Session } = await import("../src/index.js");
     const session = await Session.open();
     try {
-      const markdown = await session.fetch(URL);
+      const markdown = await session.fetch(pageUrl());
       expect(typeof markdown).toBe("string");
       expect(markdown.length).toBeGreaterThan(0);
     } finally {
@@ -58,7 +62,7 @@ describe.runIf(e2e)("real binary E2E", () => {
     await session.close();
     await session.close();
     expect(session.isClosed()).toBe(true);
-    const err = await session.fetch(URL).then(
+    const err = await session.fetch(pageUrl()).then(
       () => null,
       (e: unknown) => e,
     );
@@ -71,7 +75,7 @@ describe.runIf(e2e)("real binary E2E", () => {
     const { shutdown } = await import("../src/rpc-client.js");
     const stale = await Session.open();
     shutdown();
-    const err = await stale.fetch(URL).then(
+    const err = await stale.fetch(pageUrl()).then(
       () => null,
       (e: unknown) => e,
     );

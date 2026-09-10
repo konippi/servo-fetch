@@ -2,30 +2,20 @@
 
 use std::io::{BufReader, BufWriter};
 #[cfg(unix)]
-use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
-#[cfg(unix)]
-use std::os::unix::process::CommandExt as _;
-#[cfg(windows)]
-use std::os::windows::io::AsRawHandle as _;
+use std::os::fd::{AsRawFd as _, OwnedFd};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, OnceLock};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
 use tokio::sync::OwnedSemaphorePermit;
-#[cfg(windows)]
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
-#[cfg(windows)]
-use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
-    TerminateJobObject,
-};
 
 use super::{SessionCancellation, WorkerCommand, cancelled_error, is_terminal_session_error};
 use crate::CrawlResult;
 use crate::error::{Error, Result};
+#[cfg(windows)]
+use crate::sys::windows::{resume_suspended_process, suspend_new_process};
 use crate::worker::protocol::{
     InitializeSession, PACKAGE_VERSION, RequestFrame, ResponseFrame, WorkerProtocolInfo, WorkerRequest, WorkerResponse,
     decode_frame, read_bounded_frame, validate_response, write_bounded_frame,
@@ -36,35 +26,40 @@ use crate::worker::wire::{
 };
 use crate::worker::{
     MAX_WORKER_BLOB_CHUNK_BYTES, MAX_WORKER_FRAME_BYTES, MAX_WORKER_PROTOCOL_INFO_BYTES,
-    MAX_WORKER_REQUEST_FRAME_BYTES, PARENT_LIFELINE_FD_ENV, WORKER_PROTOCOL_MAGIC, worker_error,
+    MAX_WORKER_REQUEST_FRAME_BYTES, WORKER_PROTOCOL_MAGIC, worker_error,
 };
+
+mod kill;
+mod process_tree;
+
+use kill::KillAuthority;
+#[cfg(unix)]
+pub(in crate::session) use process_tree::create_parent_lifeline;
+#[cfg(unix)]
+use process_tree::inherit_parent_lifeline;
+use process_tree::{ProcessTree, observe_child_exit_without_reaping};
 
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
 const REAP_GRACE: Duration = Duration::from_secs(2);
-const READER_SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 #[derive(Debug, Clone, Copy)]
 enum Lifecycle {
     Force,
 }
 
-type ProcessTreeSlot = Arc<OnceLock<Arc<ProcessTree>>>;
+type ProcessTreeAuthority = Arc<KillAuthority<ProcessTree>>;
 
-/// Force-close port that both notifies the supervisor and kills the worker
-/// process tree directly, so cancellation cannot be blocked by a supervisor
-/// thread stuck on pipe I/O.
+/// Kills the worker process tree directly so a stuck supervisor cannot block cancellation.
 #[derive(Debug, Clone)]
 pub(super) struct ForcePort {
     lifecycle: Sender<Lifecycle>,
-    process_tree: ProcessTreeSlot,
+    authority: ProcessTreeAuthority,
 }
 
 impl ForcePort {
     pub(super) fn force(&self) {
-        // try_send coalesces repeated cancels: one pending Force is sufficient.
+        // Coalesce the supervisor notification while still issuing a prompt kill.
         let _ = self.lifecycle.try_send(Lifecycle::Force);
-        if let Some(tree) = self.process_tree.get() {
-            tree.terminate_now();
-        }
+        self.authority.terminate_now();
     }
 }
 
@@ -77,42 +72,6 @@ pub(super) fn frame_wait_duration(idle_timeout: Duration, remaining: Duration) -
 
 pub(super) fn response_channel<T>() -> (ResponseSender<T>, ResponseReceiver<T>) {
     crossbeam_channel::bounded(1)
-}
-
-#[cfg(unix)]
-#[allow(unsafe_code)]
-pub(super) fn create_parent_lifeline() -> Result<(OwnedFd, OwnedFd)> {
-    let (child_end, parent_end) = std::os::unix::net::UnixStream::pair().map_err(worker_error)?;
-    let duplicate = |descriptor: OwnedFd| -> Result<OwnedFd> {
-        // F_DUPFD_CLOEXEC atomically creates a descriptor outside the standard streams.
-        // SAFETY: descriptor is valid and the returned descriptor has independent ownership.
-        let duplicated = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
-        if duplicated < 0 {
-            return Err(worker_error(std::io::Error::last_os_error()));
-        }
-        // SAFETY: fcntl returned a new descriptor whose ownership is transferred here.
-        Ok(unsafe { OwnedFd::from_raw_fd(duplicated) })
-    };
-    Ok((duplicate(child_end.into())?, duplicate(parent_end.into())?))
-}
-
-#[cfg(unix)]
-#[allow(unsafe_code)]
-fn inherit_parent_lifeline(process: &mut Command, lifeline_fd: i32) {
-    process
-        .process_group(0)
-        .env(PARENT_LIFELINE_FD_ENV, lifeline_fd.to_string());
-    // SAFETY: fcntl is async-signal-safe and only clears CLOEXEC on the dedicated
-    // descriptor after fork, so concurrent process spawns cannot inherit it.
-    unsafe {
-        process.pre_exec(move || {
-            let flags = libc::fcntl(lifeline_fd, libc::F_GETFD);
-            if flags < 0 || libc::fcntl(lifeline_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
 }
 
 pub(super) enum SupervisorCommand {
@@ -164,17 +123,21 @@ impl SupervisorHandle {
         let (terminal, terminal_rx) = response_channel();
         let force_port = ForcePort {
             lifecycle,
-            process_tree: ProcessTreeSlot::default(),
+            authority: Arc::new(KillAuthority::new()),
         };
         if cancellation.is_some_and(|cancel| !cancel.attach(&force_port)) {
             return Err(cancelled_error());
         }
-        let tree_slot = force_port.process_tree.clone();
+        let authority = Arc::clone(&force_port.authority);
         std::thread::Builder::new()
             .name("servo-fetch-supervisor".into())
             .spawn(move || {
-                supervisor_thread(command, permit, command_rx, lifecycle_rx, tree_slot, bootstrap_result);
-                let _ = terminal.send(Ok(()));
+                let result = supervisor_thread(command, permit, command_rx, lifecycle_rx, authority, bootstrap_result);
+                if let Err(send_error) = terminal.send(result)
+                    && let Err(error) = send_error.into_inner()
+                {
+                    tracing::error!(%error, "detached supervisor cleanup failed");
+                }
             })
             .map_err(worker_error)?;
         let config_dir = receive_response(&bootstrap_result_rx, "worker protocol bootstrap")?;
@@ -255,7 +218,7 @@ pub(super) fn receive_response<T>(receive: &ResponseReceiver<T>, context: &str) 
 }
 
 pub(super) struct SupervisorOwner {
-    temp_dir: Option<tempfile::TempDir>,
+    config_dir: Option<PathBuf>,
     permit: Option<OwnedSemaphorePermit>,
 }
 
@@ -267,178 +230,103 @@ impl SupervisorOwner {
             .map_err(worker_error)?;
         super::scavenge::write_owner_marker(temp_dir.path());
         Ok(Self {
-            temp_dir: Some(temp_dir),
+            config_dir: Some(temp_dir.keep()),
             permit: Some(permit),
         })
     }
 
     pub(super) fn config_dir(&self) -> PathBuf {
-        self.temp_dir
-            .as_ref()
-            .expect("supervisor tempdir is present")
-            .path()
-            .to_path_buf()
+        self.config_dir.as_ref().expect("supervisor tempdir is present").clone()
     }
 
-    pub(super) fn release(&mut self) {
-        if let Some(temp_dir) = self.temp_dir.take() {
-            let path = temp_dir.path().to_path_buf();
-            drop(temp_dir);
+    fn release_with(&mut self, mut remove: impl FnMut(&std::path::Path) -> std::io::Result<()>) -> Result<()> {
+        if let Some(path) = self.config_dir.as_deref() {
+            let mut last_error = None;
             for _ in 0..3 {
-                if !path.exists() || std::fs::remove_dir_all(&path).is_ok() {
-                    break;
+                match remove(path) {
+                    Ok(()) => {
+                        last_error = None;
+                        break;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        last_error = None;
+                        break;
+                    }
+                    Err(error) => {
+                        last_error = Some(error);
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
                 }
-                std::thread::sleep(Duration::from_millis(10));
             }
-            if path.exists() {
-                tracing::error!(path = %path.display(), "failed to delete browser session storage");
+            if let Some(error) = last_error {
+                return Err(worker_error(format!(
+                    "failed to delete browser session storage at {}: {error}",
+                    path.display()
+                )));
             }
+            self.config_dir.take();
         }
         self.permit.take();
+        Ok(())
+    }
+
+    pub(super) fn release(&mut self) -> Result<()> {
+        self.release_with(|path| std::fs::remove_dir_all(path))
     }
 }
 
 impl Drop for SupervisorOwner {
     fn drop(&mut self) {
-        self.release();
+        if let Err(error) = self.release() {
+            if let Some(permit) = self.permit.take() {
+                std::mem::forget(permit);
+            }
+            tracing::error!(%error, "supervisor owner cleanup failed; retaining broker capacity");
+        }
     }
 }
 
-#[derive(Debug)]
-struct ProcessTree {
+fn cleanup_spawned_child(
+    child: &mut Child,
+    process_tree: &ProcessTree,
+    authority: &ProcessTreeAuthority,
+) -> Result<()> {
+    drop(authority.revoke());
+    process_tree.terminate(child).map_err(worker_error)?;
+    child.wait().map_err(worker_error)?;
     #[cfg(windows)]
-    job: WindowsJob,
-    #[cfg(unix)]
-    process_group: Option<i32>,
-    #[cfg(not(any(unix, windows)))]
-    child_id: u32,
-}
-
-impl ProcessTree {
-    #[cfg(windows)]
-    fn attach(child: &Child) -> Result<Self> {
-        Ok(Self {
-            job: WindowsJob::attach(child)?,
-        })
-    }
-
-    #[cfg(not(windows))]
-    fn attach(child: &Child) -> Self {
-        #[cfg(unix)]
-        {
-            Self {
-                process_group: i32::try_from(child.id()).ok(),
-            }
-        }
-        #[cfg(not(any(unix, windows)))]
-        {
-            Self { child_id: child.id() }
-        }
-    }
-
-    fn terminate(&self, child: &Child) {
-        let child_id = child.id();
-        #[cfg(unix)]
-        debug_assert_eq!(
-            i32::try_from(child_id).ok(),
-            self.process_group,
-            "worker process group must match the direct child"
-        );
-        #[cfg(windows)]
-        debug_assert_ne!(child_id, 0, "worker child must have a process ID");
-        #[cfg(not(any(unix, windows)))]
-        debug_assert_eq!(self.child_id, child_id, "worker child identity must remain stable");
-        self.terminate_now();
-    }
-
-    fn terminate_now(&self) {
-        #[cfg(unix)]
-        if let Some(group) = self.process_group {
-            // SAFETY: this supervisor exclusively owns the child's dedicated process group.
-            #[allow(unsafe_code)]
-            unsafe {
-                libc::kill(-group, libc::SIGKILL);
-            }
-        }
-        #[cfg(windows)]
-        self.job.terminate();
-    }
-}
-
-#[cfg(windows)]
-#[derive(Debug)]
-struct WindowsJob(HANDLE);
-
-// SAFETY: job object handles are process-wide kernel objects; TerminateJobObject
-// and CloseHandle are documented as callable from any thread.
-#[cfg(windows)]
-#[allow(unsafe_code)]
-unsafe impl Send for WindowsJob {}
-#[cfg(windows)]
-#[allow(unsafe_code)]
-unsafe impl Sync for WindowsJob {}
-
-#[cfg(windows)]
-impl WindowsJob {
-    #[allow(unsafe_code)]
-    fn attach(child: &Child) -> Result<Self> {
-        unsafe {
-            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-            if job.is_null() {
-                return Err(worker_error(std::io::Error::last_os_error()));
-            }
-            let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            let configured = SetInformationJobObject(
-                job,
-                JobObjectExtendedLimitInformation,
-                std::ptr::addr_of!(limits).cast(),
-                u32::try_from(std::mem::size_of_val(&limits)).expect("job limits size fits u32"),
-            );
-            if configured == 0 || AssignProcessToJobObject(job, child.as_raw_handle().cast()) == 0 {
-                let error = std::io::Error::last_os_error();
-                CloseHandle(job);
-                return Err(worker_error(error));
-            }
-            Ok(Self(job))
-        }
-    }
-
-    #[allow(unsafe_code)]
-    fn terminate(&self) {
-        unsafe {
-            TerminateJobObject(self.0, 1);
-        }
-    }
-}
-
-#[cfg(windows)]
-impl Drop for WindowsJob {
-    #[allow(unsafe_code)]
-    fn drop(&mut self) {
-        unsafe {
-            CloseHandle(self.0);
-        }
-    }
+    process_tree.wait_quiescent().map_err(worker_error)?;
+    Ok(())
 }
 
 struct WorkerProcess {
     child: Option<Child>,
     process_tree: Arc<ProcessTree>,
+    authority: ProcessTreeAuthority,
     stdin: Option<BufWriter<ChildStdin>>,
     frames: Option<Receiver<std::io::Result<Vec<u8>>>>,
     reader: Option<std::thread::JoinHandle<()>>,
-    reader_done: Option<Receiver<()>>,
     #[cfg(unix)]
     parent_lifeline: Option<OwnedFd>,
     owner: SupervisorOwner,
     lifecycle: Receiver<Lifecycle>,
+    termination_started: bool,
+    exit_status: Option<ExitStatus>,
+    quiescent: bool,
     next_id: u64,
 }
 
 impl WorkerProcess {
-    fn spawn(command: &WorkerCommand, permit: OwnedSemaphorePermit, lifecycle: Receiver<Lifecycle>) -> Result<Self> {
+    fn spawn(
+        command: &WorkerCommand,
+        permit: OwnedSemaphorePermit,
+        lifecycle: Receiver<Lifecycle>,
+        authority: ProcessTreeAuthority,
+    ) -> Result<Self> {
         command.validate()?;
+        if lifecycle.try_recv().is_ok() {
+            return Err(cancelled_error());
+        }
         let owner = SupervisorOwner::new(permit)?;
         #[cfg(unix)]
         let (lifeline_read, lifeline_write) = create_parent_lifeline()?;
@@ -451,34 +339,39 @@ impl WorkerProcess {
             .stderr(Stdio::inherit());
         #[cfg(unix)]
         inherit_parent_lifeline(&mut process, lifeline_read.as_raw_fd());
-        let child = process.spawn();
-        let mut child = match child {
-            Ok(child) => child,
-            Err(error) => return Err(worker_error(error)),
-        };
+        #[cfg(windows)]
+        suspend_new_process(&mut process);
+        let mut child = process.spawn().map_err(worker_error)?;
         #[cfg(unix)]
         drop(lifeline_read);
-        #[cfg(windows)]
+
         let process_tree = match ProcessTree::attach(&child).map(Arc::new) {
             Ok(process_tree) => process_tree,
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error);
+                let cleanup = child.kill().and_then(|()| child.wait().map(drop)).map_err(worker_error);
+                return with_cleanup(Err(error), cleanup);
             }
         };
-        #[cfg(not(windows))]
-        let process_tree = Arc::new(ProcessTree::attach(&child));
+        authority.grant(Arc::clone(&process_tree));
+        let fail = |child: &mut Child, error: Error| -> Result<Self> {
+            with_cleanup(Err(error), cleanup_spawned_child(child, &process_tree, &authority))
+        };
+
+        if lifecycle.try_recv().is_ok() {
+            return fail(&mut child, cancelled_error());
+        }
+        #[cfg(windows)]
+        if let Err(error) = resume_suspended_process(&child).map_err(worker_error) {
+            return fail(&mut child, error);
+        }
+
         let Some(stdin) = child.stdin.take() else {
-            force_reap(&mut child, &process_tree);
-            return Err(worker_error("worker stdin unavailable"));
+            return fail(&mut child, worker_error("worker stdin unavailable"));
         };
         let Some(stdout) = child.stdout.take() else {
-            force_reap(&mut child, &process_tree);
-            return Err(worker_error("worker stdout unavailable"));
+            return fail(&mut child, worker_error("worker stdout unavailable"));
         };
         let (frames_tx, frames) = crossbeam_channel::bounded(1);
-        let (reader_done_tx, reader_done) = crossbeam_channel::bounded(1);
         let reader = std::thread::Builder::new()
             .name("servo-fetch-worker-reader".into())
             .spawn(move || {
@@ -501,26 +394,25 @@ impl WorkerProcess {
                         break;
                     }
                 }
-                let _ = reader_done_tx.send(());
             });
         let reader = match reader {
             Ok(reader) => reader,
-            Err(error) => {
-                force_reap(&mut child, &process_tree);
-                return Err(worker_error(error));
-            }
+            Err(error) => return fail(&mut child, worker_error(error)),
         };
         Ok(Self {
             child: Some(child),
             process_tree,
+            authority,
             stdin: Some(BufWriter::new(stdin)),
             frames: Some(frames),
             reader: Some(reader),
-            reader_done: Some(reader_done),
             #[cfg(unix)]
             parent_lifeline: Some(lifeline_write),
             owner,
             lifecycle,
+            termination_started: false,
+            exit_status: None,
+            quiescent: false,
             next_id: 1,
         })
     }
@@ -640,22 +532,51 @@ impl WorkerProcess {
             _ => return Err(worker_error("unexpected shutdown response")),
         }
         self.stdin.take();
-        let child = self.child.as_mut().expect("worker child is present");
         let deadline = Instant::now() + REAP_GRACE;
         loop {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    self.process_tree.terminate(child);
-                    if status.success() {
-                        return Ok(());
-                    }
-                    return Err(worker_error(format!("worker exited with {status} after shutdown ack")));
-                }
-                Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-                Ok(None) => return Err(worker_error("worker did not exit after shutdown acknowledgement")),
-                Err(error) => return Err(worker_error(error)),
+            let child = self.child.as_mut().expect("worker child is present");
+            #[cfg(any(unix, windows))]
+            let exited = observe_child_exit_without_reaping(child).map_err(worker_error)?;
+            #[cfg(not(any(unix, windows)))]
+            let exited = false;
+            if exited {
+                break;
             }
+            if Instant::now() >= deadline {
+                return Err(worker_error("worker did not exit after shutdown acknowledgement"));
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
+
+        let status = self.terminate_and_reap()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(worker_error(format!("worker exited with {status} after shutdown ack")))
+        }
+    }
+
+    fn terminate_and_reap(&mut self) -> Result<ExitStatus> {
+        if !self.termination_started {
+            // Revocation serializes with any in-flight cancellation kill.
+            drop(self.authority.revoke());
+            let child = self.child.as_ref().expect("worker child is present");
+            self.process_tree.terminate(child).map_err(worker_error)?;
+            self.termination_started = true;
+        }
+        if self.exit_status.is_none() {
+            let status = self
+                .child
+                .as_mut()
+                .expect("worker child is present")
+                .wait()
+                .map_err(worker_error)?;
+            self.exit_status = Some(status);
+        }
+        #[cfg(windows)]
+        self.process_tree.wait_quiescent().map_err(worker_error)?;
+        self.quiescent = true;
+        Ok(self.exit_status.expect("reaped worker has an exit status"))
     }
 
     fn write_request(&mut self, request: WorkerRequest) -> Result<u64> {
@@ -723,42 +644,44 @@ impl WorkerProcess {
         }
     }
 
-    fn cleanup(&mut self, force: bool) {
+    fn cleanup(&mut self, force: bool) -> Result<()> {
         self.stdin.take();
         #[cfg(unix)]
         self.parent_lifeline.take();
-        if let Some(child) = self.child.as_mut()
-            && (force || child.try_wait().ok().flatten().is_none())
-        {
-            force_reap(child, &self.process_tree);
+
+        if !self.quiescent {
+            if !force {
+                return Err(worker_error(
+                    "worker process tree was not quiescent after graceful shutdown",
+                ));
+            }
+            self.terminate_and_reap()?;
         }
         self.child.take();
         self.frames.take();
-        let reader_finished = self
-            .reader_done
-            .take()
-            .is_none_or(|done| done.recv_timeout(READER_SHUTDOWN_GRACE).is_ok());
-        if let Some(reader) = self.reader.take() {
-            if reader_finished {
-                let _ = reader.join();
-            } else {
-                tracing::warn!("worker stdout reader did not stop before cleanup deadline");
-            }
-        }
-        self.owner.release();
+
+        let reader = match self.reader.take().map(std::thread::JoinHandle::join) {
+            Some(Err(_)) => Err(worker_error("worker stdout reader panicked")),
+            _ => Ok(()),
+        };
+        with_cleanup(reader, self.owner.release())
     }
 }
 
 impl Drop for WorkerProcess {
     fn drop(&mut self) {
-        self.cleanup(true);
+        if let Err(error) = self.cleanup(true) {
+            tracing::error!(%error, "best-effort worker cleanup failed");
+        }
     }
 }
 
-fn force_reap(child: &mut Child, process_tree: &ProcessTree) {
-    process_tree.terminate(child);
-    let _ = child.kill();
-    let _ = child.wait();
+fn with_cleanup<T>(primary: Result<T>, cleanup: Result<()>) -> Result<T> {
+    match (primary, cleanup) {
+        (primary, Ok(())) => primary,
+        (Ok(_), Err(cleanup)) => Err(cleanup),
+        (Err(error), Err(cleanup)) => Err(worker_error(format!("{error}; cleanup failed: {cleanup}"))),
+    }
 }
 
 #[expect(
@@ -770,37 +693,31 @@ fn supervisor_thread(
     permit: OwnedSemaphorePermit,
     commands: Receiver<SupervisorCommand>,
     lifecycle: Receiver<Lifecycle>,
-    tree_slot: ProcessTreeSlot,
+    authority: ProcessTreeAuthority,
     bootstrap_result: ResponseSender<PathBuf>,
-) {
-    let mut worker = match WorkerProcess::spawn(&command, permit, lifecycle.clone()) {
+) -> Result<()> {
+    let mut worker = match WorkerProcess::spawn(&command, permit, lifecycle.clone(), authority) {
         Ok(worker) => worker,
         Err(error) => {
             let _ = bootstrap_result.send(Err(error));
-            return;
+            return Ok(());
         }
     };
-    let _ = tree_slot.set(worker.process_tree.clone());
     if let Err(error) = worker.receive_protocol_info() {
-        worker.cleanup(true);
-        let _ = bootstrap_result.send(Err(error));
-        return;
+        let result = with_cleanup(Err(error), worker.cleanup(true));
+        let _ = bootstrap_result.send(result.map(|()| worker.config_dir()));
+        return Ok(());
     }
     if bootstrap_result.send(Ok(worker.config_dir())).is_err() {
-        worker.cleanup(true);
-        return;
+        return worker.cleanup(true);
     }
 
     loop {
         crossbeam_channel::select_biased! {
-            recv(lifecycle) -> _ => {
-                worker.cleanup(true);
-                return;
-            },
+            recv(lifecycle) -> _ => return worker.cleanup(true),
             recv(commands) -> command => {
                 let Ok(command) = command else {
-                    worker.cleanup(true);
-                    return;
+                    return worker.cleanup(true);
                 };
                 match command {
                     SupervisorCommand::Initialize { request, reply } => match worker.initialize_session(request) {
@@ -808,9 +725,8 @@ fn supervisor_thread(
                             let _ = reply.send(Ok(()));
                         }
                         Err(error) => {
-                            worker.cleanup(true);
-                            let _ = reply.send(Err(error));
-                            return;
+                            let _ = reply.send(with_cleanup(Err(error), worker.cleanup(true)));
+                            return Ok(());
                         }
                     },
                     SupervisorCommand::Fetch { request, reply } => match worker.fetch(request) {
@@ -819,12 +735,14 @@ fn supervisor_thread(
                         }
                         Err(error) => {
                             let terminal = is_terminal_session_error(&error);
+                            let result = if terminal {
+                                with_cleanup(Err(error), worker.cleanup(true))
+                            } else {
+                                Err(error)
+                            };
+                            let _ = reply.send(result);
                             if terminal {
-                                worker.cleanup(true);
-                            }
-                            let _ = reply.send(Err(error));
-                            if terminal {
-                                return;
+                                return Ok(());
                             }
                         }
                     },
@@ -837,12 +755,14 @@ fn supervisor_thread(
                             }
                             Err(error) => {
                                 let terminal = is_terminal_session_error(&error);
+                                let result = if terminal {
+                                    with_cleanup(Err(error), worker.cleanup(true))
+                                } else {
+                                    Err(error)
+                                };
+                                let _ = reply.send(result);
                                 if terminal {
-                                    worker.cleanup(true);
-                                }
-                                let _ = reply.send(Err(error));
-                                if terminal {
-                                    return;
+                                    return Ok(());
                                 }
                             }
                         }
@@ -850,12 +770,33 @@ fn supervisor_thread(
                     SupervisorCommand::Shutdown { reply } => {
                         let result = worker.graceful_shutdown();
                         let graceful = result.is_ok();
-                        worker.cleanup(!graceful);
+                        let result = with_cleanup(result, worker.cleanup(!graceful));
                         let _ = reply.send(result);
-                        return;
+                        return Ok(());
                     }
                 }
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_failure_is_returned_without_releasing_permit() {
+        let permits = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = permits.clone().try_acquire_owned().unwrap();
+        let mut owner = SupervisorOwner::new(permit).unwrap();
+
+        let error = owner
+            .release_with(|_| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected")))
+            .unwrap_err();
+        assert!(error.to_string().contains("injected"));
+        assert!(permits.clone().try_acquire_owned().is_err());
+
+        owner.release().unwrap();
+        assert!(permits.try_acquire_owned().is_ok());
     }
 }

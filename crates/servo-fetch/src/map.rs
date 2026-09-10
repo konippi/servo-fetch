@@ -430,7 +430,6 @@ fn parse_sitemap(body: &str) -> Vec<SitemapEntry> {
 
     let mut reader = Reader::from_str(body);
     let mut entries = Vec::new();
-    let mut buf = Vec::new();
     let mut capture = Capture::Idle;
     let mut loc = String::new();
     let mut lastmod = String::new();
@@ -439,44 +438,39 @@ fn parse_sitemap(body: &str) -> Vec<SitemapEntry> {
     let mut depth: u32 = 0;
 
     loop {
-        match reader.read_event_into(&mut buf) {
+        match reader.read_event() {
             Ok(Event::Start(e)) => {
                 let name = e.local_name();
                 match name.as_ref() {
-                    b"url" => {
+                    "url" => {
                         in_url = true;
                         depth = 0;
                     }
-                    b"sitemap" => {
+                    "sitemap" => {
                         in_sitemap = true;
                         depth = 0;
                     }
-                    b"loc" if (in_url || in_sitemap) && depth == 0 => capture = Capture::Loc,
-                    b"lastmod" if in_url && depth == 0 => capture = Capture::Lastmod,
+                    "loc" if (in_url || in_sitemap) && depth == 0 => capture = Capture::Loc,
+                    "lastmod" if in_url && depth == 0 => capture = Capture::Lastmod,
                     _ if in_url || in_sitemap => depth += 1,
                     _ => {}
                 }
             }
             Ok(Event::Text(e)) => {
-                if let Ok(text) = e.xml10_content() {
-                    match capture {
-                        Capture::Loc => loc.push_str(text.trim()),
-                        Capture::Lastmod => lastmod.push_str(text.trim()),
-                        Capture::Idle => {}
-                    }
-                } else {
-                    loc.clear();
-                    lastmod.clear();
-                    capture = Capture::Idle;
+                let text = e.xml10_content();
+                match capture {
+                    Capture::Loc => loc.push_str(text.trim()),
+                    Capture::Lastmod => lastmod.push_str(text.trim()),
+                    Capture::Idle => {}
                 }
             }
             Ok(Event::GeneralRef(e)) => {
                 let resolved = match &*e {
-                    b"amp" => "&",
-                    b"lt" => "<",
-                    b"gt" => ">",
-                    b"quot" => "\"",
-                    b"apos" => "'",
+                    "amp" => "&",
+                    "lt" => "<",
+                    "gt" => ">",
+                    "quot" => "\"",
+                    "apos" => "'",
                     _ => "",
                 };
                 match capture {
@@ -488,7 +482,7 @@ fn parse_sitemap(body: &str) -> Vec<SitemapEntry> {
             Ok(Event::End(e)) => {
                 let name = e.local_name();
                 match name.as_ref() {
-                    b"url" if in_url => {
+                    "url" if in_url => {
                         if !loc.is_empty() {
                             let lm = if lastmod.is_empty() {
                                 None
@@ -504,7 +498,7 @@ fn parse_sitemap(body: &str) -> Vec<SitemapEntry> {
                         lastmod.clear();
                         in_url = false;
                     }
-                    b"sitemap" if in_sitemap => {
+                    "sitemap" if in_sitemap => {
                         if !loc.is_empty() {
                             entries.push(SitemapEntry::Sitemap {
                                 loc: std::mem::take(&mut loc),
@@ -514,7 +508,7 @@ fn parse_sitemap(body: &str) -> Vec<SitemapEntry> {
                         lastmod.clear();
                         in_sitemap = false;
                     }
-                    b"loc" | b"lastmod" if capture != Capture::Idle => capture = Capture::Idle,
+                    "loc" | "lastmod" if capture != Capture::Idle => capture = Capture::Idle,
                     _ if depth > 0 => depth -= 1,
                     _ => {}
                 }
@@ -522,7 +516,6 @@ fn parse_sitemap(body: &str) -> Vec<SitemapEntry> {
             Ok(Event::Eof) | Err(_) => break,
             _ => {}
         }
-        buf.clear();
     }
 
     entries

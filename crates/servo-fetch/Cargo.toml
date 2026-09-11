@@ -23,6 +23,7 @@ dom_query = { workspace = true }
 dom_smoothie = { workspace = true }
 dpi = { workspace = true }
 euclid = { workspace = true }
+futures-util = { workspace = true }
 globset = { workspace = true }
 htmd = { workspace = true }
 http = { workspace = true }
@@ -30,6 +31,7 @@ image = { workspace = true }
 pdf-extract = { workspace = true }
 postcard = { workspace = true }
 psl = { workspace = true }
+reqwest = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

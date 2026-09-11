@@ -37,16 +37,56 @@ pub(crate) fn resolve_settle(ms: Option<u64>) -> Duration {
 
 /// Apply the common request options (timeout, settle, UA, cookies, headers).
 pub(crate) fn apply_options(opts: FetchOptions, options: RequestOptions) -> ToolResult<FetchOptions> {
-    let mut opts = opts
-        .timeout(resolve_timeout(options.timeout))
-        .settle(resolve_settle(options.settle_ms));
-    if let Some(ua) = options.user_agent {
-        opts = opts.user_agent(ua);
+    Ok(ResolvedRequestOptions::try_from(options)?.apply(opts))
+}
+
+/// Shared request settings resolved once per call and applied to every URL.
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedRequestOptions {
+    timeout: Duration,
+    settle: Duration,
+    user_agent: Option<String>,
+    cookies: Vec<CookieSpec>,
+    headers: HeaderMap,
+}
+
+impl TryFrom<RequestOptions> for ResolvedRequestOptions {
+    type Error = ToolError;
+
+    fn try_from(options: RequestOptions) -> ToolResult<Self> {
+        let RequestOptions {
+            timeout,
+            settle_ms,
+            user_agent,
+            cookies_file,
+            headers,
+        } = options;
+        Ok(Self {
+            timeout: resolve_timeout(timeout),
+            settle: resolve_settle(settle_ms),
+            user_agent,
+            cookies: match cookies_file {
+                Some(path) => load_cookies(&path)?,
+                None => Vec::new(),
+            },
+            headers: build_headers(headers)?,
+        })
     }
-    if let Some(path) = options.cookies_file {
-        opts = opts.cookies(load_cookies(&path)?);
+}
+
+impl ResolvedRequestOptions {
+    /// Apply the settings to one fetch.
+    pub(crate) fn apply(&self, opts: FetchOptions) -> FetchOptions {
+        let mut opts = opts
+            .timeout(self.timeout)
+            .settle(self.settle)
+            .cookies(self.cookies.clone())
+            .headers(self.headers.clone());
+        if let Some(user_agent) = &self.user_agent {
+            opts = opts.user_agent(user_agent.clone());
+        }
+        opts
     }
-    Ok(opts.headers(build_headers(options.headers)?))
 }
 
 /// Load and validate a Netscape-format cookies.txt file.
@@ -82,4 +122,50 @@ pub(crate) fn validate_selector(selector: Option<&str>) -> ToolResult<()> {
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write as _;
+
+    use tempfile::NamedTempFile;
+
+    use super::*;
+
+    #[test]
+    fn settings_resolve_every_shared_setting_once() {
+        let mut cookies = NamedTempFile::new().expect("cookie file");
+        writeln!(cookies, ".example.com\tTRUE\t/\tFALSE\t0\tsession\tsecret").expect("cookie fixture");
+        let mut headers = BTreeMap::new();
+        headers.insert("X-Test".to_string(), "kept".to_string());
+
+        let settings = ResolvedRequestOptions::try_from(RequestOptions {
+            timeout: Some(7),
+            settle_ms: Some(11),
+            user_agent: Some("test-agent".to_string()),
+            cookies_file: Some(cookies.path().to_string_lossy().into_owned()),
+            headers: Some(headers),
+        })
+        .expect("options are valid");
+
+        assert_eq!(settings.timeout, Duration::from_secs(7));
+        assert_eq!(settings.settle, Duration::from_millis(11));
+        assert_eq!(settings.user_agent.as_deref(), Some("test-agent"));
+        assert_eq!(settings.cookies.len(), 1);
+        assert_eq!(settings.headers["x-test"], "kept");
+    }
+
+    #[test]
+    fn settings_from_a_missing_cookie_file_fail() {
+        let error = ResolvedRequestOptions::try_from(RequestOptions {
+            timeout: None,
+            settle_ms: None,
+            user_agent: None,
+            cookies_file: Some("/nonexistent/cookies.txt".to_string()),
+            headers: None,
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("cookie"));
+    }
 }

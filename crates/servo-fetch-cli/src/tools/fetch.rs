@@ -3,12 +3,12 @@
 use std::sync::OnceLock;
 
 use servo_fetch::{FetchOptions, Page, VisibilityPolicy};
-use servo_fetch_types::{FetchFormat, RequestOptions};
+use servo_fetch_types::FetchFormat;
 use tokio::sync::Semaphore;
 use tokio::task::{JoinSet, spawn_blocking};
 
 use super::error::{ToolError, ToolResult};
-use super::options::{apply_options, content_options};
+use super::options::{ResolvedRequestOptions, content_options};
 use super::render::{paginate, render_page};
 
 const DEFAULT_MAX_CONCURRENT_FETCHES: usize = 4;
@@ -45,7 +45,7 @@ pub(crate) struct BatchSpec<'a> {
     pub selector: Option<&'a str>,
     pub max_len: usize,
     pub visibility: VisibilityPolicy,
-    pub options: RequestOptions,
+    pub options: ResolvedRequestOptions,
 }
 
 pub(crate) async fn batch_fetch_pages(spec: BatchSpec<'_>) -> ToolResult<Vec<(String, ToolResult<String>)>> {
@@ -65,11 +65,10 @@ pub(crate) async fn batch_fetch_pages(spec: BatchSpec<'_>) -> ToolResult<Vec<(St
         let selector = spec.selector.map(String::from);
         let format = spec.format;
         let max_len = spec.max_len;
-        let visibility = spec.visibility;
-        let options = spec.options.clone();
+        let opts = spec.options.apply(content_options(&url, format, spec.visibility));
         set.spawn_blocking(move || {
             let _permit = permit;
-            let text = render_one(&url, format, selector.as_deref(), max_len, visibility, options);
+            let text = render_one(&url, format, selector.as_deref(), max_len, &opts);
             (url, text)
         });
     }
@@ -99,11 +98,9 @@ fn render_one(
     format: FetchFormat,
     selector: Option<&str>,
     max_len: usize,
-    visibility: VisibilityPolicy,
-    options: RequestOptions,
+    opts: &FetchOptions,
 ) -> ToolResult<String> {
-    let opts = apply_options(content_options(url, format, visibility), options)?;
-    let page = servo_fetch::blocking::fetch(&opts).map_err(ToolError::from)?;
+    let page = servo_fetch::blocking::fetch(opts).map_err(ToolError::from)?;
     let full = render_page(&page, url, format, selector)?;
     Ok(paginate(&servo_fetch::sanitize::sanitize(&full), 0, max_len))
 }

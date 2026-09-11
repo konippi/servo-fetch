@@ -19,7 +19,7 @@ use crate::worker::protocol::{
 };
 use crate::worker::wire::{
     CrawlProgressWire, CrawlResultWire, CrawlWire, MAX_OPERATION_WATCHDOG, MAX_SCREENSHOT_BYTES, PageWire,
-    WorkerErrorWire, crawl_absolute_watchdog, crawl_watchdog, fetch_watchdog,
+    WorkerErrorKind, WorkerErrorWire, crawl_absolute_watchdog, crawl_watchdog, fetch_watchdog,
 };
 use crate::worker::{MAX_WORKER_BLOB_CHUNK_BYTES, MAX_WORKER_FRAME_BYTES, WORKER_PROTOCOL_MAGIC};
 use crate::{CrawlPage, CrawlResult, Page};
@@ -671,7 +671,7 @@ fn malformed_fetch_sequences_are_terminal() {
             response_shell(2, WorkerResponse::FetchResult(page_with_declared_screenshot(None))),
             response_shell(
                 2,
-                WorkerResponse::Error(WorkerErrorWire::failure("engine", "late error"))
+                WorkerResponse::Error(WorkerErrorWire::failure(WorkerErrorKind::Engine, "late error"))
             ),
         ),
         response_shell(
@@ -722,7 +722,10 @@ fn application_error_keeps_session_usable() {
         "{}read_frame; {}read_frame; {}read_frame; {}read_frame; {}",
         scripted_worker_prefix(),
         initialized_shell(1),
-        response_shell(2, WorkerResponse::Error(WorkerErrorWire::failure("engine", "boom")),),
+        response_shell(
+            2,
+            WorkerResponse::Error(WorkerErrorWire::failure(WorkerErrorKind::Engine, "boom")),
+        ),
         empty_page_shell(3),
         shutdown_ack_shell(4)
     );

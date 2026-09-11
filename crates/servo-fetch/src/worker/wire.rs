@@ -11,6 +11,7 @@ use crate::error::{Error, Result};
 use crate::fetch::{ConsoleLevel, ConsoleMessage, FetchMode, FetchOptions, Page};
 use crate::{CrawlOptions, CrawlPage, CrawlResult, VisibilityPolicy};
 
+// Generic protocol labels are open-ended, so cap their wire payload in both directions.
 const MAX_ERROR_KIND_BYTES: usize = 64;
 const MAX_ERROR_MESSAGE_BYTES: usize = 8 * 1024;
 const MAX_ERROR_URL_BYTES: usize = 64 * 1024;
@@ -26,27 +27,89 @@ fn bounded_text(mut value: String, max: usize) -> String {
     value
 }
 
-fn error_kind(error: &Error) -> &'static str {
-    match error {
-        Error::Timeout { .. } => "timeout",
-        Error::InvalidUrl { .. } => "invalid_url",
-        Error::AddressNotAllowed { .. } => "address_not_allowed",
-        Error::JavaScript { .. } => "javascript",
-        Error::Screenshot { .. } => "screenshot",
-        Error::OutputTooLarge { .. } => "output_too_large",
-        Error::InvalidHeader(_) => "invalid_header",
-        Error::InvalidGlob(_) => "invalid_glob",
-        Error::Schema(_) => "schema",
-        Error::Extract(_) => "extract",
-        Error::Cookies { .. } => "cookies",
-        Error::Engine { .. } => "engine",
-        _ => "worker",
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum WorkerErrorKind {
+    Timeout,
+    InvalidUrl,
+    AddressNotAllowed,
+    JavaScript,
+    Screenshot,
+    OutputTooLarge,
+    Engine,
+    InvalidSelector,
+    Generic(String),
+}
+
+impl<'de> Deserialize<'de> for WorkerErrorKind {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum WireKind {
+            Timeout,
+            InvalidUrl,
+            AddressNotAllowed,
+            JavaScript,
+            Screenshot,
+            OutputTooLarge,
+            Engine,
+            InvalidSelector,
+            Generic(String),
+        }
+
+        Ok(match WireKind::deserialize(deserializer)? {
+            WireKind::Timeout => Self::Timeout,
+            WireKind::InvalidUrl => Self::InvalidUrl,
+            WireKind::AddressNotAllowed => Self::AddressNotAllowed,
+            WireKind::JavaScript => Self::JavaScript,
+            WireKind::Screenshot => Self::Screenshot,
+            WireKind::OutputTooLarge => Self::OutputTooLarge,
+            WireKind::Engine => Self::Engine,
+            WireKind::InvalidSelector => Self::InvalidSelector,
+            WireKind::Generic(name) => {
+                if name.len() > MAX_ERROR_KIND_BYTES {
+                    return Err(serde::de::Error::custom("generic worker error kind exceeds wire limit"));
+                }
+                Self::Generic(name)
+            }
+        })
+    }
+}
+
+impl WorkerErrorKind {
+    fn from_error(error: &Error) -> Self {
+        match error {
+            Error::Timeout { .. } => Self::Timeout,
+            Error::InvalidUrl { .. } => Self::InvalidUrl,
+            Error::AddressNotAllowed { .. } => Self::AddressNotAllowed,
+            Error::JavaScript { .. } => Self::JavaScript,
+            Error::Screenshot { .. } => Self::Screenshot,
+            Error::OutputTooLarge { .. } => Self::OutputTooLarge,
+            Error::Engine { .. } => Self::Engine,
+            Error::Extract(crate::extract::ExtractError::InvalidSelector) => Self::InvalidSelector,
+            Error::Extract(_) => Self::Generic("extract".into()),
+            Error::InvalidHeader(_) => Self::Generic("invalid_header".into()),
+            Error::InvalidGlob(_) => Self::Generic("invalid_glob".into()),
+            Error::Schema(_) => Self::Generic("schema".into()),
+            Error::Cookies { .. } => Self::Generic("cookies".into()),
+            Error::Io(_)
+            | Error::SessionCancelled
+            | Error::WorkerProtocolTimeout { .. }
+            | Error::InvalidSessionConfig { .. }
+            | Error::SessionAcquireTimeout { .. }
+            | Error::UnsupportedSessionOperation { .. }
+            | Error::SessionBrokerFull
+            | Error::WorkerUnavailable { .. } => Self::Generic("worker".into()),
+        }
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct WorkerErrorWire {
-    kind: String,
+    kind: WorkerErrorKind,
     message: String,
     #[serde(default)]
     url: Option<String>,
@@ -63,9 +126,12 @@ pub(crate) struct WorkerErrorWire {
 }
 
 impl WorkerErrorWire {
-    pub(crate) fn failure(kind: impl Into<String>, message: impl Into<String>) -> Self {
+    pub(crate) fn failure(mut kind: WorkerErrorKind, message: impl Into<String>) -> Self {
+        if let WorkerErrorKind::Generic(name) = &mut kind {
+            *name = bounded_text(std::mem::take(name), MAX_ERROR_KIND_BYTES);
+        }
         Self {
-            kind: bounded_text(kind.into(), MAX_ERROR_KIND_BYTES),
+            kind,
             message: bounded_text(message.into(), MAX_ERROR_MESSAGE_BYTES),
             url: None,
             timeout_ms: None,
@@ -76,7 +142,7 @@ impl WorkerErrorWire {
         }
     }
 
-    pub(crate) fn from_error(error: &Error) -> Self {
+    pub(super) fn from_error(error: &Error) -> Self {
         let (url, timeout_ms, host) = match error {
             Error::Timeout { url, timeout } => (
                 Some(url.clone()),
@@ -106,7 +172,7 @@ impl WorkerErrorWire {
             _ => error.to_string(),
         };
         Self {
-            kind: error_kind(error).to_owned(),
+            kind: WorkerErrorKind::from_error(error),
             message: bounded_text(message, MAX_ERROR_MESSAGE_BYTES),
             url: url.map(|url| bounded_text(url, MAX_ERROR_URL_BYTES)),
             timeout_ms,
@@ -118,21 +184,21 @@ impl WorkerErrorWire {
     }
 
     pub(crate) fn into_error(self) -> Error {
-        match self.kind.as_str() {
-            "timeout" => Error::Timeout {
+        match self.kind {
+            WorkerErrorKind::Timeout => Error::Timeout {
                 url: self.url.unwrap_or_default(),
                 timeout: Duration::from_millis(self.timeout_ms.unwrap_or_default()),
             },
-            "invalid_url" => Error::InvalidUrl {
+            WorkerErrorKind::InvalidUrl => Error::InvalidUrl {
                 url: self.url.unwrap_or_default(),
                 reason: self.message,
             },
-            "address_not_allowed" => Error::AddressNotAllowed {
+            WorkerErrorKind::AddressNotAllowed => Error::AddressNotAllowed {
                 host: self.host.unwrap_or_default(),
             },
-            "javascript" => Error::javascript(self.message, self.url),
-            "screenshot" => Error::screenshot(self.message, self.url),
-            "output_too_large" => Error::OutputTooLarge {
+            WorkerErrorKind::JavaScript => Error::javascript(self.message, self.url),
+            WorkerErrorKind::Screenshot => Error::screenshot(self.message, self.url),
+            WorkerErrorKind::OutputTooLarge => Error::OutputTooLarge {
                 kind: match self.output_kind.as_deref() {
                     Some("screenshot") => "screenshot",
                     Some("page") => "page",
@@ -141,8 +207,9 @@ impl WorkerErrorWire {
                 size: usize::try_from(self.size.unwrap_or(u64::MAX)).unwrap_or(usize::MAX),
                 max: usize::try_from(self.max.unwrap_or(u64::MAX)).unwrap_or(usize::MAX),
             },
-            "engine" => Error::engine(self.message, self.url),
-            _ => worker_error(format!("{}: {}", self.kind, self.message)),
+            WorkerErrorKind::Engine => Error::engine(self.message, self.url),
+            WorkerErrorKind::InvalidSelector => Error::Extract(crate::extract::ExtractError::InvalidSelector),
+            WorkerErrorKind::Generic(kind) => worker_error(format!("{kind}: {}", self.message)),
         }
     }
 }
@@ -815,11 +882,53 @@ mod tests {
         assert!(postcard::to_stdvec(&wire).unwrap().len() < MAX_WORKER_FRAME_BYTES);
 
         let failure = WorkerErrorWire::failure(
-            "k".repeat(MAX_ERROR_KIND_BYTES * 2),
+            WorkerErrorKind::Generic("k".repeat(MAX_ERROR_KIND_BYTES * 2)),
             "m".repeat(MAX_ERROR_MESSAGE_BYTES * 2),
         );
-        assert!(failure.kind.len() <= MAX_ERROR_KIND_BYTES);
+        assert!(matches!(
+            failure.kind,
+            WorkerErrorKind::Generic(ref kind) if kind.len() <= MAX_ERROR_KIND_BYTES
+        ));
         assert!(failure.message.len() <= MAX_ERROR_MESSAGE_BYTES);
+    }
+
+    #[test]
+    fn worker_error_decode_rejects_oversized_generic_kind() {
+        let mut wire = WorkerErrorWire::failure(WorkerErrorKind::Generic("protocol".into()), "bad");
+        wire.kind = WorkerErrorKind::Generic("k".repeat(MAX_ERROR_KIND_BYTES + 1));
+        let encoded = postcard::to_stdvec(&wire).unwrap();
+
+        assert!(crate::worker::protocol::decode_frame::<WorkerErrorWire>(&encoded).is_err());
+    }
+
+    #[test]
+    fn worker_error_kinds_use_typed_variants_with_a_generic_fallback() {
+        let timeout = WorkerErrorWire::from_error(&Error::Timeout {
+            url: "https://example.com".into(),
+            timeout: Duration::from_secs(1),
+        });
+        assert!(matches!(timeout.kind, WorkerErrorKind::Timeout));
+
+        let generic = WorkerErrorWire::from_error(&Error::InvalidHeader("bad header".into()));
+        assert!(matches!(
+            generic.kind,
+            WorkerErrorKind::Generic(ref kind) if kind == "invalid_header"
+        ));
+        assert!(matches!(generic.into_error(), Error::WorkerUnavailable { .. }));
+    }
+
+    #[test]
+    fn invalid_selector_error_round_trips_as_typed_input_error() {
+        let error = Error::Extract(crate::extract::ExtractError::InvalidSelector);
+        let round_trip = WorkerErrorWire::from_error(&error).into_error();
+
+        assert!(
+            matches!(
+                round_trip,
+                Error::Extract(crate::extract::ExtractError::InvalidSelector)
+            ),
+            "invalid selector remains typed across the worker protocol"
+        );
     }
 
     #[test]

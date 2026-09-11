@@ -91,6 +91,25 @@ fn protocol_golden_encoding_is_stable() {
         .unwrap(),
         vec![7, 7]
     );
+    let frame = ResponseFrame {
+        id: 7,
+        response: WorkerResponse::Error(wire::WorkerErrorWire::failure(
+            wire::WorkerErrorKind::Generic("protocol".into()),
+            "bad",
+        )),
+    };
+    let encoded = postcard::to_stdvec(&frame).unwrap();
+    let expected: [u8; 22] = [
+        7, // request ID
+        8, // WorkerResponse::Error
+        8, // WorkerErrorKind::Generic
+        8, // "protocol" length
+        b'p', b'r', b'o', b't', b'o', b'c', b'o', b'l', // "protocol"
+        3,    // "bad" length
+        b'b', b'a', b'd', // "bad"
+        0, 0, 0, 0, 0, 0, // optional fields: None
+    ];
+    assert_eq!(encoded, expected);
 }
 
 #[test]

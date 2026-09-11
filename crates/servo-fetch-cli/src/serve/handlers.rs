@@ -104,7 +104,7 @@ pub(super) async fn batch_fetch(Json(req): Json<BatchFetchRequest>) -> Result<Ax
         selector: req.selector.as_deref(),
         max_len: to_len(req.max_length, DEFAULT_MAX_LENGTH),
         visibility: tools::visibility_policy(req.visibility),
-        options: req.options,
+        options: tools::ResolvedRequestOptions::try_from(req.options)?,
     })
     .await?;
     let results = raw.into_iter().map(flatten_page_result).collect();

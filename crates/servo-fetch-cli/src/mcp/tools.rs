@@ -4,8 +4,9 @@ use rmcp::model::CallToolResult;
 
 use super::output::TextOutput;
 pub(super) use crate::tools::{
-    BatchSpec, CrawlSpec, MapSpec, ToolError, apply_options, batch_fetch_pages, build_map_options, content_options,
-    crawl_pages, fetch_with, map_with, paginate, render_page, validate_selector, validated_url, visibility_policy,
+    BatchSpec, CrawlSpec, MapSpec, ResolvedRequestOptions, ToolError, apply_options, batch_fetch_pages,
+    build_map_options, content_options, crawl_pages, fetch_with, map_with, paginate, render_page, validate_selector,
+    validated_url, visibility_policy,
 };
 
 /// Build an `isError` tool result carrying the failure message for the model to react to.

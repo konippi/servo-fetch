@@ -13,7 +13,7 @@ pub(crate) use error::ToolError;
 pub(crate) use fetch::{BatchSpec, batch_fetch_pages, fetch_with};
 pub(crate) use map::{MapSpec, build_map_options, map_with};
 pub(crate) use options::{
-    apply_options, build_headers, content_options, resolve_settle, resolve_timeout, validate_selector, validated_url,
-    visibility_policy,
+    ResolvedRequestOptions, apply_options, build_headers, content_options, resolve_settle, resolve_timeout,
+    validate_selector, validated_url, visibility_policy,
 };
 pub(crate) use render::{clamp_js_output, paginate, paginate_opt, render_page};

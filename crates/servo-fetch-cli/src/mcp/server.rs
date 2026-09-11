@@ -277,7 +277,7 @@ async fn run_batch_fetch(p: BatchFetchRequest) -> Result<CallToolResult, tools::
         selector: p.selector.as_deref(),
         max_len,
         visibility: tools::visibility_policy(p.visibility),
-        options: p.options,
+        options: tools::ResolvedRequestOptions::try_from(p.options)?,
     })
     .await?;
     labeled_results(results)

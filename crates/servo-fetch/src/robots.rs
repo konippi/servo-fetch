@@ -6,7 +6,7 @@ use url::Url;
 
 use crate::bridge;
 
-const ROBOTS_MAX_BYTES: u64 = 512 * 1024;
+pub(crate) const ROBOTS_MAX_BYTES: u64 = 512 * 1024;
 
 /// Outcome of `RobotsRules::fetch`.
 pub(crate) enum RobotsPolicy {
@@ -46,6 +46,7 @@ impl RobotsRules {
         let agent = ureq::Agent::new_with_config(
             ureq::config::Config::builder()
                 .max_redirects(0)
+                .http_status_as_error(false)
                 .timeout_global(Some(timeout))
                 .user_agent(ua)
                 .build(),
@@ -54,19 +55,20 @@ impl RobotsRules {
         for (name, value) in headers {
             req = req.header(name.clone(), value.clone());
         }
-        match req.call() {
-            Ok(resp) => resp
-                .into_body()
+        let Ok(resp) = req.call() else {
+            return RobotsPolicy::Unreachable;
+        };
+        let status = resp.status().as_u16();
+        let body = if (400..600).contains(&status) {
+            None
+        } else {
+            resp.into_body()
                 .with_config()
                 .limit(ROBOTS_MAX_BYTES)
-                .read_to_string()
-                .map_or(RobotsPolicy::Unreachable, |body| {
-                    RobotsPolicy::Rules(Self::parse(&body, product_token(ua)))
-                }),
-            Err(ureq::Error::StatusCode(401 | 403 | 429)) => RobotsPolicy::Unreachable,
-            Err(ureq::Error::StatusCode(code)) if (400..500).contains(&code) => RobotsPolicy::Unavailable,
-            Err(_) => RobotsPolicy::Unreachable,
-        }
+                .read_to_vec()
+                .ok()
+        };
+        classify_response(status, body.as_deref(), product_token(ua))
     }
 
     fn parse(body: &str, product_token: &str) -> Self {
@@ -115,6 +117,19 @@ impl RobotsRules {
     }
 }
 
+pub(crate) fn classify_response(status: u16, body: Option<&[u8]>, product_token: &str) -> RobotsPolicy {
+    match status {
+        // Stricter than RFC 9309/Google on auth-gated robots.txt: 401/403 read as "not welcome".
+        401 | 403 | 429 | 500..=599 => RobotsPolicy::Unreachable,
+        400..=499 => RobotsPolicy::Unavailable,
+        _ => body
+            .map(String::from_utf8_lossy)
+            .map_or(RobotsPolicy::Unreachable, |body| {
+                RobotsPolicy::Rules(RobotsRules::parse(&body, product_token))
+            }),
+    }
+}
+
 fn strip_directive<'a>(line: &'a str, directive: &str) -> Option<&'a str> {
     let len = directive.len();
     if line.len() > len && line[..len].eq_ignore_ascii_case(directive) && line.as_bytes()[len] == b':' {
@@ -124,14 +139,14 @@ fn strip_directive<'a>(line: &'a str, directive: &str) -> Option<&'a str> {
     }
 }
 
-fn robots_url(seed: &Url) -> Option<Url> {
+pub(crate) fn robots_url(seed: &Url) -> Option<Url> {
     let mut base = seed.clone();
     base.set_username("").ok();
     base.set_password(None).ok();
     base.join("/robots.txt").ok()
 }
 
-fn product_token(user_agent: &str) -> &str {
+pub(crate) fn product_token(user_agent: &str) -> &str {
     user_agent
         .split(|c: char| c == '/' || c.is_whitespace())
         .next()
@@ -288,6 +303,15 @@ mod tests {
     }
 
     #[test]
+    fn classify_response_decodes_invalid_utf8_lossily() {
+        let body = b"User-agent: *\nDisallow: /private\n# invalid byte: \xff\nAllow: /private/public\n";
+        let policy = classify_response(200, Some(body), "servo-fetch");
+
+        assert!(!policy.is_allowed(&Url::parse("https://x.com/private/secret").unwrap()));
+        assert!(policy.is_allowed(&Url::parse("https://x.com/private/public/page").unwrap()));
+    }
+
+    #[test]
     fn parse_honors_custom_product_token() {
         let body = "User-agent: MyBot\nDisallow: /private\nUser-agent: *\nAllow: /\n";
         let rules = RobotsRules::parse(body, "MyBot");
@@ -310,7 +334,9 @@ mod tests {
             let server = MockServer::start().await;
             Mock::given(method("GET"))
                 .and(path("/robots.txt"))
-                .respond_with(ResponseTemplate::new(status).set_body_string(body))
+                .respond_with(
+                    ResponseTemplate::new(status).set_body_raw(body.as_bytes().to_vec(), "text/plain; charset=utf-8"),
+                )
                 .mount(&server)
                 .await;
             let seed = Url::parse(&server.uri()).unwrap();
@@ -331,6 +357,14 @@ mod tests {
             let policy = call(seed.clone(), Some("MyBot/1.0")).await;
             let target = seed.join("/private").unwrap();
             assert!(!policy.is_allowed(&target));
+            assert!(policy.is_allowed(&seed.join("/public").unwrap()));
+        }
+
+        #[tokio::test]
+        async fn status_302_parses_rules() {
+            let (_server, seed) = serve(302, "User-agent: *\nDisallow: /private\n").await;
+            let policy = call(seed.clone(), None).await;
+            assert!(!policy.is_allowed(&seed.join("/private").unwrap()));
             assert!(policy.is_allowed(&seed.join("/public").unwrap()));
         }
 
@@ -384,7 +418,9 @@ mod tests {
             Mock::given(method("GET"))
                 .and(path("/robots.txt"))
                 .and(header("user-agent", "CustomBot/9.9"))
-                .respond_with(ResponseTemplate::new(200).set_body_string("User-agent: *\n"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_raw(b"User-agent: *\n".to_vec(), "text/plain; charset=utf-8"),
+                )
                 .expect(1)
                 .mount(&server)
                 .await;

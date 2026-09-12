@@ -4,7 +4,7 @@ use std::collections::{HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::{Duration, SystemTime};
 
-use tokio::task::{JoinSet, spawn_blocking};
+use tokio::task::JoinSet;
 use tokio::time::{MissedTickBehavior, interval};
 use url::Url;
 
@@ -264,15 +264,9 @@ where
 {
     net::ensure_crypto_provider();
     let plan = build_crawl_plan(opts)?;
-    let robots = spawn_blocking({
-        let seed = plan.seed.clone();
-        let user_agent = plan.robots_user_agent.clone();
-        let headers = plan.headers.clone();
-        let timeout = Duration::from_secs(plan.timeout_secs);
-        move || crate::robots::RobotsRules::fetch(&seed, user_agent.as_deref(), &headers, timeout)
-    })
-    .await
-    .map_err(crate::worker::worker_error)?;
+    let client = crate::transfer::client()?;
+    let headers = crate::transfer::Headers::new(&plan.headers, plan.robots_user_agent.as_deref());
+    let robots = crate::robots::fetch(&client, &plan.seed, &headers, Duration::from_secs(plan.timeout_secs)).await;
     run(plan, robots, &bridge::ServoFetcher, |event| {
         on_event(match event {
             CrawlRunEvent::Result(result) => CrawlSessionEvent::Result(CrawlResult::from_internal(result)),

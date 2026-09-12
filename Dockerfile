@@ -41,5 +41,7 @@ EXPOSE 3000
 ENV XDG_CACHE_HOME=/tmp
 ENV XDG_RUNTIME_DIR=/tmp/runtime-servo
 
+HEALTHCHECK --timeout=5s CMD ["servo-fetch", "healthcheck", "--port", "3000"]
+
 ENTRYPOINT ["servo-fetch"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "3000"]

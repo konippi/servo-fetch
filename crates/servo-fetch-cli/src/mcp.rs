@@ -1,5 +1,6 @@
 //! MCP server — exposes Servo's web rendering capabilities to AI agents.
 
+mod executor;
 mod output;
 mod server;
 mod tools;
@@ -12,6 +13,10 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 
 /// Start the MCP server on stdio or Streamable HTTP transport.
 pub(crate) async fn run(port: Option<u16>) -> anyhow::Result<()> {
+    let broker = servo_fetch::SessionBrokerConfig::default()
+        .queue_capacity(servo_fetch::SessionBrokerConfig::MAX_QUEUE_CAPACITY);
+    servo_fetch::configure_default_broker(broker)?;
+    tokio::task::spawn_blocking(servo_fetch::initialize_default_broker).await??;
     if let Some(port) = port {
         run_http(port).await
     } else {

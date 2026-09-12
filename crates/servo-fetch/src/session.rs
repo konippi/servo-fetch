@@ -21,7 +21,6 @@ use crate::worker::wire::{CrawlWire, FetchWire, MAX_WIRE_CRAWL_CONCURRENCY, MAX_
 use crate::worker::worker_error;
 use crate::{CrawlOptions, CrawlResult, NetworkPolicy};
 const MAX_SESSIONS: usize = 64;
-const MAX_QUEUE_CAPACITY: usize = 1024;
 const MAX_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(3600);
 
 #[cfg(test)]
@@ -120,6 +119,11 @@ pub fn configure_default_broker(mut config: SessionBrokerConfig) -> Result<()> {
         .map_err(|_| worker_error("default session broker is already configured"))
 }
 
+/// Initialize the process-wide broker now (including prewarm) instead of on the first session.
+pub fn initialize_default_broker() -> Result<()> {
+    default_broker().map(|_| ())
+}
+
 /// Capacity and startup policy for a [`SessionBroker`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -137,6 +141,9 @@ pub struct SessionBrokerConfig {
 }
 
 impl SessionBrokerConfig {
+    /// Upper bound on callers allowed to wait for a session slot.
+    pub const MAX_QUEUE_CAPACITY: usize = 1024;
+
     /// Set the maximum number of simultaneously-live sessions.
     #[must_use]
     pub fn max_sessions(mut self, max_sessions: usize) -> Self {
@@ -176,7 +183,7 @@ impl SessionBrokerConfig {
         if self.max_sessions == 0 || self.max_sessions > MAX_SESSIONS {
             return Err(invalid_config("max_sessions must be between 1 and 64"));
         }
-        if self.queue_capacity > MAX_QUEUE_CAPACITY {
+        if self.queue_capacity > Self::MAX_QUEUE_CAPACITY {
             return Err(invalid_config("queue_capacity must not exceed 1024"));
         }
         if self.prewarm > self.max_sessions {
@@ -199,7 +206,7 @@ impl Default for SessionBrokerConfig {
             .clamp(1, MAX_SESSIONS);
         let queue_capacity = env_usize("SERVO_FETCH_SESSION_QUEUE")
             .unwrap_or_else(|| max_sessions.saturating_mul(2))
-            .min(MAX_QUEUE_CAPACITY);
+            .min(Self::MAX_QUEUE_CAPACITY);
         let prewarm = env_usize("SERVO_FETCH_PREWARM").unwrap_or(0).min(max_sessions);
         let acquire_timeout = Duration::from_secs(
             env_usize("SERVO_FETCH_ACQUIRE_TIMEOUT_SECS")

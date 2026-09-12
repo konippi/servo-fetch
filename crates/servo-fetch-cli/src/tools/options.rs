@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use servo_fetch::{CookieSpec, FetchOptions, HeaderMap, VisibilityPolicy};
+use servo_fetch::{BrowserSessionConfig, CookieSpec, FetchOptions, HeaderMap, VisibilityPolicy};
 use servo_fetch_types::{FetchFormat, RequestOptions, Visibility};
 
 use super::error::{ToolError, ToolResult};
@@ -75,6 +75,21 @@ impl TryFrom<RequestOptions> for ResolvedRequestOptions {
 }
 
 impl ResolvedRequestOptions {
+    /// Split into one-use session identity (UA, cookies) and per-fetch settings.
+    pub(crate) fn into_session(self, url: &str, opts: FetchOptions) -> (BrowserSessionConfig, FetchOptions) {
+        let mut config = BrowserSessionConfig::new();
+        if let Some(user_agent) = self.user_agent {
+            config = config.user_agent(user_agent);
+        }
+        if !self.cookies.is_empty() {
+            config = config.cookies(url, self.cookies);
+        }
+        (
+            config,
+            opts.timeout(self.timeout).settle(self.settle).headers(self.headers),
+        )
+    }
+
     /// Apply the settings to one fetch.
     pub(crate) fn apply(&self, opts: FetchOptions) -> FetchOptions {
         let mut opts = opts

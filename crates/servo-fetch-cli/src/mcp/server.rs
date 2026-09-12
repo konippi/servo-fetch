@@ -6,15 +6,20 @@ use std::marker::PhantomData;
 use base64::Engine as _;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ContentBlock, JsonObject, ProtocolVersion, ServerCapabilities, ServerInfo};
+use rmcp::model::{
+    CallToolResult, ContentBlock, ErrorCode, JsonObject, ProtocolVersion, ServerCapabilities, ServerInfo,
+};
 use rmcp::schemars::{JsonSchema, Schema, SchemaGenerator};
+use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler, tool, tool_handler, tool_router};
 use serde::de::DeserializeOwned;
 use servo_fetch::FetchOptions;
 use servo_fetch_types::{
     BatchFetchRequest, CrawlRequest, EvaluateRequest, FetchRequest, MapRequest, ScreenshotRequest,
 };
+use tokio_util::sync::CancellationToken;
 
+use super::executor::{self, Outcome};
 use super::{output, tools};
 use crate::tools::limits::{CRAWL_LIMIT, DEFAULT_MAX_LENGTH, MAX_BATCH_URLS, MAX_JS_LEN, clamp_count, to_len};
 
@@ -53,7 +58,7 @@ async fn complete_decoded_tool_call<T, F, Fut>(
 where
     T: DeserializeOwned,
     F: FnOnce(T) -> Fut,
-    Fut: Future<Output = Result<CallToolResult, tools::ToolError>>,
+    Fut: Future<Output = Result<Outcome<CallToolResult>, tools::ToolError>>,
 {
     let request = serde_json::from_value(serde_json::Value::Object(arguments.value)).map_err(|error| {
         tools::ToolError::invalid_params(output::bounded_text(format_args!(
@@ -89,8 +94,12 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn fetch(&self, Parameters(p): Parameters<RawArguments<FetchRequest>>) -> Result<CallToolResult, ErrorData> {
-        complete_decoded_tool_call("fetch", p, run_fetch).await
+    async fn fetch(
+        &self,
+        ctx: RequestContext<RoleServer>,
+        Parameters(p): Parameters<RawArguments<FetchRequest>>,
+    ) -> Result<CallToolResult, ErrorData> {
+        complete_decoded_tool_call("fetch", p, |p| run_fetch(p, ctx.ct)).await
     }
 
     #[tool(
@@ -104,9 +113,10 @@ impl ServoFetchMcp {
     )]
     async fn screenshot(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(p): Parameters<RawArguments<ScreenshotRequest>>,
     ) -> Result<CallToolResult, ErrorData> {
-        complete_decoded_tool_call("screenshot", p, run_screenshot).await
+        complete_decoded_tool_call("screenshot", p, |p| run_screenshot(p, ctx.ct)).await
     }
 
     #[tool(
@@ -120,9 +130,10 @@ impl ServoFetchMcp {
     )]
     async fn execute_js(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(p): Parameters<RawArguments<EvaluateRequest>>,
     ) -> Result<CallToolResult, ErrorData> {
-        complete_decoded_tool_call("execute_js", p, run_execute_js).await
+        complete_decoded_tool_call("execute_js", p, |p| run_execute_js(p, ctx.ct)).await
     }
 
     #[tool(
@@ -138,7 +149,10 @@ impl ServoFetchMcp {
         &self,
         Parameters(p): Parameters<RawArguments<BatchFetchRequest>>,
     ) -> Result<CallToolResult, ErrorData> {
-        complete_decoded_tool_call("batch_fetch", p, run_batch_fetch).await
+        complete_decoded_tool_call("batch_fetch", p, |p| async {
+            run_batch_fetch(p).await.map(Outcome::Completed)
+        })
+        .await
     }
 
     #[tool(
@@ -151,7 +165,7 @@ impl ServoFetchMcp {
         )
     )]
     async fn crawl(&self, Parameters(p): Parameters<RawArguments<CrawlRequest>>) -> Result<CallToolResult, ErrorData> {
-        complete_decoded_tool_call("crawl", p, run_crawl).await
+        complete_decoded_tool_call("crawl", p, |p| async { run_crawl(p).await.map(Outcome::Completed) }).await
     }
 
     #[tool(
@@ -164,18 +178,22 @@ impl ServoFetchMcp {
         )
     )]
     async fn map(&self, Parameters(p): Parameters<RawArguments<MapRequest>>) -> Result<CallToolResult, ErrorData> {
-        complete_decoded_tool_call("map", p, run_map).await
+        complete_decoded_tool_call("map", p, |p| async { run_map(p).await.map(Outcome::Completed) }).await
     }
 }
 
 const INTERNAL_ERROR_MESSAGE: &str = "Internal server error";
 
+// LSP's RequestCancelled; rmcp discards responses to cancelled requests, so clients never observe it.
+const REQUEST_CANCELLED: ErrorCode = ErrorCode(-32800);
+
 fn complete_tool_call(
     tool: &'static str,
-    result: Result<CallToolResult, tools::ToolError>,
+    result: Result<Outcome<CallToolResult>, tools::ToolError>,
 ) -> Result<CallToolResult, ErrorData> {
     match result {
-        Ok(result) => Ok(result),
+        Ok(Outcome::Completed(result)) => Ok(result),
+        Ok(Outcome::Cancelled) => Err(ErrorData::new(REQUEST_CANCELLED, "request cancelled", None)),
         Err(error) if error.is_internal() => {
             tracing::error!(tool, kind = ?error.kind(), error = ?error, "MCP tool internal failure");
             Err(ErrorData::internal_error(INTERNAL_ERROR_MESSAGE, None))
@@ -202,13 +220,45 @@ fn labeled_results(
     Ok(output.finish())
 }
 
-async fn run_fetch(p: FetchRequest) -> Result<CallToolResult, tools::ToolError> {
+/// Sessions reject PDF URLs, so those stay on the one-shot engine path until session fetch absorbs the PDF probe.
+fn looks_like_pdf_url(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|url| {
+        url.path()
+            .rsplit('/')
+            .next()
+            .and_then(|last| last.rsplit_once('.'))
+            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("pdf"))
+    })
+}
+
+/// Fetch in a one-use isolated worker, surfacing client cancellation as an outcome.
+async fn isolated_fetch(
+    url: &str,
+    opts: FetchOptions,
+    options: servo_fetch_types::RequestOptions,
+    ct: &CancellationToken,
+) -> Result<Outcome<servo_fetch::Page>, tools::ToolError> {
+    let (config, opts) = tools::ResolvedRequestOptions::try_from(options)?.into_session(url, opts);
+    Ok(match executor::fetch_in_session(config, opts, ct).await {
+        Outcome::Completed(page) => Outcome::Completed(page?),
+        Outcome::Cancelled => Outcome::Cancelled,
+    })
+}
+
+async fn run_fetch(p: FetchRequest, ct: CancellationToken) -> Result<Outcome<CallToolResult>, tools::ToolError> {
     let max_length = output::effective_item_length(to_len(p.max_length, DEFAULT_MAX_LENGTH), 1);
     let url = tools::validated_url(&p.url)?;
     tools::validate_selector(p.selector.as_deref())?;
     let format = p.format.unwrap_or_default();
     let opts = tools::content_options(&url, format, tools::visibility_policy(p.visibility));
-    let page = tools::fetch_with(tools::apply_options(opts, p.options)?).await?;
+    let page = if looks_like_pdf_url(&url) {
+        tools::fetch_with(tools::apply_options(opts, p.options)?).await?
+    } else {
+        match isolated_fetch(&url, opts, p.options, &ct).await? {
+            Outcome::Completed(page) => page,
+            Outcome::Cancelled => return Ok(Outcome::Cancelled),
+        }
+    };
     let full = tools::render_page(&page, &url, format, p.selector.as_deref())?;
     let content = tools::paginate(
         &servo_fetch::sanitize::sanitize(&full),
@@ -217,24 +267,32 @@ async fn run_fetch(p: FetchRequest) -> Result<CallToolResult, tools::ToolError> 
     );
     let mut output = output::TextOutput::success();
     output.push(content);
-    Ok(output.finish())
+    Ok(Outcome::Completed(output.finish()))
 }
 
-async fn run_screenshot(p: ScreenshotRequest) -> Result<CallToolResult, tools::ToolError> {
+async fn run_screenshot(
+    p: ScreenshotRequest,
+    ct: CancellationToken,
+) -> Result<Outcome<CallToolResult>, tools::ToolError> {
     let url = tools::validated_url(&p.url)?;
     let opts = FetchOptions::screenshot(&url, p.full_page.unwrap_or(false));
-    let page = tools::fetch_with(tools::apply_options(opts, p.options)?).await?;
+    let Outcome::Completed(page) = isolated_fetch(&url, opts, p.options, &ct).await? else {
+        return Ok(Outcome::Cancelled);
+    };
     let png = page
         .screenshot_png()
         .ok_or_else(|| tools::ToolError::internal("screenshot capture failed"))?;
     output::checked_base64_length(png.len(), output::MAX_MCP_SCREENSHOT_BASE64_BYTES)?;
-    Ok(CallToolResult::success(vec![ContentBlock::image(
+    Ok(Outcome::Completed(CallToolResult::success(vec![ContentBlock::image(
         base64::engine::general_purpose::STANDARD.encode(png),
         "image/png",
-    )]))
+    )])))
 }
 
-async fn run_execute_js(p: EvaluateRequest) -> Result<CallToolResult, tools::ToolError> {
+async fn run_execute_js(
+    p: EvaluateRequest,
+    ct: CancellationToken,
+) -> Result<Outcome<CallToolResult>, tools::ToolError> {
     if p.expression.len() > MAX_JS_LEN {
         return Err(tools::ToolError::invalid_params(format!(
             "expression exceeds {MAX_JS_LEN} character limit"
@@ -242,7 +300,9 @@ async fn run_execute_js(p: EvaluateRequest) -> Result<CallToolResult, tools::Too
     }
     let url = tools::validated_url(&p.url)?;
     let opts = FetchOptions::javascript(&url, &p.expression);
-    let page = tools::fetch_with(tools::apply_options(opts, p.options)?).await?;
+    let Outcome::Completed(page) = isolated_fetch(&url, opts, p.options, &ct).await? else {
+        return Ok(Outcome::Cancelled);
+    };
     let result = output::javascript_text(
         page.js_result.as_deref().unwrap_or_default(),
         page.console_messages
@@ -251,7 +311,7 @@ async fn run_execute_js(p: EvaluateRequest) -> Result<CallToolResult, tools::Too
     );
     let mut output = output::TextOutput::success();
     output.push(result);
-    Ok(output.finish())
+    Ok(Outcome::Completed(output.finish()))
 }
 
 async fn run_batch_fetch(p: BatchFetchRequest) -> Result<CallToolResult, tools::ToolError> {
@@ -425,7 +485,7 @@ mod tests {
         let error = complete_tool_call("fetch", Err(tools::ToolError::from(failure)))
             .expect_err("internal failure should be a JSON-RPC error");
 
-        assert_eq!(error.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
+        assert_eq!(error.code, ErrorCode::INTERNAL_ERROR);
         assert_eq!(error.message, INTERNAL_ERROR_MESSAGE);
         assert_eq!(error.data, None);
         assert!(!serde_json::to_string(&error).unwrap().contains(detail));

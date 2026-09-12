@@ -3,7 +3,7 @@
 use rmcp::ServiceExt;
 use rmcp::transport::TokioChildProcess;
 use tokio::process::Command;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod common;
@@ -34,6 +34,43 @@ fn call_params(name: &str, args: &serde_json::Value) -> rmcp::model::CallToolReq
 fn assert_tool_error<E: std::fmt::Debug>(result: Result<rmcp::model::CallToolResult, E>) {
     let result = result.expect("expected an isError tool result, not a protocol error");
     assert_eq!(result.is_error, Some(true), "expected isError tool result");
+}
+
+/// Direct `__worker` children of the MCP server process.
+#[cfg(unix)]
+fn worker_children(server: u32) -> Vec<i32> {
+    let output = std::process::Command::new("pgrep")
+        .args(["-P", &server.to_string(), "-f", "__worker"])
+        .output()
+        .expect("inspect worker processes");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .collect()
+}
+
+/// Wait until the PID is fully gone (reaped, not merely killed), like the library session tests.
+#[cfg(unix)]
+async fn wait_for_exit(pid: i32) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        // SAFETY: signal 0 only probes the PID captured from our own MCP server's child.
+        #[allow(unsafe_code)]
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        if !alive {
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH),
+                "probing worker {pid} must fail only because it no longer exists"
+            );
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "worker {pid} survived cancellation"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 }
 
 #[tokio::test]
@@ -454,4 +491,136 @@ async fn batch_fetch_returns_multiple_results() {
             .iter()
             .any(|text| text.starts_with(&format!("URL: {}/b", server.uri())))
     );
+}
+
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn fetch_session_applies_user_agent_and_seeded_cookie() {
+    use std::io::Write as _;
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/identity"))
+        .and(header("user-agent", "McpSessionIdentity/1.0"))
+        .and(header("cookie", "mcp_session=seeded"))
+        .respond_with(mock_page("<html><body>session identity applied</body></html>"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut cookies = tempfile::NamedTempFile::new().expect("cookie file");
+    writeln!(cookies, "127.0.0.1\tFALSE\t/\tFALSE\t0\tmcp_session\tseeded").expect("cookie fixture");
+
+    let client = connect_loopback().await;
+    let result = client
+        .call_tool(call_params(
+            "fetch",
+            &serde_json::json!({
+                "url": format!("{}/identity", server.uri()),
+                "format": "text",
+                "userAgent": "McpSessionIdentity/1.0",
+                "cookiesFile": cookies.path(),
+                "timeout": 30
+            }),
+        ))
+        .await
+        .expect("session fetch succeeds with configured identity");
+    let text = result.content[0].as_text().expect("text content");
+    assert!(text.text.contains("session identity applied"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn cancelled_fetch_kills_its_worker_and_frees_the_slot() {
+    use std::time::Duration;
+
+    use rmcp::model::{CallToolRequest, ClientRequest};
+    use rmcp::service::PeerRequestOptions;
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/slow"))
+        .respond_with(mock_page("<html><body>slow</body></html>").set_delay(Duration::from_secs(30)))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/fast"))
+        .respond_with(mock_page("<html><body>fast page</body></html>"))
+        .mount(&server)
+        .await;
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
+    cmd.args(["mcp", "--allow-private-addresses"])
+        .env("SERVO_FETCH_MAX_WORKERS", "1")
+        .env("SERVO_FETCH_PREWARM", "0");
+    let transport = TokioChildProcess::new(cmd).unwrap();
+    let server_pid = transport.id().expect("MCP server pid");
+    let client = ().serve(transport).await.expect("MCP handshake failed");
+
+    let fetch = |path: &str| {
+        call_params(
+            "fetch",
+            &serde_json::json!({"url": format!("{}/{path}", server.uri()), "format": "text", "timeout": 30}),
+        )
+    };
+    let slow = client
+        .peer()
+        .send_cancellable_request(
+            ClientRequest::CallToolRequest(CallToolRequest::new(fetch("slow"))),
+            PeerRequestOptions::no_options(),
+        )
+        .await
+        .expect("start slow fetch");
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while !server
+            .received_requests()
+            .await
+            .is_some_and(|requests| requests.iter().any(|request| request.url.path() == "/slow"))
+        {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the worker navigates to the slow page before cancellation");
+    let worker = match worker_children(server_pid).as_slice() {
+        [worker] => *worker,
+        workers => panic!("expected exactly one in-flight worker, found {workers:?}"),
+    };
+
+    slow.cancel(None).await.expect("send cancellation");
+    wait_for_exit(worker).await;
+
+    let result = tokio::time::timeout(Duration::from_secs(15), client.call_tool(fetch("fast")))
+        .await
+        .expect("freed slot admits the follow-up fetch")
+        .expect("follow-up fetch succeeds");
+    let text = result.content[0].as_text().expect("text content");
+    assert!(text.text.contains("fast page"));
+}
+
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn pdf_suffix_serving_html_still_renders_through_the_one_shot_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/report.pdf"))
+        .respond_with(mock_page("<html><body>rendered fallback</body></html>"))
+        .mount(&server)
+        .await;
+
+    let client = connect_loopback().await;
+    let result = client
+        .call_tool(call_params(
+            "fetch",
+            &serde_json::json!({"url": format!("{}/report.pdf", server.uri()), "format": "text", "timeout": 30}),
+        ))
+        .await
+        .expect("PDF-suffixed URL is fetched");
+    assert_ne!(
+        result.is_error,
+        Some(true),
+        "PDF URLs must not be rejected by the session path"
+    );
+    let text = result.content[0].as_text().expect("text content");
+    assert!(text.text.contains("rendered fallback"));
 }

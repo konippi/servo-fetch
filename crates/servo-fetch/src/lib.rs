@@ -52,7 +52,7 @@ pub use map::{MapOptions, MappedUrl, map};
 pub use net::{NetworkPolicy, validate_url};
 pub use session::{
     BrowserSession, BrowserSessionConfig, SessionBroker, SessionBrokerConfig, SessionCancellation, WorkerCommand,
-    configure_default_broker, set_default_worker_command,
+    configure_default_broker, initialize_default_broker, set_default_worker_command,
 };
 pub use visibility::{VisibilityFlags, VisibilityPolicy};
 #[doc(hidden)]

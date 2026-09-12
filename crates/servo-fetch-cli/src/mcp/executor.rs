@@ -3,7 +3,10 @@
 use std::future::Future;
 use std::pin::pin;
 
-use servo_fetch::{BrowserSession, BrowserSessionConfig, FetchOptions, Page, SessionCancellation};
+use futures_util::{StreamExt as _, stream};
+use servo_fetch::{
+    BrowserSession, BrowserSessionConfig, CrawlOptions, CrawlResult, FetchOptions, Page, SessionCancellation,
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::tools::{ToolError, ToolResult};
@@ -37,12 +40,51 @@ async fn race<T>(
     }
 }
 
-/// Fetch in a fresh isolated session; cancellation kills the worker tree and always returns promptly.
+/// Fetch in a fresh isolated session.
 pub(super) async fn fetch_in_session(
     config: BrowserSessionConfig,
     options: FetchOptions,
     token: &CancellationToken,
 ) -> Outcome<ToolResult<Page>> {
+    in_session(config, token, async |session| session.fetch(&options).await).await
+}
+
+/// Crawl in a fresh isolated session.
+pub(super) async fn crawl_in_session(
+    config: BrowserSessionConfig,
+    options: CrawlOptions,
+    token: &CancellationToken,
+) -> Outcome<ToolResult<Vec<CrawlResult>>> {
+    in_session(config, token, async |session| session.crawl(&options).await).await
+}
+
+/// Fetch each URL in its own session, at most `concurrency` at a time, yielding in completion order.
+pub(super) async fn batch_fetch_in_sessions(
+    jobs: Vec<(String, BrowserSessionConfig, FetchOptions)>,
+    concurrency: usize,
+    token: &CancellationToken,
+) -> Outcome<Vec<(String, ToolResult<Page>)>> {
+    let results: Vec<_> = stream::iter(jobs)
+        .map(|(url, config, options)| async move { (url, fetch_in_session(config, options, token).await) })
+        .buffer_unordered(concurrency.max(1))
+        .collect()
+        .await;
+    let mut pages = Vec::with_capacity(results.len());
+    for (url, outcome) in results {
+        match outcome {
+            Outcome::Completed(page) => pages.push((url, page)),
+            Outcome::Cancelled => return Outcome::Cancelled,
+        }
+    }
+    Outcome::Completed(pages)
+}
+
+/// Run one operation in a fresh isolated session; cancellation kills the worker tree and always returns promptly.
+async fn in_session<T>(
+    config: BrowserSessionConfig,
+    token: &CancellationToken,
+    operation: impl AsyncFnOnce(&mut BrowserSession) -> servo_fetch::Result<T>,
+) -> Outcome<ToolResult<T>> {
     if token.is_cancelled() {
         return Outcome::Cancelled;
     }
@@ -63,7 +105,7 @@ pub(super) async fn fetch_in_session(
             return Outcome::Cancelled;
         }
     };
-    let result = match race(token, &cancellation, session.fetch(&options)).await {
+    let result = match race(token, &cancellation, operation(&mut session)).await {
         Raced::Finished(result) => result.map_err(ToolError::from),
         Raced::Interrupted(_) => {
             force_close(session).await;

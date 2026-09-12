@@ -15,17 +15,18 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 pub(crate) async fn run(port: Option<u16>) -> anyhow::Result<()> {
     let broker = servo_fetch::SessionBrokerConfig::default()
         .queue_capacity(servo_fetch::SessionBrokerConfig::MAX_QUEUE_CAPACITY);
+    let session_capacity = broker.session_capacity();
     servo_fetch::configure_default_broker(broker)?;
     tokio::task::spawn_blocking(servo_fetch::initialize_default_broker).await??;
     if let Some(port) = port {
-        run_http(port).await
+        run_http(port, session_capacity).await
     } else {
-        run_stdio().await
+        run_stdio(session_capacity).await
     }
 }
 
-async fn run_stdio() -> anyhow::Result<()> {
-    let service = server::ServoFetchMcp::new()
+async fn run_stdio(session_capacity: usize) -> anyhow::Result<()> {
+    let service = server::ServoFetchMcp::new(session_capacity)
         .serve(rmcp::transport::stdio())
         .await
         .map_err(|e| anyhow::anyhow!("MCP server failed to start: {e}"))?;
@@ -36,9 +37,9 @@ async fn run_stdio() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_http(port: u16) -> anyhow::Result<()> {
+async fn run_http(port: u16, session_capacity: usize) -> anyhow::Result<()> {
     let service = StreamableHttpService::new(
-        || Ok(server::ServoFetchMcp::new()),
+        move || Ok(server::ServoFetchMcp::new(session_capacity)),
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig::default(),
     );

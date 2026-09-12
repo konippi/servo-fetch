@@ -9,7 +9,7 @@ use tokio::task::{JoinSet, spawn_blocking};
 
 use super::error::{ToolError, ToolResult};
 use super::options::{ResolvedRequestOptions, content_options};
-use super::render::{paginate, render_page};
+use super::render::page_text;
 
 const DEFAULT_MAX_CONCURRENT_FETCHES: usize = 4;
 const MAX_ALLOWED_CONCURRENCY: usize = 16;
@@ -101,8 +101,7 @@ fn render_one(
     opts: &FetchOptions,
 ) -> ToolResult<String> {
     let page = servo_fetch::blocking::fetch(opts).map_err(ToolError::from)?;
-    let full = render_page(&page, url, format, selector)?;
-    Ok(paginate(&servo_fetch::sanitize::sanitize(&full), 0, max_len))
+    page_text(&page, url, format, selector, 0, max_len)
 }
 
 #[cfg(test)]

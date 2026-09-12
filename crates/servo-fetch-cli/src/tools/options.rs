@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use servo_fetch::{BrowserSessionConfig, CookieSpec, FetchOptions, HeaderMap, VisibilityPolicy};
+use servo_fetch::{BrowserSessionConfig, CookieSpec, CrawlOptions, FetchOptions, HeaderMap, VisibilityPolicy};
 use servo_fetch_types::{FetchFormat, RequestOptions, Visibility};
 
 use super::error::{ToolError, ToolResult};
@@ -77,17 +77,27 @@ impl TryFrom<RequestOptions> for ResolvedRequestOptions {
 impl ResolvedRequestOptions {
     /// Split into one-use session identity (UA, cookies) and per-fetch settings.
     pub(crate) fn into_session(self, url: &str, opts: FetchOptions) -> (BrowserSessionConfig, FetchOptions) {
-        let mut config = BrowserSessionConfig::new();
-        if let Some(user_agent) = self.user_agent {
-            config = config.user_agent(user_agent);
+        let opts = opts.timeout(self.timeout).settle(self.settle).headers(self.headers);
+        (session_identity(url, self.user_agent, self.cookies), opts)
+    }
+
+    /// Crawl counterpart of [`Self::into_session`].
+    pub(crate) fn into_crawl_session(self, url: &str, opts: CrawlOptions) -> (BrowserSessionConfig, CrawlOptions) {
+        let opts = opts.timeout(self.timeout).settle(self.settle).headers(self.headers);
+        (session_identity(url, self.user_agent, self.cookies), opts)
+    }
+
+    /// Crawl counterpart of [`Self::apply`].
+    pub(crate) fn apply_crawl(&self, opts: CrawlOptions) -> CrawlOptions {
+        let mut opts = opts
+            .timeout(self.timeout)
+            .settle(self.settle)
+            .cookies(self.cookies.clone())
+            .headers(self.headers.clone());
+        if let Some(user_agent) = &self.user_agent {
+            opts = opts.user_agent(user_agent.clone());
         }
-        if !self.cookies.is_empty() {
-            config = config.cookies(url, self.cookies);
-        }
-        (
-            config,
-            opts.timeout(self.timeout).settle(self.settle).headers(self.headers),
-        )
+        opts
     }
 
     /// Apply the settings to one fetch.
@@ -102,6 +112,17 @@ impl ResolvedRequestOptions {
         }
         opts
     }
+}
+
+fn session_identity(url: &str, user_agent: Option<String>, cookies: Vec<CookieSpec>) -> BrowserSessionConfig {
+    let mut config = BrowserSessionConfig::new();
+    if let Some(user_agent) = user_agent {
+        config = config.user_agent(user_agent);
+    }
+    if !cookies.is_empty() {
+        config = config.cookies(url, cookies);
+    }
+    config
 }
 
 /// Load and validate a Netscape-format cookies.txt file.

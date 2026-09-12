@@ -309,6 +309,16 @@ fn cookie_for(
     Some((url, builder.build()))
 }
 
+/// The subset of `specs` that [`seed`] would store for `target`; the host must never send more.
+pub(crate) fn seedable(target: &Url, specs: &[CookieSpec]) -> Vec<CookieSpec> {
+    let policy = crate::bridge::engine_policy();
+    specs
+        .iter()
+        .filter(|spec| cookie_for(target, spec, policy).is_some())
+        .cloned()
+        .collect()
+}
+
 pub(crate) fn request_header(target: &Url, specs: &[CookieSpec]) -> Option<http::HeaderValue> {
     let request_path = target.path();
     let secure = is_secure_context(target);

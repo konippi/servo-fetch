@@ -270,14 +270,7 @@ fn broker_rejects_invalid_configuration() {
 
 #[test]
 fn session_rejects_per_request_state_bypasses() {
-    let options = FetchOptions::new("https://example.com/protected.pdf");
-    assert!(matches!(
-        validate_session_fetch(&options),
-        Err(Error::UnsupportedSessionOperation {
-            operation: "PDF extraction",
-            ..
-        })
-    ));
+    assert!(validate_session_fetch(&FetchOptions::new("https://example.com/report.pdf")).is_ok());
 
     let mut fetch = FetchOptions::new("https://example.com");
     fetch

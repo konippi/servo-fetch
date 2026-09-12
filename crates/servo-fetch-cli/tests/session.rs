@@ -4,7 +4,8 @@ use std::sync::Once;
 use std::time::Duration;
 
 use servo_fetch::{
-    BrowserSessionConfig, FetchOptions, NetworkPolicy, SessionBroker, SessionBrokerConfig, WorkerCommand,
+    BrowserSessionConfig, FetchOptions, NetworkPolicy, SessionBroker, SessionBrokerConfig, SessionCancellation,
+    WorkerCommand,
 };
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
@@ -103,4 +104,84 @@ async fn cancelling_fetch_kills_worker_and_releases_capacity() {
         .expect("cancelled worker should release its broker permit")
         .expect("replacement session starts");
     replacement.close().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn cancelling_a_pdf_probe_closes_the_socket_promptly() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind PDF fixture");
+    let address = listener.local_addr().expect("PDF fixture address");
+    let (partial_tx, partial_rx) = oneshot::channel();
+    let (closed_tx, closed_rx) = oneshot::channel();
+    let fixture = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept PDF request");
+        let mut byte = [0_u8; 1];
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            socket.read_exact(&mut byte).await.expect("read PDF request");
+            request.push(byte[0]);
+        }
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-type: application/pdf\r\ncontent-length: 1048576\r\n\r\n%PDF-1.4\n")
+            .await
+            .expect("write partial PDF response");
+        socket.flush().await.expect("flush partial PDF response");
+        partial_tx.send(()).expect("report partial PDF body");
+        closed_tx
+            .send(socket.read(&mut byte).await)
+            .expect("report client disconnect");
+    });
+
+    let broker = broker(1, 1);
+    let cancellation = SessionCancellation::new();
+    let mut session = broker
+        .session_with_cancellation(BrowserSessionConfig::new(), &cancellation)
+        .await
+        .expect("session starts");
+    let fetch = tokio::spawn(async move {
+        session
+            .fetch(&FetchOptions::new(&format!("http://{address}/slow.pdf")).timeout(Duration::from_secs(30)))
+            .await
+    });
+    partial_rx.await.expect("probe reaches the partial PDF body");
+    cancellation.cancel();
+
+    let outcome = tokio::time::timeout(Duration::from_secs(1), fetch)
+        .await
+        .expect("cancelled PDF fetch returns promptly")
+        .expect("fetch task completes");
+    assert!(
+        matches!(outcome, Err(servo_fetch::Error::SessionCancelled)),
+        "{outcome:?}"
+    );
+    match closed_rx.await.expect("fixture reports client disconnect") {
+        Ok(0) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+            ) => {}
+        other => panic!("cancelled probe must close its socket, observed {other:?}"),
+    }
+    fixture.await.expect("PDF fixture completes");
+}
+
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn cancelled_session_rejects_pdf_fetches_without_touching_the_network() {
+    let broker = broker(1, 1);
+    let mut session = broker
+        .session(BrowserSessionConfig::new())
+        .await
+        .expect("session starts");
+    session.cancel();
+    let result = session.fetch(&FetchOptions::new("http://127.0.0.1:9/closed.pdf")).await;
+    assert!(
+        result.is_err(),
+        "a cancelled session must not probe PDFs on the host: {result:?}"
+    );
 }

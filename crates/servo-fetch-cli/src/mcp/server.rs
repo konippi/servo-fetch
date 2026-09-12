@@ -228,17 +228,6 @@ fn labeled_results(
     Ok(output.finish())
 }
 
-/// Sessions reject PDF URLs, so those stay on the one-shot engine path until session fetch absorbs the PDF probe.
-fn looks_like_pdf_url(url: &str) -> bool {
-    url::Url::parse(url).is_ok_and(|url| {
-        url.path()
-            .rsplit('/')
-            .next()
-            .and_then(|last| last.rsplit_once('.'))
-            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("pdf"))
-    })
-}
-
 /// Fetch in a one-use isolated worker, surfacing client cancellation as an outcome.
 async fn isolated_fetch(
     url: &str,
@@ -259,13 +248,8 @@ async fn run_fetch(p: FetchRequest, ct: CancellationToken) -> Result<Outcome<Cal
     tools::validate_selector(p.selector.as_deref())?;
     let format = p.format.unwrap_or_default();
     let opts = tools::content_options(&url, format, tools::visibility_policy(p.visibility));
-    let page = if looks_like_pdf_url(&url) {
-        tools::fetch_with(tools::apply_options(opts, p.options)?).await?
-    } else {
-        match isolated_fetch(&url, opts, p.options, &ct).await? {
-            Outcome::Completed(page) => page,
-            Outcome::Cancelled => return Ok(Outcome::Cancelled),
-        }
+    let Outcome::Completed(page) = isolated_fetch(&url, opts, p.options, &ct).await? else {
+        return Ok(Outcome::Cancelled);
     };
     let content = tools::page_text(
         &page,

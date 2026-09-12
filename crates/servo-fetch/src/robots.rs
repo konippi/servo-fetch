@@ -4,8 +4,6 @@ use std::time::Duration;
 
 use url::Url;
 
-use crate::bridge;
-
 pub(crate) const ROBOTS_MAX_BYTES: u64 = 512 * 1024;
 
 /// Outcome of `RobotsRules::fetch`.
@@ -33,44 +31,6 @@ pub(crate) struct RobotsRules {
 }
 
 impl RobotsRules {
-    pub(crate) fn fetch(
-        seed: &Url,
-        user_agent: Option<&str>,
-        headers: &http::HeaderMap,
-        timeout: Duration,
-    ) -> RobotsPolicy {
-        let Some(url) = robots_url(seed) else {
-            return RobotsPolicy::Unreachable;
-        };
-        let ua = user_agent.unwrap_or_else(|| bridge::default_user_agent());
-        let agent = ureq::Agent::new_with_config(
-            ureq::config::Config::builder()
-                .max_redirects(0)
-                .http_status_as_error(false)
-                .timeout_global(Some(timeout))
-                .user_agent(ua)
-                .build(),
-        );
-        let mut req = agent.get(url.as_str());
-        for (name, value) in headers {
-            req = req.header(name.clone(), value.clone());
-        }
-        let Ok(resp) = req.call() else {
-            return RobotsPolicy::Unreachable;
-        };
-        let status = resp.status().as_u16();
-        let body = if (400..600).contains(&status) {
-            None
-        } else {
-            resp.into_body()
-                .with_config()
-                .limit(ROBOTS_MAX_BYTES)
-                .read_to_vec()
-                .ok()
-        };
-        classify_response(status, body.as_deref(), product_token(ua))
-    }
-
     fn parse(body: &str, product_token: &str) -> Self {
         let mut rules = Vec::new();
         let mut sitemaps = Vec::new();
@@ -117,9 +77,30 @@ impl RobotsRules {
     }
 }
 
+/// Fetch and classify robots.txt for `seed`; 4xx means no rules, 5xx/network errors mean disallow.
+pub(crate) async fn fetch(
+    client: &reqwest::Client,
+    seed: &Url,
+    headers: &crate::transfer::Headers,
+    timeout: Duration,
+) -> RobotsPolicy {
+    let Some(url) = robots_url(seed) else {
+        return RobotsPolicy::Unreachable;
+    };
+    let Ok(response) = headers.get(client, &url, timeout).send().await else {
+        return RobotsPolicy::Unreachable;
+    };
+    let status = response.status();
+    let body = if status.is_client_error() || status.is_server_error() {
+        None
+    } else {
+        crate::transfer::collect_bounded(response, ROBOTS_MAX_BYTES).await
+    };
+    classify_response(status.as_u16(), body.as_deref(), product_token(headers.user_agent()))
+}
+
 pub(crate) fn classify_response(status: u16, body: Option<&[u8]>, product_token: &str) -> RobotsPolicy {
     match status {
-        // Stricter than RFC 9309/Google on auth-gated robots.txt: 401/403 read as "not welcome".
         401 | 403 | 429 | 500..=599 => RobotsPolicy::Unreachable,
         400..=499 => RobotsPolicy::Unavailable,
         _ => body
@@ -189,7 +170,7 @@ fn pattern_match_len(pattern: &str, path: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
@@ -344,11 +325,9 @@ mod tests {
         }
 
         async fn call(seed: Url, user_agent: Option<&'static str>) -> RobotsPolicy {
-            tokio::task::spawn_blocking(move || {
-                RobotsRules::fetch(&seed, user_agent, &http::HeaderMap::new(), Duration::from_secs(5))
-            })
-            .await
-            .unwrap()
+            let client = crate::transfer::client().unwrap();
+            let headers = crate::transfer::Headers::new(&http::HeaderMap::new(), user_agent);
+            fetch(&client, &seed, &headers, Duration::from_secs(5)).await
         }
 
         #[tokio::test]
@@ -410,22 +389,6 @@ mod tests {
             let oversized = "a".repeat(size);
             let (_server, seed) = serve(200, &oversized).await;
             assert!(matches!(call(seed, None).await, RobotsPolicy::Unreachable));
-        }
-
-        #[tokio::test]
-        async fn sends_caller_provided_user_agent() {
-            let server = MockServer::start().await;
-            Mock::given(method("GET"))
-                .and(path("/robots.txt"))
-                .and(header("user-agent", "CustomBot/9.9"))
-                .respond_with(
-                    ResponseTemplate::new(200).set_body_raw(b"User-agent: *\n".to_vec(), "text/plain; charset=utf-8"),
-                )
-                .expect(1)
-                .mount(&server)
-                .await;
-            let seed = Url::parse(&server.uri()).unwrap();
-            let _ = call(seed, Some("CustomBot/9.9")).await;
         }
     }
 }

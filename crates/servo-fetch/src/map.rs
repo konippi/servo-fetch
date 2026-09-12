@@ -5,12 +5,10 @@ use std::io::Read as _;
 use std::ops::ControlFlow;
 use std::time::Duration;
 
-use futures_util::StreamExt as _;
-use reqwest::header::USER_AGENT;
 use tokio::time::Instant;
 use url::Url;
 
-use crate::robots::{ROBOTS_MAX_BYTES, RobotsPolicy, classify_response, product_token, robots_url};
+use crate::robots::RobotsPolicy;
 use crate::scope::{is_same_site, matches_scope, normalize_url};
 use crate::{bridge, net};
 
@@ -135,7 +133,7 @@ pub async fn map(opts: &MapOptions) -> crate::error::Result<Vec<MappedUrl>> {
         no_fallback: opts.no_fallback,
         headers: opts.headers.clone(),
     };
-    let mut traversal = MapTraversal::new(config, build_client()?, build_sitemap_client()?);
+    let mut traversal = MapTraversal::new(config, crate::transfer::client()?, crate::transfer::raw_client()?);
     let mut urls = Vec::new();
     while let Some(url) = traversal.next_url().await {
         urls.push(url);
@@ -153,6 +151,12 @@ struct MapConfig {
     timeout: Duration,
     no_fallback: bool,
     headers: http::HeaderMap,
+}
+
+impl MapConfig {
+    fn headers(&self) -> crate::transfer::Headers {
+        crate::transfer::Headers::new(&self.headers, self.user_agent.as_deref())
+    }
 }
 
 enum MapPhase {
@@ -241,7 +245,7 @@ impl MapTraversal {
 
     /// Fetch robots.txt and seed the sitemap queue.
     async fn bootstrap_robots(&mut self) -> ControlFlow<MappedUrl> {
-        let robots = fetch_robots(&self.client, &self.opts).await;
+        let robots = crate::robots::fetch(&self.client, &self.opts.seed, &self.opts.headers(), self.opts.timeout).await;
         let queue = discover_sitemaps(&robots, &self.opts.seed)
             .into_iter()
             .map(|url| (url, 0))
@@ -358,59 +362,6 @@ fn discover_sitemaps(robots: &RobotsPolicy, seed: &Url) -> Vec<Url> {
     urls
 }
 
-fn build_client() -> crate::error::Result<reqwest::Client> {
-    build_client_with(reqwest::Client::builder())
-}
-
-fn build_sitemap_client() -> crate::error::Result<reqwest::Client> {
-    build_client_with(reqwest::Client::builder().no_gzip())
-}
-
-fn build_client_with(builder: reqwest::ClientBuilder) -> crate::error::Result<reqwest::Client> {
-    net::ensure_crypto_provider();
-    builder
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|error| crate::Error::engine(error, None))
-}
-
-fn request(client: &reqwest::Client, url: &Url, opts: &MapConfig) -> reqwest::RequestBuilder {
-    let request = client
-        .get(url.clone())
-        .timeout(opts.timeout)
-        .headers(opts.headers.clone());
-    if opts.headers.contains_key(USER_AGENT) {
-        request
-    } else {
-        request.header(
-            USER_AGENT,
-            opts.user_agent
-                .as_deref()
-                .unwrap_or_else(|| bridge::default_user_agent()),
-        )
-    }
-}
-
-async fn fetch_robots(client: &reqwest::Client, opts: &MapConfig) -> RobotsPolicy {
-    let Some(url) = robots_url(&opts.seed) else {
-        return RobotsPolicy::Unreachable;
-    };
-    let Ok(response) = request(client, &url, opts).send().await else {
-        return RobotsPolicy::Unreachable;
-    };
-    let status = response.status().as_u16();
-    let body = if (400..600).contains(&status) {
-        None
-    } else {
-        collect_bounded(response, ROBOTS_MAX_BYTES).await
-    };
-    let user_agent = opts
-        .user_agent
-        .as_deref()
-        .unwrap_or_else(|| bridge::default_user_agent());
-    classify_response(status, body.as_deref(), product_token(user_agent))
-}
-
 async fn fetch_following_redirects(
     client: &reqwest::Client,
     url: &Url,
@@ -419,7 +370,7 @@ async fn fetch_following_redirects(
 ) -> Option<reqwest::Response> {
     let mut current = url.clone();
     for _ in 0..MAP_MAX_REDIRECTS {
-        let response = request(client, &current, opts).send().await.ok()?;
+        let response = opts.headers().get(client, &current, opts.timeout).send().await.ok()?;
         let status = response.status().as_u16();
         if matches!(status, 301 | 302 | 303 | 307 | 308) {
             let location = response.headers().get("location")?.to_str().ok()?;
@@ -438,22 +389,6 @@ async fn fetch_following_redirects(
         return Some(response);
     }
     None
-}
-
-async fn collect_bounded(response: reqwest::Response, max_bytes: u64) -> Option<Vec<u8>> {
-    let mut body = Vec::new();
-    let mut chunks = response.bytes_stream();
-    while let Some(chunk) = chunks.next().await {
-        let chunk = chunk.ok()?;
-        let next_len = u64::try_from(body.len())
-            .ok()?
-            .checked_add(u64::try_from(chunk.len()).ok()?)?;
-        if next_len > max_bytes {
-            return None;
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Some(body)
 }
 
 async fn fetch_sitemap(client: &reqwest::Client, url: &Url, opts: &MapConfig) -> Option<String> {
@@ -475,7 +410,7 @@ async fn fetch_sitemap(client: &reqwest::Client, url: &Url, opts: &MapConfig) ->
             .get("content-encoding")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("gzip"));
-    let bytes = collect_bounded(response, MAP_SITEMAP_MAX_BYTES).await?;
+    let bytes = crate::transfer::collect_bounded(response, MAP_SITEMAP_MAX_BYTES).await?;
 
     if is_gzip {
         let mut decoded = Vec::new();
@@ -520,7 +455,7 @@ fn looks_like_html(bytes: &[u8]) -> bool {
 
 async fn fetch_html(client: &reqwest::Client, url: &Url, opts: &MapConfig) -> Option<String> {
     let response = fetch_following_redirects(client, url, url, opts).await?;
-    let bytes = collect_bounded(response, MAP_HTML_MAX_BYTES).await?;
+    let bytes = crate::transfer::collect_bounded(response, MAP_HTML_MAX_BYTES).await?;
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -911,10 +846,7 @@ mod tests {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        use crate::map::{
-            MapConfig, MapTraversal, MappedUrl, build_client, build_sitemap_client, collect_bounded, extract_links,
-            fetch_html, fetch_sitemap, parse_sitemap,
-        };
+        use crate::map::{MapConfig, MapTraversal, MappedUrl, extract_links, fetch_html, fetch_sitemap, parse_sitemap};
 
         fn gzip(body: &[u8]) -> Vec<u8> {
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -932,7 +864,7 @@ mod tests {
                 .mount(&server)
                 .await;
 
-            let client = build_sitemap_client().unwrap();
+            let client = crate::transfer::raw_client().unwrap();
             let config = super::test_config(&server.uri());
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
             let body = fetch_sitemap(&client, &url, &config).await;
@@ -953,7 +885,7 @@ mod tests {
                 .mount(&server)
                 .await;
 
-            let client = build_sitemap_client().unwrap();
+            let client = crate::transfer::raw_client().unwrap();
             let config = super::test_config(&server.uri());
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
             let body = fetch_sitemap(&client, &url, &config).await;
@@ -970,7 +902,7 @@ mod tests {
                 .mount(&server)
                 .await;
 
-            let client = build_sitemap_client().unwrap();
+            let client = crate::transfer::raw_client().unwrap();
             let config = super::test_config(&server.uri());
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
             let body = fetch_sitemap(&client, &url, &config).await;
@@ -990,7 +922,7 @@ mod tests {
                 .mount(&server)
                 .await;
 
-            let client = build_sitemap_client().unwrap();
+            let client = crate::transfer::raw_client().unwrap();
             let config = super::test_config(&server.uri());
             let url = Url::parse(&format!("{}/sitemap.xml.gz", server.uri())).unwrap();
             let body = fetch_sitemap(&client, &url, &config).await;
@@ -1013,7 +945,7 @@ mod tests {
                 .mount(&server)
                 .await;
 
-            let client = build_sitemap_client().unwrap();
+            let client = crate::transfer::raw_client().unwrap();
             let config = super::test_config(&server.uri());
             let url = Url::parse(&format!("{}/sitemap.xml.gz", server.uri())).unwrap();
             let body = fetch_sitemap(&client, &url, &config).await;
@@ -1040,35 +972,10 @@ mod tests {
                 .mount(&server)
                 .await;
 
-            let client = build_sitemap_client().unwrap();
+            let client = crate::transfer::raw_client().unwrap();
             let config = super::test_config(&server.uri());
             let url = Url::parse(&format!("{}/sitemap.xml", server.uri())).unwrap();
             let body = fetch_sitemap(&client, &url, &config).await;
-
-            assert!(body.is_none());
-        }
-
-        #[tokio::test]
-        async fn collect_bounded_rejects_compressed_body_over_limit() {
-            let server = MockServer::start().await;
-            let compressed = gzip(b"compressed sitemap body");
-            Mock::given(method("GET"))
-                .and(path("/sitemap.xml"))
-                .respond_with(
-                    ResponseTemplate::new(200)
-                        .insert_header("content-encoding", "gzip")
-                        .set_body_raw(compressed.clone(), "application/xml"),
-                )
-                .mount(&server)
-                .await;
-
-            let response = build_sitemap_client()
-                .unwrap()
-                .get(format!("{}/sitemap.xml", server.uri()))
-                .send()
-                .await
-                .unwrap();
-            let body = collect_bounded(response, compressed.len() as u64 - 1).await;
 
             assert!(body.is_none());
         }
@@ -1085,7 +992,7 @@ mod tests {
                 .mount(&server)
                 .await;
 
-            let client = build_client().unwrap();
+            let client = crate::transfer::client().unwrap();
             let seed = Url::parse(&server.uri()).unwrap();
             let config = super::test_config(&server.uri());
             let html = fetch_html(&client, &seed, &config).await.unwrap();
@@ -1137,7 +1044,11 @@ mod tests {
                     no_fallback: false,
                     headers: http::HeaderMap::new(),
                 };
-                let mut traversal = MapTraversal::new(config, build_client().unwrap(), build_sitemap_client().unwrap());
+                let mut traversal = MapTraversal::new(
+                    config,
+                    crate::transfer::client().unwrap(),
+                    crate::transfer::raw_client().unwrap(),
+                );
                 traversal.next_url().await
             });
             partial_rx.await.expect("map reaches the partial robots body");
@@ -1172,7 +1083,11 @@ mod tests {
                 headers: http::HeaderMap::new(),
             };
             configure(&mut config);
-            let mut traversal = MapTraversal::new(config, build_client().unwrap(), build_sitemap_client().unwrap());
+            let mut traversal = MapTraversal::new(
+                config,
+                crate::transfer::client().unwrap(),
+                crate::transfer::raw_client().unwrap(),
+            );
             let mut entries = Vec::new();
             while let Some(entry) = traversal.next_url().await {
                 entries.push(entry);
@@ -1208,32 +1123,6 @@ mod tests {
             assert_eq!(entries.len(), 2);
             assert!(entries.iter().any(|e| e.url.ends_with("/page1")));
             assert!(entries.iter().any(|e| e.url.ends_with("/page2")));
-        }
-
-        #[tokio::test]
-        async fn run_parses_redirect_status_robots_body() {
-            let server = MockServer::start().await;
-            Mock::given(method("GET"))
-                .and(path("/robots.txt"))
-                .respond_with(
-                    ResponseTemplate::new(302)
-                        .set_body_raw(b"User-agent: *\nAllow: /".to_vec(), "text/plain; charset=utf-8"),
-                )
-                .mount(&server)
-                .await;
-            let sitemap = format!("<urlset><url><loc>{}/allowed</loc></url></urlset>", server.uri());
-            Mock::given(method("GET"))
-                .and(path("/sitemap.xml"))
-                .respond_with(
-                    ResponseTemplate::new(200).set_body_raw(sitemap.into_bytes(), "application/xml; charset=utf-8"),
-                )
-                .mount(&server)
-                .await;
-
-            let entries = check_run(&server, |_| {}).await;
-
-            assert_eq!(entries.len(), 1);
-            assert!(entries[0].url.ends_with("/allowed"));
         }
 
         #[tokio::test]

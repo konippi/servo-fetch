@@ -40,7 +40,8 @@ pub(crate) mod scope;
 pub(crate) mod screenshot;
 pub(crate) mod session;
 pub(crate) mod sys;
-mod worker;
+pub(crate) mod transfer;
+pub(crate) mod worker;
 
 pub use client::{Client, ClientBuilder, ScreenshotOptions};
 pub use cookies::{CookieSpec, load_cookies};

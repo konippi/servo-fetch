@@ -40,7 +40,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
-ureq = { workspace = true }
 quick-xml = { workspace = true }
 flate2 = { workspace = true }
 humantime = { workspace = true }

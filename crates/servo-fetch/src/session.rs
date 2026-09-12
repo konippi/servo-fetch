@@ -15,7 +15,7 @@ use self::supervisor::{
 };
 use crate::cookies::{CookieSpec, CookieWire};
 use crate::error::{Error, Result};
-use crate::fetch::{FetchMode, FetchOptions, Page};
+use crate::fetch::{FetchOptions, Page};
 use crate::worker::protocol::InitializeSession;
 use crate::worker::wire::{CrawlWire, FetchWire, MAX_WIRE_CRAWL_CONCURRENCY, MAX_WIRE_DURATION};
 use crate::worker::worker_error;
@@ -499,6 +499,10 @@ impl SessionBroker {
             return Err(cancelled_error());
         }
         let user_agent = config.user_agent.clone();
+        let cookies = match config.cookie_scope.as_deref().map(url::Url::parse) {
+            Some(Ok(scope)) => crate::cookies::seedable(&scope, &config.cookies),
+            _ => Vec::new(),
+        };
         let initialization = InitializeSession {
             permissive_network: crate::bridge::engine_policy() == NetworkPolicy::PERMISSIVE,
             user_agent: config.user_agent,
@@ -511,6 +515,8 @@ impl SessionBroker {
         Ok(BrowserSession {
             supervisor: Some(supervisor),
             user_agent,
+            cookies,
+            cancellation: cancellation.clone(),
         })
     }
 }
@@ -558,6 +564,8 @@ impl Drop for AcquisitionGuard {
 pub struct BrowserSession {
     supervisor: Option<SupervisorHandle>,
     user_agent: Option<String>,
+    cookies: Vec<CookieSpec>,
+    cancellation: SessionCancellation,
 }
 
 impl BrowserSession {
@@ -629,7 +637,13 @@ impl BrowserSession {
     /// Fetch in this logical session. Per-request UA/cookies are rejected.
     pub async fn fetch(&mut self, opts: &FetchOptions) -> Result<Page> {
         validate_session_fetch(opts)?;
-        crate::net::validate_url(&opts.url)?;
+        self.supervisor_mut()?;
+        let target = crate::net::validate_url(&opts.url)?;
+        if crate::fetch::wants_pdf_probe(opts)
+            && let Some(page) = self.probe_pdf(&target, opts).await?
+        {
+            return Ok(page);
+        }
         let (reply, receive) = response_channel();
         let command = SupervisorCommand::Fetch {
             request: FetchWire::from_options(opts),
@@ -644,10 +658,32 @@ impl BrowserSession {
         self.finish_operation(wire.into_page(screenshot))
     }
 
+    /// PDFs never reach the worker: probe on the host with the session's seeded identity, racing cancellation.
+    async fn probe_pdf(&self, target: &url::Url, opts: &FetchOptions) -> Result<Option<Page>> {
+        let mut headers = opts.headers.clone();
+        if let Some(cookie) = crate::cookies::request_header(target, &self.cookies) {
+            headers.insert(http::header::COOKIE, cookie);
+        }
+        let headers = crate::transfer::Headers::new(&headers, self.user_agent.as_deref());
+        let probe = crate::pdf::probe(target, &headers, opts.effective_timeout());
+        tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => Err(cancelled_error()),
+            bytes = probe => Ok(bytes.as_deref().map(crate::fetch::pdf_page)),
+        }
+    }
+
     /// Blocking fetch in this logical session.
     pub fn fetch_blocking(&mut self, opts: &FetchOptions) -> Result<Page> {
         validate_session_fetch(opts)?;
-        crate::net::validate_url(&opts.url)?;
+        self.supervisor_mut()?;
+        let target = crate::net::validate_url(&opts.url)?;
+        if crate::fetch::wants_pdf_probe(opts) {
+            let probe = self.probe_pdf(&target, opts);
+            if let Some(page) = crate::runtime::block_on(probe).map_err(|error| worker_error(error.to_string()))?? {
+                return Ok(page);
+            }
+        }
         let (reply, receive) = response_channel();
         self.supervisor_mut()?.send(SupervisorCommand::Fetch {
             request: FetchWire::from_options(opts),
@@ -797,12 +833,6 @@ fn validate_session_fetch(opts: &FetchOptions) -> Result<()> {
     validate_immutable_settings(opts.user_agent.as_ref(), &opts.cookies, &opts.headers)?;
     validate_operation_duration("fetch timeout", opts.effective_timeout())?;
     validate_operation_duration("fetch settle", opts.effective_settle())?;
-    if matches!(opts.mode, FetchMode::Content { .. }) && crate::pdf::looks_like_pdf_url(&opts.url) {
-        return Err(Error::UnsupportedSessionOperation {
-            operation: "PDF extraction",
-            reason: "session-aware PDF networking is unavailable; use the one-shot fetch API",
-        });
-    }
     Ok(())
 }
 

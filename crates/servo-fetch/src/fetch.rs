@@ -359,15 +359,22 @@ pub(crate) fn fetch_in_process_blocking(opts: &FetchOptions) -> crate::error::Re
 
 /// Fetch a single page via the embedded Servo engine (blocking).
 pub fn fetch_blocking(opts: &FetchOptions) -> crate::error::Result<Page> {
-    if let Some(pdf_page) = pre_fetch(opts)? {
-        return Ok(pdf_page);
+    let target = prepare(opts)?;
+    if wants_pdf_probe(opts) {
+        let probe = probe_pdf(&target, opts);
+        if let Some(pdf_page) = crate::runtime::block_on(probe).map_err(|error| Error::engine(error, None))?? {
+            return Ok(pdf_page);
+        }
     }
     fetch_servo_blocking(opts)
 }
 
 /// Fetch a single page via the embedded Servo engine.
 pub async fn fetch(opts: &FetchOptions) -> crate::error::Result<Page> {
-    if let Some(pdf_page) = pre_fetch_async(opts).await? {
+    let target = prepare(opts)?;
+    if wants_pdf_probe(opts)
+        && let Some(pdf_page) = probe_pdf(&target, opts).await?
+    {
         return Ok(pdf_page);
     }
     let bridge_opts = build_bridge_options(opts);
@@ -407,23 +414,24 @@ pub async fn text(url: &str) -> crate::error::Result<String> {
     Ok(fetch(&FetchOptions::new(url)).await?.inner_text)
 }
 
-fn pre_fetch(opts: &FetchOptions) -> crate::error::Result<Option<Page>> {
+/// Synchronous preflight shared by every fetch entry point: crypto init and URL validation.
+fn prepare(opts: &FetchOptions) -> crate::error::Result<url::Url> {
     crate::net::ensure_crypto_provider();
-    crate::net::validate_url(&opts.url)?;
+    crate::net::validate_url(&opts.url)
+}
 
-    if matches!(opts.mode, FetchMode::Content { .. }) {
-        let headers = pdf_headers(opts)?;
-        if let Some(bytes) = crate::pdf::probe(
-            &opts.url,
-            opts.effective_timeout().as_secs().max(1),
-            opts.user_agent.as_deref(),
-            &headers,
-        ) {
-            return Ok(Some(pdf_page(&bytes)));
-        }
-    }
+/// Content fetches of `.pdf` URLs are probed directly instead of being rendered.
+pub(crate) fn wants_pdf_probe(opts: &FetchOptions) -> bool {
+    matches!(opts.mode, FetchMode::Content { .. }) && crate::pdf::looks_like_pdf_url(&opts.url)
+}
 
-    Ok(None)
+async fn probe_pdf(target: &url::Url, opts: &FetchOptions) -> crate::error::Result<Option<Page>> {
+    let headers = pdf_headers(opts)?;
+    let headers = crate::transfer::Headers::new(&headers, opts.user_agent.as_deref());
+    Ok(crate::pdf::probe(target, &headers, opts.effective_timeout())
+        .await
+        .as_deref()
+        .map(pdf_page))
 }
 
 fn pdf_headers(opts: &FetchOptions) -> crate::error::Result<http::HeaderMap> {
@@ -440,14 +448,7 @@ fn pdf_headers(opts: &FetchOptions) -> crate::error::Result<http::HeaderMap> {
     Ok(headers)
 }
 
-async fn pre_fetch_async(opts: &FetchOptions) -> crate::error::Result<Option<Page>> {
-    let options = opts.clone();
-    tokio::task::spawn_blocking(move || pre_fetch(&options))
-        .await
-        .map_err(|error| Error::engine(error, Some(opts.url.clone())))?
-}
-
-fn pdf_page(bytes: &[u8]) -> Page {
+pub(crate) fn pdf_page(bytes: &[u8]) -> Page {
     let text = crate::extract::extract_pdf(bytes);
     Page {
         html: String::new(),

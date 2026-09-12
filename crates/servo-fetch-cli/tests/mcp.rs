@@ -7,7 +7,7 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod common;
-use common::{mock_page, slow_page};
+use common::{mock_page, pdf_with_text, slow_page};
 
 async fn connect() -> rmcp::service::RunningService<rmcp::RoleClient, impl rmcp::service::Service<rmcp::RoleClient>> {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
@@ -622,7 +622,7 @@ async fn cancelled_crawl_kills_its_worker_and_frees_the_slot() {
 
 #[tokio::test]
 #[ignore = "e2e: requires Servo engine"]
-async fn pdf_suffix_serving_html_still_renders_through_the_one_shot_path() {
+async fn pdf_suffix_serving_html_falls_back_to_rendering() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/report.pdf"))
@@ -645,4 +645,32 @@ async fn pdf_suffix_serving_html_still_renders_through_the_one_shot_path() {
     );
     let text = result.content[0].as_text().expect("text content");
     assert!(text.text.contains("rendered fallback"));
+}
+
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn fetch_extracts_pdf_text_through_the_session_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/report.pdf"))
+        .and(header("user-agent", "McpPdf/1.0"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(pdf_with_text("session pdf text"), "application/pdf"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = connect_loopback().await;
+    let result = client
+        .call_tool(call_params(
+            "fetch",
+            &serde_json::json!({"url": format!("{}/report.pdf", server.uri()), "format": "text", "userAgent": "McpPdf/1.0"}),
+        ))
+        .await
+        .expect("PDF fetch succeeds");
+    let text = result.content[0].as_text().expect("text content");
+    assert!(
+        text.text.contains("session pdf text"),
+        "PDF text is extracted: {}",
+        text.text
+    );
 }

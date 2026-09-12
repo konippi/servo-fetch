@@ -10,10 +10,7 @@ use super::options::{build_headers, glob_refs, resolve_timeout};
 
 /// Run a built map on the engine, returning sitemap entries (URL plus `lastmod`).
 pub(crate) async fn map_with(opts: MapOptions) -> ToolResult<Vec<MappedUrl>> {
-    tokio::task::spawn_blocking(move || servo_fetch::blocking::map(&opts))
-        .await
-        .map_err(|e| ToolError::internal(e.to_string()))?
-        .map_err(ToolError::from)
+    servo_fetch::map(&opts).await.map_err(ToolError::from)
 }
 
 pub(crate) struct MapSpec<'a> {

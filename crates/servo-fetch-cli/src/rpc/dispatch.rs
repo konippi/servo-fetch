@@ -224,7 +224,7 @@ async fn crawl(params: Value, id: &RequestId, tx: &UnboundedSender<String>) -> R
     let url = tools::validated_url(&req.url)?;
     tools::validate_selector(req.selector.as_deref())?;
 
-    let opts = tools::build_crawl_options(&tools::CrawlSpec {
+    let spec = tools::CrawlSpec {
         url: &url,
         limit: req.limit,
         max_depth: req.max_depth,
@@ -234,8 +234,9 @@ async fn crawl(params: Value, id: &RequestId, tx: &UnboundedSender<String>) -> R
         exclude: req.exclude.as_deref(),
         concurrency: req.concurrency,
         delay_ms: req.delay_ms,
-        options: req.options,
-    })?;
+        options: tools::ResolvedRequestOptions::try_from(req.options)?,
+    };
+    let opts = spec.options.apply_crawl(tools::build_crawl_options(&spec));
 
     // Stream each page as a `$/progress` notification. Buffering is bounded by
     // the crawl `limit`; the run loop cancels by dropping this future.

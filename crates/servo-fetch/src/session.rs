@@ -144,6 +144,12 @@ impl SessionBrokerConfig {
     /// Upper bound on callers allowed to wait for a session slot.
     pub const MAX_QUEUE_CAPACITY: usize = 1024;
 
+    /// Maximum number of simultaneously-live sessions this configuration allows.
+    #[must_use]
+    pub fn session_capacity(&self) -> usize {
+        self.max_sessions
+    }
+
     /// Set the maximum number of simultaneously-live sessions.
     #[must_use]
     pub fn max_sessions(mut self, max_sessions: usize) -> Self {

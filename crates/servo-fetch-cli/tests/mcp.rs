@@ -7,7 +7,7 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod common;
-use common::mock_page;
+use common::{mock_page, slow_page};
 
 async fn connect() -> rmcp::service::RunningService<rmcp::RoleClient, impl rmcp::service::Service<rmcp::RoleClient>> {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
@@ -528,74 +528,96 @@ async fn fetch_session_applies_user_agent_and_seeded_cookie() {
     assert!(text.text.contains("session identity applied"));
 }
 
+/// Cancel `tool` while `workers` isolated workers are mid-fetch; every worker must exit and the slots must free up.
 #[cfg(unix)]
-#[tokio::test]
-#[ignore = "e2e: requires Servo engine"]
-async fn cancelled_fetch_kills_its_worker_and_frees_the_slot() {
+async fn cancel_kills_workers(tool: &str, arguments: serde_json::Value, workers: usize, server: &MockServer) {
     use std::time::Duration;
 
     use rmcp::model::{CallToolRequest, ClientRequest};
     use rmcp::service::PeerRequestOptions;
 
-    let server = MockServer::start().await;
+    let (mut arrivals, slow) = slow_page("<html><body>slow</body></html>", Duration::from_secs(30));
     Mock::given(method("GET"))
         .and(path("/slow"))
-        .respond_with(mock_page("<html><body>slow</body></html>").set_delay(Duration::from_secs(30)))
-        .mount(&server)
+        .respond_with(slow)
+        .mount(server)
         .await;
     Mock::given(method("GET"))
         .and(path("/fast"))
         .respond_with(mock_page("<html><body>fast page</body></html>"))
-        .mount(&server)
+        .mount(server)
         .await;
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
     cmd.args(["mcp", "--allow-private-addresses"])
-        .env("SERVO_FETCH_MAX_WORKERS", "1")
+        .env("SERVO_FETCH_MAX_WORKERS", workers.to_string())
         .env("SERVO_FETCH_PREWARM", "0");
     let transport = TokioChildProcess::new(cmd).unwrap();
     let server_pid = transport.id().expect("MCP server pid");
     let client = ().serve(transport).await.expect("MCP handshake failed");
 
-    let fetch = |path: &str| {
-        call_params(
-            "fetch",
-            &serde_json::json!({"url": format!("{}/{path}", server.uri()), "format": "text", "timeout": 30}),
-        )
-    };
     let slow = client
         .peer()
         .send_cancellable_request(
-            ClientRequest::CallToolRequest(CallToolRequest::new(fetch("slow"))),
+            ClientRequest::CallToolRequest(CallToolRequest::new(call_params(tool, &arguments))),
             PeerRequestOptions::no_options(),
         )
         .await
-        .expect("start slow fetch");
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while !server
-            .received_requests()
+        .expect("start slow call");
+    for _ in 0..workers {
+        tokio::time::timeout(Duration::from_secs(15), arrivals.recv())
             .await
-            .is_some_and(|requests| requests.iter().any(|request| request.url.path() == "/slow"))
-        {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("the worker navigates to the slow page before cancellation");
-    let worker = match worker_children(server_pid).as_slice() {
-        [worker] => *worker,
-        workers => panic!("expected exactly one in-flight worker, found {workers:?}"),
-    };
+            .expect("every worker navigates to the slow page before cancellation");
+    }
+    let pids = worker_children(server_pid);
+    assert_eq!(pids.len(), workers, "one in-flight worker per slot, found {pids:?}");
 
     slow.cancel(None).await.expect("send cancellation");
-    wait_for_exit(worker).await;
+    for pid in pids {
+        wait_for_exit(pid).await;
+    }
 
-    let result = tokio::time::timeout(Duration::from_secs(15), client.call_tool(fetch("fast")))
+    let fast = call_params(
+        "fetch",
+        &serde_json::json!({"url": format!("{}/fast", server.uri()), "format": "text", "timeout": 30}),
+    );
+    let result = tokio::time::timeout(Duration::from_secs(15), client.call_tool(fast))
         .await
-        .expect("freed slot admits the follow-up fetch")
+        .expect("freed slots admit the follow-up fetch")
         .expect("follow-up fetch succeeds");
     let text = result.content[0].as_text().expect("text content");
-    assert!(text.text.contains("fast page"));
+    assert!(text.text.contains("fast page"), "follow-up fetch renders the fast page");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn cancelled_fetch_kills_its_worker_and_frees_the_slot() {
+    let server = MockServer::start().await;
+    let args = serde_json::json!({"url": format!("{}/slow", server.uri()), "format": "text", "timeout": 30});
+    cancel_kills_workers("fetch", args, 1, &server).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn cancelled_batch_fetch_kills_every_worker_and_frees_the_slots() {
+    let server = MockServer::start().await;
+    let args = serde_json::json!({
+        "urls": [format!("{}/slow?a", server.uri()), format!("{}/slow?b", server.uri())],
+        "format": "text",
+        "timeout": 30
+    });
+    cancel_kills_workers("batch_fetch", args, 2, &server).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn cancelled_crawl_kills_its_worker_and_frees_the_slot() {
+    let server = MockServer::start().await;
+    let args = serde_json::json!({"url": format!("{}/slow", server.uri()), "limit": 1, "timeout": 30});
+    cancel_kills_workers("crawl", args, 1, &server).await;
 }
 
 #[tokio::test]

@@ -1,17 +1,16 @@
 //! Strong logical browser-session isolation, capacity, and cancellation E2E tests.
 
-use std::sync::{Arc, Once};
+use std::sync::Once;
 use std::time::Duration;
 
 use servo_fetch::{
     BrowserSessionConfig, FetchOptions, NetworkPolicy, SessionBroker, SessionBrokerConfig, WorkerCommand,
 };
-use tokio::sync::Notify;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
 
 mod common;
-use common::mock_page;
+use common::{mock_page, slow_page};
 
 static INIT: Once = Once::new();
 
@@ -77,16 +76,10 @@ async fn logical_sessions_isolate_cookie_state() {
 #[ignore = "e2e: requires Servo engine"]
 async fn cancelling_fetch_kills_worker_and_releases_capacity() {
     let server = MockServer::start().await;
-    let navigated = Arc::new(Notify::new());
+    let (mut arrivals, slow) = slow_page("<!doctype html><html><body>slow</body></html>", Duration::from_secs(10));
     Mock::given(method("GET"))
         .and(path("/slow"))
-        .respond_with({
-            let navigated = Arc::clone(&navigated);
-            move |_: &wiremock::Request| {
-                navigated.notify_one();
-                mock_page("<!doctype html><html><body>slow</body></html>").set_delay(Duration::from_secs(10))
-            }
-        })
+        .respond_with(slow)
         .mount(&server)
         .await;
     let broker = broker(1, 1);
@@ -99,7 +92,7 @@ async fn cancelling_fetch_kills_worker_and_releases_capacity() {
             .fetch(&FetchOptions::new(&url).timeout(Duration::from_secs(30)))
             .await
     });
-    tokio::time::timeout(Duration::from_secs(15), navigated.notified())
+    tokio::time::timeout(Duration::from_secs(15), arrivals.recv())
         .await
         .expect("the worker navigates to the slow page before cancellation");
     task.abort();

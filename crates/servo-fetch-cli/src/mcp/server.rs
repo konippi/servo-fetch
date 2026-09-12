@@ -75,13 +75,15 @@ where
 pub(crate) struct ServoFetchMcp {
     #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
+    session_capacity: usize,
 }
 
 #[tool_router]
 impl ServoFetchMcp {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(session_capacity: usize) -> Self {
         Self {
             tool_router: Self::tool_router(),
+            session_capacity,
         }
     }
 
@@ -147,12 +149,10 @@ impl ServoFetchMcp {
     )]
     async fn batch_fetch(
         &self,
+        ctx: RequestContext<RoleServer>,
         Parameters(p): Parameters<RawArguments<BatchFetchRequest>>,
     ) -> Result<CallToolResult, ErrorData> {
-        complete_decoded_tool_call("batch_fetch", p, |p| async {
-            run_batch_fetch(p).await.map(Outcome::Completed)
-        })
-        .await
+        complete_decoded_tool_call("batch_fetch", p, |p| run_batch_fetch(p, self.session_capacity, ctx.ct)).await
     }
 
     #[tool(
@@ -164,8 +164,12 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn crawl(&self, Parameters(p): Parameters<RawArguments<CrawlRequest>>) -> Result<CallToolResult, ErrorData> {
-        complete_decoded_tool_call("crawl", p, |p| async { run_crawl(p).await.map(Outcome::Completed) }).await
+    async fn crawl(
+        &self,
+        ctx: RequestContext<RoleServer>,
+        Parameters(p): Parameters<RawArguments<CrawlRequest>>,
+    ) -> Result<CallToolResult, ErrorData> {
+        complete_decoded_tool_call("crawl", p, |p| run_crawl(p, ctx.ct)).await
     }
 
     #[tool(
@@ -177,8 +181,12 @@ impl ServoFetchMcp {
             open_world_hint = true
         )
     )]
-    async fn map(&self, Parameters(p): Parameters<RawArguments<MapRequest>>) -> Result<CallToolResult, ErrorData> {
-        complete_decoded_tool_call("map", p, |p| async { run_map(p).await.map(Outcome::Completed) }).await
+    async fn map(
+        &self,
+        ctx: RequestContext<RoleServer>,
+        Parameters(p): Parameters<RawArguments<MapRequest>>,
+    ) -> Result<CallToolResult, ErrorData> {
+        complete_decoded_tool_call("map", p, |p| run_map(p, ctx.ct)).await
     }
 }
 
@@ -259,12 +267,14 @@ async fn run_fetch(p: FetchRequest, ct: CancellationToken) -> Result<Outcome<Cal
             Outcome::Cancelled => return Ok(Outcome::Cancelled),
         }
     };
-    let full = tools::render_page(&page, &url, format, p.selector.as_deref())?;
-    let content = tools::paginate(
-        &servo_fetch::sanitize::sanitize(&full),
+    let content = tools::page_text(
+        &page,
+        &url,
+        format,
+        p.selector.as_deref(),
         to_len(p.start_index, 0),
         max_length,
-    );
+    )?;
     let mut output = output::TextOutput::success();
     output.push(content);
     Ok(Outcome::Completed(output.finish()))
@@ -314,7 +324,11 @@ async fn run_execute_js(
     Ok(Outcome::Completed(output.finish()))
 }
 
-async fn run_batch_fetch(p: BatchFetchRequest) -> Result<CallToolResult, tools::ToolError> {
+async fn run_batch_fetch(
+    p: BatchFetchRequest,
+    session_capacity: usize,
+    ct: CancellationToken,
+) -> Result<Outcome<CallToolResult>, tools::ToolError> {
     let requested_max_length = to_len(p.max_length, DEFAULT_MAX_LENGTH);
     if p.urls.is_empty() {
         return Err(tools::ToolError::invalid_params("urls must not be empty"));
@@ -326,49 +340,70 @@ async fn run_batch_fetch(p: BatchFetchRequest) -> Result<CallToolResult, tools::
     }
     tools::validate_selector(p.selector.as_deref())?;
     let max_len = output::effective_item_length(requested_max_length, p.urls.len());
-    let validated: Vec<String> = p
+    let format = p.format.unwrap_or_default();
+    let visibility = tools::visibility_policy(p.visibility);
+    let options = tools::ResolvedRequestOptions::try_from(p.options)?;
+    let jobs = p
         .urls
         .iter()
-        .map(|u| tools::validated_url(u))
-        .collect::<Result<_, _>>()?;
-    let results = tools::batch_fetch_pages(tools::BatchSpec {
-        urls: &validated,
-        format: p.format.unwrap_or_default(),
-        selector: p.selector.as_deref(),
-        max_len,
-        visibility: tools::visibility_policy(p.visibility),
-        options: tools::ResolvedRequestOptions::try_from(p.options)?,
-    })
-    .await?;
-    labeled_results(results)
+        .map(|u| {
+            let url = tools::validated_url(u)?;
+            let opts = tools::content_options(&url, format, visibility);
+            let (config, opts) = options.clone().into_session(&url, opts);
+            Ok((url, config, opts))
+        })
+        .collect::<Result<Vec<_>, tools::ToolError>>()?;
+    let Outcome::Completed(pages) = executor::batch_fetch_in_sessions(jobs, session_capacity, &ct).await else {
+        return Ok(Outcome::Cancelled);
+    };
+    let selector = p.selector.as_deref();
+    let results = pages
+        .into_iter()
+        .map(|(url, page)| {
+            let text = page.and_then(|page| tools::page_text(&page, &url, format, selector, 0, max_len));
+            (url, text)
+        })
+        .collect();
+    labeled_results(results).map(Outcome::Completed)
 }
 
-async fn run_crawl(p: CrawlRequest) -> Result<CallToolResult, tools::ToolError> {
+async fn run_crawl(p: CrawlRequest, ct: CancellationToken) -> Result<Outcome<CallToolResult>, tools::ToolError> {
     let requested_max_length = to_len(p.max_length, DEFAULT_MAX_LENGTH);
     let page_limit = clamp_count(p.limit, CRAWL_LIMIT);
     let max_len = output::effective_item_length(requested_max_length, page_limit);
     let url = tools::validated_url(&p.url)?;
     tools::validate_selector(p.selector.as_deref())?;
-    let results = tools::crawl_pages(
-        tools::CrawlSpec {
-            url: &url,
-            limit: p.limit,
-            max_depth: p.max_depth,
-            format: p.format.unwrap_or_default(),
-            selector: p.selector.as_deref(),
-            include: p.include.as_deref(),
-            exclude: p.exclude.as_deref(),
-            concurrency: p.concurrency,
-            delay_ms: p.delay_ms,
-            options: p.options,
-        },
-        max_len,
-    )
-    .await?;
-    labeled_results(results)
+    let spec = tools::CrawlSpec {
+        url: &url,
+        limit: p.limit,
+        max_depth: p.max_depth,
+        format: p.format.unwrap_or_default(),
+        selector: p.selector.as_deref(),
+        include: p.include.as_deref(),
+        exclude: p.exclude.as_deref(),
+        concurrency: p.concurrency,
+        delay_ms: p.delay_ms,
+        options: tools::ResolvedRequestOptions::try_from(p.options)?,
+    };
+    let crawl = tools::build_crawl_options(&spec);
+    let (config, opts) = spec.options.into_crawl_session(&url, crawl);
+    let Outcome::Completed(results) = executor::crawl_in_session(config, opts, &ct).await else {
+        return Ok(Outcome::Cancelled);
+    };
+    let results = results?
+        .into_iter()
+        .map(|result| {
+            let content = result
+                .outcome
+                .map(|page| tools::paginate(&servo_fetch::sanitize::sanitize(&page.content), 0, max_len))
+                .map_err(tools::ToolError::from);
+            (result.url, content)
+        })
+        .collect();
+    labeled_results(results).map(Outcome::Completed)
 }
 
-async fn run_map(p: MapRequest) -> Result<CallToolResult, tools::ToolError> {
+async fn run_map(p: MapRequest, ct: CancellationToken) -> Result<Outcome<CallToolResult>, tools::ToolError> {
     let url = tools::validated_url(&p.url)?;
     let opts = tools::build_map_options(tools::MapSpec {
         url: &url,
@@ -380,10 +415,13 @@ async fn run_map(p: MapRequest) -> Result<CallToolResult, tools::ToolError> {
         timeout: p.timeout,
         headers: p.headers,
     })?;
-    let text = output::map_text(tools::map_with(opts).await?.into_iter().map(|entry| entry.url));
+    let Some(entries) = ct.run_until_cancelled(tools::map_with(opts)).await else {
+        return Ok(Outcome::Cancelled);
+    };
+    let text = output::map_text(entries?.into_iter().map(|entry| entry.url));
     let mut output = output::TextOutput::success();
     output.push(text);
-    Ok(output.finish())
+    Ok(Outcome::Completed(output.finish()))
 }
 
 #[tool_handler]
@@ -412,7 +450,7 @@ mod tests {
 
     #[test]
     fn server_info_has_name_and_version() {
-        let server = ServoFetchMcp::new();
+        let server = ServoFetchMcp::new(1);
         let info = server.get_info();
         assert!(info.server_info.name.contains("servo-fetch"));
         assert!(!info.server_info.version.is_empty());

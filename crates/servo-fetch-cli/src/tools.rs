@@ -16,4 +16,4 @@ pub(crate) use options::{
     ResolvedRequestOptions, apply_options, build_headers, content_options, resolve_settle, resolve_timeout,
     validate_selector, validated_url, visibility_policy,
 };
-pub(crate) use render::{clamp_js_output, paginate, paginate_opt, render_page};
+pub(crate) use render::{clamp_js_output, page_text, paginate, paginate_opt, render_page};

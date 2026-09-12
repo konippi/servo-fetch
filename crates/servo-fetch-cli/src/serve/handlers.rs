@@ -126,7 +126,7 @@ pub(super) async fn crawl(Json(req): Json<CrawlRequest>) -> Result<AxumJson<Craw
             exclude: req.exclude.as_deref(),
             concurrency: req.concurrency,
             delay_ms: req.delay_ms,
-            options: req.options,
+            options: tools::ResolvedRequestOptions::try_from(req.options)?,
         },
         to_len(req.max_length, DEFAULT_MAX_LENGTH),
     )

@@ -2,11 +2,11 @@
 
 use std::time::Duration;
 
-use servo_fetch_types::{FetchFormat, RequestOptions};
+use servo_fetch_types::FetchFormat;
 
 use super::error::{ToolError, ToolResult};
 use super::limits::{CRAWL_CONCURRENCY, CRAWL_DEPTH, CRAWL_LIMIT, clamp_count};
-use super::options::{build_headers, glob_refs, load_cookies, resolve_settle, resolve_timeout};
+use super::options::{ResolvedRequestOptions, glob_refs};
 use super::render::paginate;
 
 pub(crate) struct CrawlSpec<'a> {
@@ -19,16 +19,14 @@ pub(crate) struct CrawlSpec<'a> {
     pub exclude: Option<&'a [String]>,
     pub concurrency: Option<u64>,
     pub delay_ms: Option<u64>,
-    pub options: RequestOptions,
+    pub options: ResolvedRequestOptions,
 }
 
-/// Build the engine crawl options shared by the streaming and collecting paths.
-pub(crate) fn build_crawl_options(spec: &CrawlSpec<'_>) -> ToolResult<servo_fetch::CrawlOptions> {
+/// Build the crawl-specific engine options; request settings are applied by the caller.
+pub(crate) fn build_crawl_options(spec: &CrawlSpec<'_>) -> servo_fetch::CrawlOptions {
     let mut builder = servo_fetch::CrawlOptions::new(spec.url)
         .limit(clamp_count(spec.limit, CRAWL_LIMIT))
         .max_depth(clamp_count(spec.max_depth, CRAWL_DEPTH))
-        .timeout(resolve_timeout(spec.options.timeout))
-        .settle(resolve_settle(spec.options.settle_ms))
         .concurrency(clamp_count(spec.concurrency, CRAWL_CONCURRENCY))
         .delay(resolve_delay(spec.delay_ms))
         .json(matches!(spec.format, FetchFormat::Json));
@@ -41,13 +39,7 @@ pub(crate) fn build_crawl_options(spec: &CrawlSpec<'_>) -> ToolResult<servo_fetc
     if let Some(globs) = spec.exclude.filter(|g| !g.is_empty()) {
         builder = builder.exclude(&glob_refs(globs));
     }
-    if let Some(ua) = spec.options.user_agent.as_deref() {
-        builder = builder.user_agent(ua);
-    }
-    if let Some(path) = spec.options.cookies_file.as_deref() {
-        builder = builder.cookies(load_cookies(path)?);
-    }
-    Ok(builder.headers(build_headers(spec.options.headers.clone())?))
+    builder
 }
 
 /// Resolve the dispatch interval: `Some(0)` disables it, `None` uses the 500ms default.
@@ -60,7 +52,7 @@ fn resolve_delay(delay_ms: Option<u64>) -> Option<Duration> {
 }
 
 pub(crate) async fn crawl_pages(spec: CrawlSpec<'_>, max_len: usize) -> ToolResult<Vec<(String, ToolResult<String>)>> {
-    let builder = build_crawl_options(&spec)?;
+    let builder = spec.options.apply_crawl(build_crawl_options(&spec));
     tokio::task::spawn_blocking(move || {
         let mut results = Vec::new();
         servo_fetch::blocking::crawl_each(&builder, |r| {

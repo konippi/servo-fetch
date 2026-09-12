@@ -133,7 +133,7 @@ servo-fetch mcp                # stdio transport (for AI agents)
 servo-fetch mcp --port 8080    # Streamable HTTP transport
 ```
 
-`fetch`, `screenshot`, and `execute_js` each run in a fresh worker; cookies and storage do not carry over between calls.
+Page tools (`fetch`, `batch_fetch`, `crawl`, `screenshot`, `execute_js`) run in fresh workers; cookies and storage do not carry over between calls.
 
 ### HTTP API server
 

@@ -86,7 +86,7 @@ impl From<servo_fetch::Error> for ToolError {
             }
             _ => ToolErrorClass::Internal(ErrorKind::Internal),
         };
-        let message = err.to_string();
+        let message = err.report();
         Self {
             class,
             message,

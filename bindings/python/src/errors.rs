@@ -58,11 +58,11 @@ pub(crate) fn map_error(err: servo_fetch::Error) -> PyErr {
             InvalidUrlError::new_err(format!("invalid URL '{}': {reason}", redact_url(url)))
         }
         servo_fetch::Error::AddressNotAllowed { host } => NetworkError::new_err(format!("address not allowed: {host}")),
-        servo_fetch::Error::Engine { source, .. } => EngineError::new_err(source.to_string()),
-        servo_fetch::Error::Schema(e) => SchemaError::new_err(e.to_string()),
-        servo_fetch::Error::Cookies { .. } => CookieError::new_err(err.to_string()),
+        servo_fetch::Error::Engine { .. } => EngineError::new_err(err.report()),
+        servo_fetch::Error::Schema(_) => SchemaError::new_err(err.report()),
+        servo_fetch::Error::Cookies { .. } => CookieError::new_err(err.report()),
         servo_fetch::Error::InvalidHeader(msg) => pyo3::exceptions::PyValueError::new_err(msg.clone()),
-        _ => ServoFetchError::new_err(err.to_string()),
+        _ => ServoFetchError::new_err(err.report()),
     }
 }
 

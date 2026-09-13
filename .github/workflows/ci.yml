@@ -20,10 +20,10 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      rust: ${{ steps.filter.outputs.rust }}
-      python: ${{ steps.filter.outputs.python }}
-      node: ${{ steps.filter.outputs.node }}
-      toml: ${{ steps.filter.outputs.toml }}
+      rust: ${{ steps.filter.outputs.rust == 'true' || steps.filter.outputs.other == 'true' }}
+      python: ${{ steps.filter.outputs.python == 'true' || steps.filter.outputs.other == 'true' }}
+      node: ${{ steps.filter.outputs.node == 'true' || steps.filter.outputs.other == 'true' }}
+      toml: ${{ steps.filter.outputs.toml == 'true' || steps.filter.outputs.other == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,6 +31,7 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
+          predicate-quantifier: some-with-excludes
           filters: |
             rust:
               - 'crates/**'
@@ -42,7 +43,9 @@ jobs:
               - 'clippy.toml'
               - '.rustfmt.toml'
               - 'rust-toolchain.toml'
+              - '.cargo/**'
               - '.config/nextest.toml'
+              - '.github/actions/**'
               - &ci '.github/workflows/ci.yml'
             python:
               - 'bindings/python/**'
@@ -53,6 +56,23 @@ jobs:
             toml:
               - '**/*.toml'
               - *ci
+            # Anything not known to be inert runs every group.
+            other:
+              - '**'
+              - '!crates/**'
+              - '!bindings/node/**'
+              - '!bindings/python/**'
+              - '!**/*.toml'
+              - '!Cargo.lock'
+              - '!**/*.md'
+              - '!assets/**'
+              - '!benchmarks/**'
+              - '!skills/**'
+              - '!.github/**'
+              - '!.gitignore'
+              - '!.dockerignore'
+              - '!.vscode/**'
+              - '!LICENSE-*'
 
   cargo-clippy:
     name: cargo clippy

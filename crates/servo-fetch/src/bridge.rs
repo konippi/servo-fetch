@@ -322,6 +322,10 @@ enum EngineMsg {
         reply: std::sync::mpsc::SyncSender<Result<(), EngineError>>,
     },
     Fetch(FetchRequest),
+    Cookies {
+        url: Url,
+        reply: std::sync::mpsc::SyncSender<Vec<CookieSpec>>,
+    },
 }
 
 type EngineTx = mpsc::Sender<EngineMsg>;
@@ -467,6 +471,25 @@ pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage, EngineErro
         .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page").into()))
 }
 
+pub(crate) fn cookies_for(url: Url) -> Result<Vec<CookieSpec>, EngineError> {
+    let engine = ensure_engine();
+    let (reply, recv) = std::sync::mpsc::sync_channel(1);
+    engine
+        .requests
+        .try_send(EngineMsg::Cookies { url, reply })
+        .map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => {
+                anyhow!("Servo engine queue is full ({PENDING_CAPACITY} pending); back off and retry")
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                anyhow!("Servo engine is not running (it may have crashed on a previous request)")
+            }
+        })?;
+    engine.wake.signal();
+    recv.recv()
+        .map_err(|_| anyhow!("Servo engine crashed while reading session cookies").into())
+}
+
 pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage, EngineError> {
     let engine = ensure_engine();
     let (reply_tx, reply_rx) = oneshot::channel::<Result<ServoPage, EngineError>>();
@@ -507,6 +530,9 @@ fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, policy: crate::ne
                         let _ = reply.send(Err(e.context("Servo initialization failed").into()));
                     }
                     EngineMsg::Fetch(req) => (req.reply)(Err(e.context("Servo initialization failed").into())),
+                    EngineMsg::Cookies { reply, .. } => {
+                        let _ = reply.send(Vec::new());
+                    }
                 }
             }
             return;
@@ -613,6 +639,9 @@ fn accept_message(
             if let Some(p) = start_fetch(servo, rc_ctx, delegate, ucm, baseline_user_agent, req) {
                 pending.insert(p.webview.id(), p);
             }
+        }
+        EngineMsg::Cookies { url, reply } => {
+            let _ = reply.send(crate::cookies::capture(servo, &[url]));
         }
     }
 }

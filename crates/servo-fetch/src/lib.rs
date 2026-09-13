@@ -44,7 +44,7 @@ pub(crate) mod transfer;
 pub(crate) mod worker;
 
 pub use client::{Client, ClientBuilder, ScreenshotOptions};
-pub use cookies::{CookieSpec, load_cookies};
+pub use cookies::{CookieSpec, InvalidCookie, load_cookies, save_cookies};
 pub use crawl::{CrawlOptions, CrawlPage, CrawlResult, crawl, crawl_each};
 pub use error::{Error, Result};
 pub use fetch::{ConsoleLevel, ConsoleMessage, FetchOptions, Page, extract_json, fetch, markdown, text};

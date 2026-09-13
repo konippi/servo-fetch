@@ -102,6 +102,90 @@ fn session_script() -> String {
     )
 }
 
+#[cfg(unix)]
+#[test]
+fn cookies_round_trip_sends_normalized_url_and_decodes_response() {
+    let directory = tempfile::tempdir().unwrap();
+    let cookie_request = directory.path().join("cookie-request");
+    let expected = CookieSpec::new("sid", "secret", "example.com").unwrap().http_only(true);
+    let script = format!(
+        "{}read_frame; {}read_frame \"$1\"; {}read_frame; {}",
+        scripted_worker_prefix(),
+        initialized_shell(1),
+        response_shell(2, WorkerResponse::Cookies(vec![CookieWire::from(expected.clone())]),),
+        shutdown_ack_shell(3),
+    );
+    let broker = scripted_broker(&script, [cookie_request.clone().into_os_string()], 0);
+    let mut session = broker.session_blocking(BrowserSessionConfig::new()).unwrap();
+
+    assert_eq!(
+        session
+            .cookies_blocking("https://user:secret@example.com/path")
+            .unwrap(),
+        vec![expected]
+    );
+    session.close_blocking().unwrap();
+
+    let request: RequestFrame = decode_frame(&std::fs::read(cookie_request).unwrap()).unwrap();
+    assert!(matches!(
+        request.request,
+        WorkerRequest::Cookies { ref url } if url == "https://example.com/path"
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn closed_session_rejects_cookies_like_fetch_without_dispatch() {
+    let directory = tempfile::tempdir().unwrap();
+    let contacted = directory.path().join("contacted");
+    let script = format!(
+        "{}read_frame; {}if read_frame; then touch \"$1\"; fi",
+        scripted_worker_prefix(),
+        initialized_shell(1),
+    );
+    let broker = scripted_broker(&script, [contacted.clone().into_os_string()], 0);
+    let mut session = broker.session_blocking(BrowserSessionConfig::new()).unwrap();
+    session.cancel();
+
+    assert!(matches!(
+        session.cookies_blocking("not a URL"),
+        Err(Error::WorkerUnavailable { .. })
+    ));
+    assert!(matches!(
+        session.cookies_blocking("https://example.com"),
+        Err(Error::WorkerUnavailable { .. })
+    ));
+    assert!(matches!(
+        session.fetch_blocking(&FetchOptions::new("https://example.com")),
+        Err(Error::WorkerUnavailable { .. })
+    ));
+    assert!(!contacted.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn unexpected_cookies_response_is_terminal() {
+    let script = format!(
+        "{}read_frame; {}read_frame; {}exec sleep 10",
+        scripted_worker_prefix(),
+        initialized_shell(1),
+        response_shell(2, WorkerResponse::CrawlCompleted),
+    );
+    let broker = scripted_broker(&script, [], 0);
+    let mut session = broker.session_blocking(BrowserSessionConfig::new()).unwrap();
+    let config_dir = session.supervisor.as_ref().unwrap().config_dir.clone();
+
+    assert!(matches!(
+        session.cookies_blocking("https://example.com"),
+        Err(Error::WorkerUnavailable { .. })
+    ));
+    assert!(!config_dir.exists());
+    assert!(matches!(
+        session.cookies_blocking("not a URL"),
+        Err(Error::WorkerUnavailable { .. })
+    ));
+}
+
 #[test]
 fn page_wire_detaches_binary_payloads() {
     let size = MAX_WORKER_BLOB_CHUNK_BYTES + 1;

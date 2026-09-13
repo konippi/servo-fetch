@@ -84,6 +84,16 @@ fn protocol_golden_encoding_is_stable() {
         vec![7, 3]
     );
     assert_eq!(
+        postcard::to_stdvec(&RequestFrame {
+            id: 7,
+            request: WorkerRequest::Cookies {
+                url: "https://example.com/".into(),
+            },
+        })
+        .unwrap(),
+        [vec![7, 4, 20], b"https://example.com/".to_vec()].concat()
+    );
+    assert_eq!(
         postcard::to_stdvec(&ResponseFrame {
             id: 7,
             response: WorkerResponse::ShutdownAck
@@ -91,6 +101,18 @@ fn protocol_golden_encoding_is_stable() {
         .unwrap(),
         vec![7, 7]
     );
+    let cookie = crate::CookieSpec::new("sid", "secret", "example.com")
+        .unwrap()
+        .http_only(true);
+    let frame = ResponseFrame {
+        id: 7,
+        response: WorkerResponse::Cookies(vec![crate::cookies::CookieWire::from(cookie.clone())]),
+    };
+    let decoded: ResponseFrame = decode_frame(&postcard::to_stdvec(&frame).unwrap()).unwrap();
+    let WorkerResponse::Cookies(cookies) = decoded.response else {
+        panic!("expected cookies response");
+    };
+    assert_eq!(crate::cookies::from_wire(cookies).unwrap(), vec![cookie]);
     let frame = ResponseFrame {
         id: 7,
         response: WorkerResponse::Error(wire::WorkerErrorWire::failure(
@@ -177,6 +199,9 @@ fn pre_init_errors_preserve_id_and_worker_continues() {
     let requests = [
         WorkerRequest::Fetch(FetchWire::from_options(&FetchOptions::new("https://example.com"))),
         WorkerRequest::Crawl(CrawlWire::from_options(&CrawlOptions::new("https://example.com"))),
+        WorkerRequest::Cookies {
+            url: "https://example.com".into(),
+        },
     ];
 
     for request in requests {

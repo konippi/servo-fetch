@@ -506,7 +506,7 @@ impl SessionBroker {
         let initialization = InitializeSession {
             permissive_network: crate::bridge::engine_policy() == NetworkPolicy::PERMISSIVE,
             user_agent: config.user_agent,
-            cookies: CookieWire::from_specs(&config.cookies),
+            cookies: config.cookies.into_iter().map(CookieWire::from).collect(),
             cookie_scope: config.cookie_scope,
             config_dir: supervisor.config_dir.clone(),
             temporary_storage: true,
@@ -656,6 +656,29 @@ impl BrowserSession {
         guard.disarm();
         let (wire, screenshot) = self.finish_operation(response)?;
         self.finish_operation(wire.into_page(screenshot))
+    }
+
+    /// The cookies a request to `url` would send from this session's jar, `HttpOnly` included.
+    pub async fn cookies(&mut self, url: &str) -> Result<Vec<CookieSpec>> {
+        self.supervisor_mut()?;
+        let url = crate::net::validate_url(url)?.to_string();
+        let (reply, receive) = response_channel();
+        let force_port = self.supervisor_mut()?.force_port.clone();
+        self.supervisor_mut()?.send(SupervisorCommand::Cookies { url, reply })?;
+        let mut guard = OperationGuard::new(force_port);
+        let response = recv_async(receive, "isolated cookies").await;
+        guard.disarm();
+        self.finish_operation(response)
+    }
+
+    /// Blocking counterpart of [`Self::cookies`].
+    pub fn cookies_blocking(&mut self, url: &str) -> Result<Vec<CookieSpec>> {
+        self.supervisor_mut()?;
+        let url = crate::net::validate_url(url)?.to_string();
+        let (reply, receive) = response_channel();
+        self.supervisor_mut()?.send(SupervisorCommand::Cookies { url, reply })?;
+        let response = receive_response(&receive, "isolated cookies");
+        self.finish_operation(response)
     }
 
     /// PDFs never reach the worker: probe on the host with the session's seeded identity, racing cancellation.

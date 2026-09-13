@@ -13,6 +13,7 @@ use tokio::sync::OwnedSemaphorePermit;
 
 use super::{SessionCancellation, WorkerCommand, cancelled_error, is_terminal_session_error};
 use crate::CrawlResult;
+use crate::cookies::CookieSpec;
 use crate::error::{Error, Result};
 #[cfg(windows)]
 use crate::sys::windows::{resume_suspended_process, suspend_new_process};
@@ -82,6 +83,10 @@ pub(super) enum SupervisorCommand {
     Fetch {
         request: FetchWire,
         reply: ResponseSender<(PageWire, Option<Vec<u8>>)>,
+    },
+    Cookies {
+        url: String,
+        reply: ResponseSender<Vec<CookieSpec>>,
     },
     Crawl {
         request: CrawlWire,
@@ -451,6 +456,15 @@ impl WorkerProcess {
         }
     }
 
+    fn cookies(&mut self, url: String) -> Result<Vec<CookieSpec>> {
+        let id = self.write_request(WorkerRequest::Cookies { url })?;
+        match self.recv_response(id, BOOTSTRAP_TIMEOUT, "cookies")? {
+            WorkerResponse::Cookies(cookies) => crate::cookies::from_wire(cookies).map_err(worker_error),
+            WorkerResponse::Error(error) => Err(error.into_error()),
+            _ => Err(worker_error("unexpected cookies response")),
+        }
+    }
+
     fn fetch(&mut self, request: FetchWire) -> Result<(PageWire, Option<Vec<u8>>)> {
         let timeout = fetch_wire_watchdog(&request);
         let deadline = Instant::now() + timeout;
@@ -732,6 +746,23 @@ fn supervisor_thread(
                     SupervisorCommand::Fetch { request, reply } => match worker.fetch(request) {
                         Ok(page) => {
                             let _ = reply.send(Ok(page));
+                        }
+                        Err(error) => {
+                            let terminal = is_terminal_session_error(&error);
+                            let result = if terminal {
+                                with_cleanup(Err(error), worker.cleanup(true))
+                            } else {
+                                Err(error)
+                            };
+                            let _ = reply.send(result);
+                            if terminal {
+                                return Ok(());
+                            }
+                        }
+                    },
+                    SupervisorCommand::Cookies { url, reply } => match worker.cookies(url) {
+                        Ok(cookies) => {
+                            let _ = reply.send(Ok(cookies));
                         }
                         Err(error) => {
                             let terminal = is_terminal_session_error(&error);

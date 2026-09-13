@@ -212,6 +212,7 @@ pub(super) fn run_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> R
                 write_response(writer, request.id, WorkerResponse::ShutdownAck)?;
                 return Ok(());
             }
+            WorkerRequest::Cookies { url } => handle_worker_cookies(request.id, &url, &state, writer)?,
         }
     }
 }
@@ -287,7 +288,7 @@ impl ValidatedInitialize {
                 Ok(crate::net::sanitize_user_agent(user_agent))
             })
             .transpose()?;
-        let cookies = CookieWire::into_specs(config.cookies).map_err(worker_error)?;
+        let cookies = crate::cookies::from_wire(config.cookies).map_err(worker_error)?;
         if !cookies.is_empty() && config.cookie_scope.is_none() {
             return Err(worker_error(
                 "cookie_scope is required when session cookies are configured",
@@ -315,6 +316,29 @@ impl ValidatedInitialize {
             config_dir: config.config_dir,
             temporary_storage: config.temporary_storage,
         })
+    }
+}
+
+fn handle_worker_cookies(id: u64, url: &str, state: &WorkerState, writer: &mut impl Write) -> Result<()> {
+    if !matches!(state, WorkerState::Ready { .. }) {
+        return write_response(
+            writer,
+            id,
+            WorkerResponse::failure(
+                WorkerErrorKind::Generic("protocol".into()),
+                "worker session is not initialized",
+            ),
+        );
+    }
+    let result = crate::net::validate_url(url)
+        .and_then(|url| crate::bridge::cookies_for(url).map_err(|error| worker_error(error.to_string())));
+    match result {
+        Ok(cookies) => write_response(
+            writer,
+            id,
+            WorkerResponse::Cookies(cookies.into_iter().map(CookieWire::from).collect()),
+        ),
+        Err(error) => write_response(writer, id, WorkerResponse::from_error(&error)),
     }
 }
 
@@ -438,6 +462,7 @@ pub(crate) enum WorkerRequest {
     Fetch(FetchWire),
     Crawl(CrawlWire),
     Shutdown,
+    Cookies { url: String },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -457,6 +482,7 @@ pub(crate) enum WorkerResponse {
     CrawlCompleted,
     ShutdownAck,
     Error(WorkerErrorWire),
+    Cookies(Vec<CookieWire>),
 }
 
 impl WorkerResponse {

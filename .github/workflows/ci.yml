@@ -72,7 +72,7 @@ jobs:
         with:
           toolchain: "1.95.0"
           components: clippy
-      - uses: ./.github/actions/sccache
+      - uses: $/.github/actions/sccache
       - name: Install servo build deps
         run: |
           sudo apt-get update
@@ -111,7 +111,7 @@ jobs:
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
-      - uses: ./.github/actions/sccache
+      - uses: $/.github/actions/sccache
       - name: Install servo build deps
         run: |
           sudo apt-get update
@@ -142,7 +142,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: "1.95.0"
-      - uses: ./.github/actions/sccache
+      - uses: $/.github/actions/sccache
       - uses: taiki-e/install-action@7b8d4719ee4aaa279bdf55df38dacb9ebfe12a6c # v2.87.6
         with:
           tool: cargo-nextest
@@ -201,7 +201,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: "1.95.0"
-      - uses: ./.github/actions/sccache
+      - uses: $/.github/actions/sccache
       - name: Install servo build deps
         run: |
           sudo apt-get update
@@ -295,7 +295,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: "1.95.0"
-      - uses: ./.github/actions/sccache
+      - uses: $/.github/actions/sccache
       - uses: taiki-e/install-action@7b8d4719ee4aaa279bdf55df38dacb9ebfe12a6c # v2.87.6
         with:
           tool: cargo-nextest
@@ -371,7 +371,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: "1.95.0"
-      - uses: ./.github/actions/sccache
+      - uses: $/.github/actions/sccache
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
@@ -481,7 +481,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: "1.95.0"
-      - uses: ./.github/actions/sccache
+      - uses: $/.github/actions/sccache
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           package_json_file: bindings/node/package.json

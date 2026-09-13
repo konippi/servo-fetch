@@ -1,3 +1,9 @@
 self-hosted-runner:
   labels:
     - macos-15-intel
+
+paths:
+  .github/workflows/ci.yml:
+    ignore:
+      # actionlint does not know the `$/` self-repository syntax yet: rhysd/actionlint#711
+      - 'specifying action "\$/[^"]+" in invalid format because ref is missing'

@@ -172,6 +172,87 @@ fn default_produces_markdown() {
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
+fn cookie_jar_captures_http_and_javascript_cookies_without_json_leakage() {
+    block_on(async {
+        const HTTP_SECRET: &str = "HTTP_ONLY_SECRET_395";
+        const DOMAIN_SECRET: &str = "DOMAIN_SCOPE_SECRET_395";
+        const JS_SECRET: &str = "JAVASCRIPT_SECRET_395";
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(
+                mock_page(concat!(
+                    "<!doctype html><html><body>cookie test",
+                    "<script>document.cookie='ui=' + 'JAVASCRIPT_' + 'SECRET_395' + '; Path=/'</script>",
+                    "</body></html>",
+                ))
+                .insert_header("set-cookie", format!("sid={HTTP_SECRET}; HttpOnly; Path=/"))
+                .append_header(
+                    "set-cookie",
+                    format!("domain={DOMAIN_SECRET}; Domain=www.localhost; Path=/"),
+                ),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/verify"))
+            .respond_with(mock_page("<!doctype html><html><body>verify</body></html>"))
+            .mount(&server)
+            .await;
+        let url = format!("http://www.localhost:{}", server.address().port());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let jar = dir.path().join("cookies.txt");
+        let assertion = servo_fetch()
+            .args([
+                "--format",
+                "json",
+                "--cookie-jar",
+                jar.to_str().unwrap(),
+                "--allow-private-addresses",
+                TIMEOUT,
+                &url,
+            ])
+            .assert()
+            .success();
+        let output = assertion.get_output();
+        let contents = fs::read_to_string(&jar).expect("cookie jar written");
+        let mut rows = contents.lines().filter(|line| line.contains('\t')).collect::<Vec<_>>();
+        rows.sort_unstable();
+        assert_eq!(
+            rows,
+            [
+                format!("#HttpOnly_www.localhost\tFALSE\t/\tFALSE\t0\tsid\t{HTTP_SECRET}"),
+                format!(".www.localhost\tTRUE\t/\tFALSE\t0\tdomain\t{DOMAIN_SECRET}"),
+                format!("www.localhost\tFALSE\t/\tFALSE\t0\tui\t{JS_SECRET}"),
+            ]
+        );
+        let child_url = format!("http://child.www.localhost:{}/verify", server.address().port());
+        servo_fetch()
+            .args([
+                "--cookies",
+                jar.to_str().unwrap(),
+                "--js",
+                "document.cookie",
+                "--allow-private-addresses",
+                TIMEOUT,
+                &child_url,
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(format!("domain={DOMAIN_SECRET}")));
+        for stream in [&output.stdout, &output.stderr] {
+            let text = from_utf8(stream).unwrap();
+            assert!(
+                !text.contains(HTTP_SECRET) && !text.contains(DOMAIN_SECRET) && !text.contains(JS_SECRET),
+                "{text}"
+            );
+        }
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
 fn json_produces_valid_json() {
     block_on(async {
         let s = MockServer::start().await;

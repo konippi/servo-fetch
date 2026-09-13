@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Error, Result, bail};
-use servo_fetch::{FetchOptions, Page};
+use servo_fetch::{BrowserSession, BrowserSessionConfig, FetchOptions, Page};
 
 use crate::cli::{FetchArgs, Format};
 use crate::output::{self, Sink};
@@ -24,6 +24,10 @@ pub(crate) fn run(args: &FetchArgs) -> Result<()> {
     }
     match args.urls.as_slice() {
         [] => bail!("URL is required. Run with --help for usage."),
+        [one] if args.cookie_jar.is_some() => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(run_single_with_cookie_jar(args, one))
+        }
         [one] => run_single(args, one),
         many => {
             let rt = tokio::runtime::Runtime::new()?;
@@ -34,6 +38,9 @@ pub(crate) fn run(args: &FetchArgs) -> Result<()> {
 
 pub(crate) fn validate_args(args: &FetchArgs) -> Result<()> {
     let raw_format = matches!(args.format, Format::Html | Format::Text);
+    if args.cookie_jar.is_some() && args.urls.len() > 1 {
+        bail!("--cookie-jar only supports a single URL");
+    }
     if raw_format && args.selector.is_some() {
         bail!("--selector cannot be used with --format html or text");
     }
@@ -66,14 +73,29 @@ fn sink(args: &FetchArgs) -> Sink<'_> {
     Sink::from_args(args.output.as_deref(), args.output_dir.as_deref())
 }
 
-fn run_single(args: &FetchArgs, url_str: &str) -> Result<()> {
-    let spinner = crate::progress::spinner(format!("Fetching {url_str}..."));
+fn run_single(args: &FetchArgs, url: &str) -> Result<()> {
+    let spinner = crate::progress::spinner(format!("Fetching {url}..."));
 
-    let opts = build_fetch_options(args, url_str)?;
+    let opts = build_fetch_options(args, url)?;
     let page = servo_fetch::blocking::fetch(&opts).map_err(Error::from);
     spinner.finish_and_clear();
+    dispatch_output(args, &page?, url, sink(args))
+}
+
+async fn run_single_with_cookie_jar(args: &FetchArgs, url: &str) -> Result<()> {
+    let spinner = crate::progress::spinner(format!("Fetching {url}..."));
+
+    let config = build_session_config(args, url)?;
+    let opts = build_session_fetch_options(args, url)?;
+    let mut session = BrowserSession::new(config).await?;
+    let page = session.fetch(&opts).await.map_err(Error::from);
+    spinner.finish_and_clear();
     let page = page?;
-    dispatch_output(args, &page, url_str, sink(args))
+    if let Some(path) = &args.cookie_jar {
+        servo_fetch::save_cookies(path, &session.cookies(url).await?)?;
+    }
+    session.close().await?;
+    dispatch_output(args, &page, url, sink(args))
 }
 
 async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
@@ -185,6 +207,19 @@ fn dispatch_output(args: &FetchArgs, page: &Page, url: &str, sink: Sink<'_>) -> 
 }
 
 fn build_fetch_options(args: &FetchArgs, url: &str) -> Result<FetchOptions> {
+    let opts = build_session_fetch_options(args, url)?;
+    let opts = match &args.user_agent {
+        Some(user_agent) => opts.user_agent(user_agent),
+        None => opts,
+    };
+    let opts = match &args.cookies {
+        Some(path) => opts.cookies(servo_fetch::load_cookies(path)?),
+        None => opts,
+    };
+    Ok(opts)
+}
+
+fn build_session_fetch_options(args: &FetchArgs, url: &str) -> Result<FetchOptions> {
     let base = if args.format == Format::Png {
         FetchOptions::screenshot(url, args.full_page)
     } else if let Some(expr) = args.js.as_deref() {
@@ -196,20 +231,20 @@ fn build_fetch_options(args: &FetchArgs, url: &str) -> Result<FetchOptions> {
         .timeout(Duration::from_secs(args.timeout))
         .settle(Duration::from_millis(args.settle))
         .visibility(args.visibility.to_policy());
-    let opts = match args.user_agent {
-        Some(ref ua) => opts.user_agent(ua),
-        None => opts,
-    };
     let opts = match args.schema {
         Some(ref path) => opts.schema(load_schema(path)?),
         None => opts,
     };
-    let opts = match args.cookies {
-        Some(ref path) => opts.cookies(servo_fetch::load_cookies(path)?),
-        None => opts,
-    };
     let opts = opts.headers(servo_fetch::headers::parse_lines(&args.headers)?);
     Ok(opts)
+}
+
+fn build_session_config(args: &FetchArgs, url: &str) -> Result<BrowserSessionConfig> {
+    let cookies = match &args.cookies {
+        Some(path) => servo_fetch::load_cookies(path)?,
+        None => Vec::new(),
+    };
+    Ok(crate::tools::session_identity(url, args.user_agent.clone(), cookies))
 }
 
 fn load_schema(path: &Path) -> Result<servo_fetch::schema::ExtractSchema> {

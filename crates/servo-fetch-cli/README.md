@@ -167,6 +167,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `--settle <MS>` | Extra wait after load event in ms (default: 0, max: 10000) |
 | `--user-agent <UA>` | Override the User-Agent string |
 | `--cookies <FILE>` | Load session cookies from a Netscape/Mozilla cookies.txt file |
+| `--cookie-jar <FILE>` | Save the cookies a request to the URL would send, HttpOnly included, as a Netscape cookies.txt |
 | `-H, --header <NAME: VALUE>` | Custom request header, repeatable (e.g. `-H "X-Api-Key: secret"`) |
 | `-v, --verbose` | Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
 | `-q, --quiet` | Suppress all logs except errors |

@@ -30,6 +30,7 @@ CLI equivalent:
 servo-fetch https://a.com https://b.com https://c.com                 # Markdown
 servo-fetch https://a.com https://b.com https://c.com --format json   # NDJSON
 servo-fetch https://example.com --output page.md                      # Save single URL to a file
+servo-fetch https://example.com --cookie-jar cookies.txt              # Save cookies sendable to this URL
 servo-fetch URL1 URL2 --output-dir ./out/                             # One file per URL
 ```
 

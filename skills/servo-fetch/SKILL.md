@@ -129,6 +129,7 @@ servo-fetch https://example.com --js "document.title"            # Run JavaScrip
 servo-fetch https://example.com --selector article               # Extract a section by CSS selector
 servo-fetch https://example.com --schema schema.json             # Schema-driven JSON
 servo-fetch https://example.com --cookies cookies.txt            # Send session cookies
+servo-fetch https://example.com --cookie-jar cookies.txt         # Save session cookies (includes HttpOnly)
 servo-fetch https://example.com -H "Authorization: Bearer TOKEN" # Custom request header (repeatable)
 servo-fetch https://example.com --format html                    # Raw HTML
 servo-fetch https://example.com --format text                    # Plain text

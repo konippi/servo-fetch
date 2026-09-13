@@ -70,6 +70,14 @@ pub(crate) struct FetchArgs {
     #[arg(long, value_name = "FILE")]
     pub cookies: Option<PathBuf>,
 
+    #[arg(
+        long,
+        value_name = "FILE",
+        requires = "urls",
+        help = "Save the cookies a request to the fetched URL would send (HttpOnly included) as a Netscape cookies.txt"
+    )]
+    pub cookie_jar: Option<PathBuf>,
+
     /// Custom request header, repeatable (e.g. -H "X-Api-Key: secret")
     #[arg(short = 'H', long = "header", value_name = "NAME: VALUE")]
     pub headers: Vec<String>,
@@ -464,6 +472,19 @@ mod tests {
         assert_validation_err(
             &["-o", "out.md", "https://example.com", "https://example.org"],
             "only valid with a single URL",
+        );
+    }
+
+    #[test]
+    fn cookie_jar_with_multi_urls_errors() {
+        assert_validation_err(
+            &[
+                "--cookie-jar",
+                "cookies.txt",
+                "https://example.com",
+                "https://example.org",
+            ],
+            "--cookie-jar only supports a single URL",
         );
     }
 }

@@ -114,7 +114,12 @@ impl ResolvedRequestOptions {
     }
 }
 
-fn session_identity(url: &str, user_agent: Option<String>, cookies: Vec<CookieSpec>) -> BrowserSessionConfig {
+/// One-use session identity (UA, cookies scoped to `url`).
+pub(crate) fn session_identity(
+    url: &str,
+    user_agent: Option<String>,
+    cookies: Vec<CookieSpec>,
+) -> BrowserSessionConfig {
     let mut config = BrowserSessionConfig::new();
     if let Some(user_agent) = user_agent {
         config = config.user_agent(user_agent);

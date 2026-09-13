@@ -793,7 +793,7 @@ mod tests {
         let error = owner
             .release_with(|_| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected")))
             .unwrap_err();
-        assert!(error.to_string().contains("injected"));
+        assert!(error.report().contains("injected"));
         assert!(permits.clone().try_acquire_owned().is_err());
 
         owner.release().unwrap();

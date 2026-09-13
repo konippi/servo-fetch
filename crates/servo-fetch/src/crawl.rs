@@ -200,7 +200,7 @@ impl serde::Serialize for CrawlResult {
                 map.serialize_entry("url", &self.url)?;
                 map.serialize_entry("depth", &self.depth)?;
                 map.serialize_entry("fetchedAt", &fetched_at)?;
-                map.serialize_entry("error", &e.to_string())?;
+                map.serialize_entry("error", &e.report())?;
                 map.end()
             }
         }
@@ -1381,7 +1381,7 @@ mod tests {
         let url = Url::parse("https://example.com/fail").unwrap();
         let r = error_result(&url, 2, crate::error::Error::engine("timeout", None), SystemTime::now());
         assert!(matches!(r.status, CrawlStatus::Error));
-        assert!(r.error.as_ref().is_some_and(|e| e.to_string().contains("timeout")));
+        assert!(r.error.as_ref().is_some_and(|e| e.report().contains("timeout")));
         assert!(r.content.is_none());
     }
 

@@ -50,7 +50,7 @@ pub(crate) fn crawl_event(result: CrawlResult) -> wire::CrawlEvent {
             url: result.url,
             depth,
             fetched_at,
-            error: e.to_string(),
+            error: e.report(),
         },
     }
 }

@@ -110,18 +110,18 @@ impl std::fmt::Debug for CookieSpec {
 /// Load cookies from a Netscape format `cookies.txt` file.
 pub fn load_cookies(path: impl AsRef<Path>) -> Result<Vec<CookieSpec>> {
     let path = path.as_ref();
-    let fail = |reason: String| Error::Cookies {
-        path: path.display().to_string(),
-        reason,
+    let fail = |source: crate::error::BoxError| Error::Cookies {
+        path: path.to_path_buf(),
+        source,
     };
     let mut text = String::new();
     std::fs::File::open(path)
         .and_then(|f| f.take(MAX_FILE_BYTES + 1).read_to_string(&mut text))
-        .map_err(|e| fail(e.to_string()))?;
+        .map_err(|e| fail(e.into()))?;
     if text.len() as u64 > MAX_FILE_BYTES {
-        return Err(fail(format!("file exceeds {MAX_FILE_BYTES} bytes")));
+        return Err(fail(format!("file exceeds {MAX_FILE_BYTES} bytes").into()));
     }
-    parse_cookies(&text).map_err(|e| fail(e.to_string()))
+    parse_cookies(&text).map_err(|e| fail(e.into()))
 }
 
 #[derive(Debug, thiserror::Error)]

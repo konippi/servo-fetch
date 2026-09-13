@@ -39,7 +39,7 @@ pub enum Error {
     },
 
     /// The Servo engine is unavailable or crashed.
-    #[error("engine error: {source}")]
+    #[error("engine error")]
     Engine {
         /// URL being processed, if known.
         url: Option<String>,
@@ -49,7 +49,7 @@ pub enum Error {
     },
 
     /// JavaScript evaluation failed.
-    #[error("JavaScript evaluation failed: {source}")]
+    #[error("JavaScript evaluation failed")]
     JavaScript {
         /// URL being processed, if known.
         url: Option<String>,
@@ -59,7 +59,7 @@ pub enum Error {
     },
 
     /// Screenshot capture failed.
-    #[error("screenshot capture failed: {source}")]
+    #[error("screenshot capture failed")]
     Screenshot {
         /// URL being captured, if known.
         url: Option<String>,
@@ -73,12 +73,13 @@ pub enum Error {
     Extract(#[from] crate::extract::ExtractError),
 
     /// Failed to load or parse a cookies file.
-    #[error("failed to load cookies from {path}: {reason}")]
+    #[error("failed to load cookies from {}", path.display())]
     Cookies {
         /// The cookies file path.
-        path: String,
-        /// Why loading failed.
-        reason: String,
+        path: std::path::PathBuf,
+        /// Source error.
+        #[source]
+        source: BoxError,
     },
 
     /// Schema-based structured extraction failed.
@@ -149,7 +150,7 @@ pub enum Error {
     SessionBrokerFull,
 
     /// The isolated worker protocol could not continue.
-    #[error("isolated browser worker unavailable: {source}")]
+    #[error("isolated browser worker unavailable")]
     WorkerUnavailable {
         /// Underlying transport, framing, or worker error.
         #[source]
@@ -158,6 +159,19 @@ pub enum Error {
 }
 
 impl Error {
+    /// The message followed by every cause, separated by `: ` (what `anyhow` prints for `{:#}`).
+    #[must_use]
+    pub fn report(&self) -> String {
+        let mut report = self.to_string();
+        let mut source = StdError::source(self);
+        while let Some(error) = source {
+            report.push_str(": ");
+            report.push_str(&error.to_string());
+            source = error.source();
+        }
+        report
+    }
+
     /// Construct an [`Error::Engine`] from any error type, preserving source chain.
     pub(crate) fn engine(source: impl Into<BoxError>, url: Option<String>) -> Self {
         Self::Engine {
@@ -280,12 +294,12 @@ mod tests {
     }
 
     #[test]
-    fn engine_helper_preserves_source_chain() {
-        let inner = std::io::Error::other("disk full");
-        let err = Error::engine(inner, Some("https://example.com".into()));
+    fn engine_report_renders_source_chain_once() {
+        let err = Error::engine(std::io::Error::other("boom"), Some("https://example.com".into()));
         assert_eq!(err.url(), Some("https://example.com"));
         assert!(err.source().is_some());
-        assert_eq!(err.to_string(), "engine error: disk full");
+        assert_eq!(err.to_string(), "engine error");
+        assert_eq!(err.report(), "engine error: boom");
     }
 
     #[test]

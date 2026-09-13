@@ -43,7 +43,7 @@ impl CrawlResult {
 
     #[getter]
     fn error(&self) -> Option<String> {
-        self.inner.outcome.as_ref().err().map(ToString::to_string)
+        self.inner.outcome.as_ref().err().map(servo_fetch::Error::report)
     }
 
     /// `True` if the crawl succeeded for this URL.
@@ -73,7 +73,7 @@ impl CrawlResult {
                 "{name}(url={:?}, depth={}, error={:?})",
                 this.inner.url,
                 this.inner.depth,
-                e.to_string()
+                e.report()
             ),
         })
     }

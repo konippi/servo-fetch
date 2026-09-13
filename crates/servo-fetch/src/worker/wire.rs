@@ -169,7 +169,7 @@ impl WorkerErrorWire {
             Error::Engine { source, .. } | Error::JavaScript { source, .. } | Error::Screenshot { source, .. } => {
                 source.to_string()
             }
-            _ => error.to_string(),
+            _ => error.report(),
         };
         Self {
             kind: WorkerErrorKind::from_error(error),

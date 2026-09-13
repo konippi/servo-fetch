@@ -604,7 +604,11 @@ fn process_ok_fetch(
         &page.html
     };
 
-    let input = crate::extract::ExtractInput::new(html, url.as_str())
+    let document_url = match net::validate_url(&page.url) {
+        Ok(document_url) => document_url,
+        Err(error) => return CrawlRunEvent::Result(error_result(url, depth, error, fetched_at)),
+    };
+    let input = crate::extract::ExtractInput::new(html, document_url.as_str())
         .with_layout_json(page.layout_json.as_deref())
         .with_inner_text(page.inner_text.as_deref())
         .with_selector(ctx.opts.selector.as_deref());
@@ -629,7 +633,7 @@ fn process_ok_fetch(
         });
     }
 
-    let links = extract_links_from_html(html, url);
+    let links = extract_links_from_html(html, &document_url);
     let links_found = links.len();
 
     if depth < ctx.opts.max_depth {
@@ -747,12 +751,26 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct MockFetcher(Arc<HashMap<String, String>>);
+    struct MockFetcher(Arc<HashMap<String, (String, String)>>);
 
     impl MockFetcher {
         fn new(pages: &[(&str, &str)]) -> Self {
             Self(Arc::new(
-                pages.iter().map(|(u, h)| (u.to_string(), h.to_string())).collect(),
+                pages
+                    .iter()
+                    .map(|(url, html)| (url.to_string(), (url.to_string(), html.to_string())))
+                    .collect(),
+            ))
+        }
+
+        fn with_document_urls(pages: &[(&str, &str, &str)]) -> Self {
+            Self(Arc::new(
+                pages
+                    .iter()
+                    .map(|(requested_url, document_url, html)| {
+                        (requested_url.to_string(), (document_url.to_string(), html.to_string()))
+                    })
+                    .collect(),
             ))
         }
     }
@@ -761,7 +779,8 @@ mod tests {
         fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
             self.0
                 .get(opts.url)
-                .map(|html| bridge::ServoPage {
+                .map(|(url, html)| bridge::ServoPage {
+                    url: url.clone(),
                     html: html.clone(),
                     ..Default::default()
                 })
@@ -802,6 +821,7 @@ mod tests {
         fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
             match Url::parse(opts.url).expect("test URL").path() {
                 "/" => Ok(bridge::ServoPage {
+                    url: opts.url.to_string(),
                     html: page(&["/controlled", "/block"]),
                     ..Default::default()
                 }),
@@ -817,6 +837,7 @@ mod tests {
                         .expect("test releases blocking task");
                     self.0.blocking_completed.store(true, Ordering::SeqCst);
                     Ok(bridge::ServoPage {
+                        url: opts.url.to_string(),
                         html: distinct_page("block"),
                         ..Default::default()
                     })
@@ -829,6 +850,7 @@ mod tests {
                         panic!("intentional crawl fetch panic");
                     }
                     Ok(bridge::ServoPage {
+                        url: opts.url.to_string(),
                         html: distinct_page("controlled"),
                         ..Default::default()
                     })
@@ -1041,6 +1063,47 @@ mod tests {
             |r| assert_eq!(r.len(), 3),
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn crawl_uses_document_url_for_extraction_and_link_resolution() {
+        let fetcher = MockFetcher::with_document_urls(&[
+            (
+                "https://request.example.com/start",
+                "https://final.example.com/dir/",
+                "<!doctype html><html><body><main><a href=\"next\">Next page</a></main></body></html>",
+            ),
+            (
+                "https://final.example.com/dir/next",
+                "https://final.example.com/dir/next",
+                "<!doctype html><html><body><main>Redirect target child</main></body></html>",
+            ),
+        ]);
+        let mut opts = test_plan("https://request.example.com/start");
+        opts.json = true;
+        opts.limit = 2;
+        let mut results = Vec::new();
+
+        run(opts, RobotsPolicy::Unavailable, &fetcher, |event| {
+            if let CrawlRunEvent::Result(result) = event {
+                results.push(result);
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].url, "https://request.example.com/start");
+        let article: serde_json::Value = serde_json::from_str(results[0].content.as_deref().unwrap()).unwrap();
+        assert_eq!(article["url"], "https://final.example.com/dir/");
+        assert!(
+            article["textContent"]
+                .as_str()
+                .is_some_and(|markdown| markdown.contains("https://final.example.com/dir/next"))
+        );
+        assert_eq!(results[1].url, "https://final.example.com/dir/next");
+        assert!(matches!(results[1].status, CrawlStatus::Ok));
     }
 
     #[tokio::test]

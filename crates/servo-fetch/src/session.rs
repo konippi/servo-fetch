@@ -692,7 +692,7 @@ impl BrowserSession {
         tokio::select! {
             biased;
             () = self.cancellation.cancelled() => Err(cancelled_error()),
-            bytes = probe => Ok(bytes.as_deref().map(crate::fetch::pdf_page)),
+            bytes = probe => Ok(bytes.as_deref().map(|bytes| crate::fetch::pdf_page(target.as_str(), bytes))),
         }
     }
 

@@ -13,7 +13,6 @@ use crate::errors::{EngineError, map_error};
 #[pyclass(frozen, module = "servo_fetch._native")]
 pub(crate) struct Page {
     inner: servo_fetch::Page,
-    url: String,
     screenshot_requested: bool,
     js_requested: bool,
     markdown_cache: OnceLock<String>,
@@ -21,10 +20,9 @@ pub(crate) struct Page {
 }
 
 impl Page {
-    pub(crate) fn new(inner: servo_fetch::Page, url: String, screenshot_requested: bool, js_requested: bool) -> Self {
+    pub(crate) fn new(inner: servo_fetch::Page, screenshot_requested: bool, js_requested: bool) -> Self {
         Self {
             inner,
-            url,
             screenshot_requested,
             js_requested,
             markdown_cache: OnceLock::new(),
@@ -35,10 +33,10 @@ impl Page {
 
 #[pymethods]
 impl Page {
-    /// The URL that was fetched.
+    /// The document URL after redirects and script navigation.
     #[getter]
     fn url(&self) -> &str {
-        &self.url
+        &self.inner.url
     }
 
     /// Fully rendered HTML after JavaScript execution.
@@ -65,9 +63,7 @@ impl Page {
         if let Some(cached) = self.markdown_cache.get() {
             return Ok(cached.clone());
         }
-        let md = py
-            .detach(|| self.inner.markdown_with_url(&self.url))
-            .map_err(map_error)?;
+        let md = py.detach(|| self.inner.markdown()).map_err(map_error)?;
         let _ = self.markdown_cache.set(md.clone());
         Ok(md)
     }
@@ -140,7 +136,7 @@ impl Page {
         let this = slf.borrow();
         Ok(format!(
             "{name}(url={:?}, title={:?}, html_len={})",
-            this.url,
+            this.inner.url,
             this.inner.title.as_deref().unwrap_or(""),
             this.inner.html.len()
         ))
@@ -149,12 +145,12 @@ impl Page {
     fn __hash__(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.url.hash(&mut h);
+        self.inner.url.hash(&mut h);
         self.inner.html.len().hash(&mut h);
         h.finish()
     }
 
     fn __eq__(&self, other: &Self) -> bool {
-        self.url == other.url && self.inner.html == other.inner.html
+        self.inner.url == other.inner.url && self.inner.html == other.inner.html
     }
 }

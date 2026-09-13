@@ -87,7 +87,7 @@ async fn session_fetch(params: Value, sessions: &super::Sessions) -> Result<Valu
         .map_err(|e| ResponseError::from(ToolError::from(e)))?;
     drop(guard);
 
-    let full = tools::render_page(&page, &url, format, req.selector.as_deref())?;
+    let full = tools::render_page(&page, &page.url, format, req.selector.as_deref())?;
     let sanitized = servo_fetch::sanitize::sanitize(&full);
     let content = tools::paginate_opt(&sanitized, req.start_index, req.max_length);
     Ok(json!(content))
@@ -131,7 +131,7 @@ async fn fetch(params: Value) -> Result<Value, ResponseError> {
     let opts = tools::content_options(&url, format, tools::visibility_policy(req.visibility));
     let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
-    let full = tools::render_page(&page, &url, format, req.selector.as_deref())?;
+    let full = tools::render_page(&page, &page.url, format, req.selector.as_deref())?;
     let sanitized = servo_fetch::sanitize::sanitize(&full);
     let content = tools::paginate_opt(&sanitized, req.start_index, req.max_length);
     Ok(json!(content))
@@ -146,8 +146,8 @@ async fn extract(params: Value) -> Result<Value, ResponseError> {
     let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
     let data = match req.selector.as_deref() {
-        Some(s) => page.article_with_selector(&url, s),
-        None => page.article(&url),
+        Some(s) => page.article_with_selector(&page.url, s),
+        None => page.article(&page.url),
     }?;
     Ok(serde_json::to_value(crate::wire::article(data))?)
 }
@@ -179,7 +179,7 @@ async fn evaluate(params: Value) -> Result<Value, ResponseError> {
 
     let result = page.js_result.unwrap_or_default();
     Ok(serde_json::to_value(crate::wire::evaluate_result(
-        url,
+        page.url,
         result,
         &page.console_messages,
     ))?)
@@ -197,7 +197,7 @@ async fn extract_schema(params: Value) -> Result<Value, ResponseError> {
     let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
     let extracted = page.extracted.unwrap_or(Value::Null);
-    Ok(serde_json::to_value(crate::wire::schema_extract(&url, extracted))?)
+    Ok(serde_json::to_value(crate::wire::schema_extract(&page.url, extracted))?)
 }
 
 async fn map(params: Value) -> Result<Value, ResponseError> {

@@ -44,7 +44,7 @@ impl Client {
 
     /// Fetch and extract readable Markdown.
     pub fn markdown(&self, url: &str) -> Result<String> {
-        self.fetch(url)?.markdown_with_url(url)
+        self.fetch(url)?.markdown()
     }
 
     /// Fetch and extract plain text (`document.body.innerText`).
@@ -54,7 +54,8 @@ impl Client {
 
     /// Fetch and extract structured JSON.
     pub fn extract_json(&self, url: &str) -> Result<String> {
-        self.fetch(url)?.extract_json_with_url(url)
+        let page = self.fetch(url)?;
+        page.extract_json_with_url(&page.url)
     }
 
     /// Capture a PNG screenshot of the page.

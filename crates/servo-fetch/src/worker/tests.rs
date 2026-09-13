@@ -9,9 +9,9 @@ use super::protocol::{
     WorkerRequest, WorkerResponse, WorkerState, decode_frame, handle_worker_initialize, read_bounded_frame, run_worker,
     write_bounded_frame,
 };
-use super::wire::{CrawlWire, FetchWire};
+use super::wire::{CrawlWire, FetchWire, PageWire};
 use super::*;
-use crate::{CrawlOptions, Error, FetchOptions, NetworkPolicy};
+use crate::{CrawlOptions, Error, FetchOptions, NetworkPolicy, Page, VisibilityPolicy};
 
 fn encoded(value: &impl Serialize) -> Vec<u8> {
     let mut out = Vec::new();
@@ -100,6 +100,21 @@ fn protocol_golden_encoding_is_stable() {
         })
         .unwrap(),
         vec![7, 7]
+    );
+    let (page, screenshot) = PageWire::from_page(Page {
+        url: "u".into(),
+        visibility_policy: VisibilityPolicy::off(),
+        ..Page::default()
+    })
+    .unwrap();
+    assert!(screenshot.is_none());
+    assert_eq!(
+        postcard::to_stdvec(&ResponseFrame {
+            id: 7,
+            response: WorkerResponse::FetchResult(page),
+        })
+        .unwrap(),
+        vec![7, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, b'u']
     );
     let cookie = crate::CookieSpec::new("sid", "secret", "example.com")
         .unwrap()

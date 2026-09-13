@@ -277,6 +277,79 @@ fn json_produces_valid_json() {
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
+fn json_uses_redirected_document_url_for_output_and_links() {
+    block_on(async {
+        let start = MockServer::start().await;
+        let final_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/start"))
+            .respond_with(ResponseTemplate::new(302).insert_header("location", format!("{}/final", final_server.uri())))
+            .mount(&start)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/final"))
+            .respond_with(mock_page(
+                "<!doctype html><html><body><main><a href=\"rel\">Relative link</a></main></body></html>",
+            ))
+            .mount(&final_server)
+            .await;
+
+        let output = servo_fetch()
+            .args([
+                "--format",
+                "json",
+                "--allow-private-addresses",
+                TIMEOUT,
+                &format!("{}/start", start.uri()),
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let parsed: Value = serde_json::from_slice(&output).expect("valid JSON");
+        assert_eq!(parsed["url"], format!("{}/final", final_server.uri()));
+        assert!(
+            parsed["textContent"]
+                .as_str()
+                .is_some_and(|markdown| markdown.contains(&format!("{}/rel", final_server.uri())))
+        );
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn json_uses_push_state_document_url() {
+    block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/start"))
+            .respond_with(mock_page(
+                "<!doctype html><html><body><main>Push state</main><script>history.pushState({}, '', '/pushed')</script></body></html>",
+            ))
+            .mount(&server)
+            .await;
+
+        let output = servo_fetch()
+            .args([
+                "--format",
+                "json",
+                "--allow-private-addresses",
+                TIMEOUT,
+                &format!("{}/start", server.uri()),
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let parsed: Value = serde_json::from_slice(&output).expect("valid JSON");
+        assert_eq!(parsed["url"], format!("{}/pushed", server.uri()));
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
 fn js_eval_returns_result() {
     block_on(async {
         let s = MockServer::start().await;

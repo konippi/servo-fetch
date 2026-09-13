@@ -22,7 +22,6 @@ pub(crate) struct BuildOpts<'py> {
 
 pub(crate) struct Prepared {
     pub opts: servo_fetch::FetchOptions,
-    pub url: String,
     pub screenshot_requested: bool,
     pub js_requested: bool,
 }
@@ -69,7 +68,6 @@ pub(crate) fn prepare(args: BuildOpts<'_>) -> PyResult<Prepared> {
 
     Ok(Prepared {
         opts,
-        url: args.url,
         screenshot_requested,
         js_requested,
     })

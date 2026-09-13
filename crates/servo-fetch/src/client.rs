@@ -73,7 +73,7 @@ impl Client {
 
     /// Fetch and extract readable Markdown.
     pub async fn markdown(&self, url: &str) -> Result<String> {
-        self.fetch(url).await?.markdown_with_url(url)
+        self.fetch(url).await?.markdown()
     }
 
     /// Fetch and extract plain text (`document.body.innerText`).
@@ -83,7 +83,8 @@ impl Client {
 
     /// Fetch and extract structured JSON.
     pub async fn extract_json(&self, url: &str) -> Result<String> {
-        self.fetch(url).await?.extract_json_with_url(url)
+        let page = self.fetch(url).await?;
+        page.extract_json_with_url(&page.url)
     }
 
     /// Capture a PNG screenshot of the page.

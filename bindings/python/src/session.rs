@@ -110,7 +110,6 @@ impl Session {
             .map_err(map_error)?;
         Ok(Page::new(
             servo_page,
-            prepared.url,
             prepared.screenshot_requested,
             prepared.js_requested,
         ))

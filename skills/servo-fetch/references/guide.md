@@ -22,7 +22,7 @@ Use `batch_fetch` to fetch multiple URLs in a single call.
 batch_fetch(urls: ["https://a.com", "https://b.com", "https://c.com"])
 ```
 
-Batch and crawl return URL-labeled blocks that preserve completion order, each starting with its canonical URL. Oversized results may omit whole blocks and include an omitted-count summary. Failed URLs are reported inline (prefixed with `[error]`) without aborting the batch.
+Batch and crawl return URL-labeled blocks that preserve completion order, each starting with its requested URL. Extracted Markdown and JSON resolve links and report metadata against the final document URL after redirects. Oversized results may omit whole blocks and include an omitted-count summary. Failed URLs are reported inline (prefixed with `[error]`) without aborting the batch.
 
 CLI equivalent:
 

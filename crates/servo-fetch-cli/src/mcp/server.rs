@@ -253,7 +253,6 @@ async fn run_fetch(p: FetchRequest, ct: CancellationToken) -> Result<Outcome<Cal
     };
     let content = tools::page_text(
         &page,
-        &url,
         format,
         p.selector.as_deref(),
         to_len(p.start_index, 0),
@@ -344,7 +343,7 @@ async fn run_batch_fetch(
     let results = pages
         .into_iter()
         .map(|(url, page)| {
-            let text = page.and_then(|page| tools::page_text(&page, &url, format, selector, 0, max_len));
+            let text = page.and_then(|page| tools::page_text(&page, format, selector, 0, max_len));
             (url, text)
         })
         .collect();

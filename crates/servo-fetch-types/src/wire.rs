@@ -37,7 +37,7 @@ pub struct Article {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub lang: Option<String>,
-    /// Canonical URL.
+    /// Document URL after redirects and script navigation.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub url: Option<String>,

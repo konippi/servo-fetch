@@ -27,6 +27,7 @@ pip install servo-fetch
 ```python
 import servo_fetch
 page = servo_fetch.fetch("https://example.com")
+page.url           # document URL after redirects and script navigation
 page.html          # rendered HTML
 page.inner_text    # document.body.innerText
 page.markdown      # readable Markdown (lazy, cached)

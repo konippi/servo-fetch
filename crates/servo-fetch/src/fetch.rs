@@ -15,6 +15,8 @@ use crate::net::sanitize_user_agent;
 #[derive(Debug, Clone, Default, serde::Serialize)]
 #[non_exhaustive]
 pub struct Page {
+    /// Document URL after redirects and script navigation.
+    pub url: String,
     /// Fully rendered HTML after JavaScript execution.
     pub html: String,
     /// Plain text content (`document.body.innerText`).
@@ -52,7 +54,7 @@ pub struct Page {
 impl Page {
     /// Extract readable Markdown from this page.
     pub fn markdown(&self) -> crate::error::Result<String> {
-        self.markdown_with_url("")
+        self.markdown_with_url(&self.url)
     }
 
     /// Extract readable Markdown, using the original URL for link resolution.
@@ -124,6 +126,7 @@ impl Page {
             Some(buf.into_inner())
         });
         Self {
+            url: page.url,
             html: page.html,
             inner_text: page.inner_text.unwrap_or_default(),
             title,
@@ -386,22 +389,24 @@ pub async fn fetch(opts: &FetchOptions) -> crate::error::Result<Page> {
 
 /// Fetch a URL and return readable Markdown (blocking).
 pub fn markdown_blocking(url: &str) -> crate::error::Result<String> {
-    fetch_blocking(&FetchOptions::new(url))?.markdown_with_url(url)
+    fetch_blocking(&FetchOptions::new(url))?.markdown()
 }
 
 /// Fetch a URL and return readable Markdown.
 pub async fn markdown(url: &str) -> crate::error::Result<String> {
-    fetch(&FetchOptions::new(url)).await?.markdown_with_url(url)
+    fetch(&FetchOptions::new(url)).await?.markdown()
 }
 
 /// Fetch a URL and return structured JSON (blocking).
 pub fn extract_json_blocking(url: &str) -> crate::error::Result<String> {
-    fetch_blocking(&FetchOptions::new(url))?.extract_json_with_url(url)
+    let page = fetch_blocking(&FetchOptions::new(url))?;
+    page.extract_json_with_url(&page.url)
 }
 
 /// Fetch a URL and return structured JSON.
 pub async fn extract_json(url: &str) -> crate::error::Result<String> {
-    fetch(&FetchOptions::new(url)).await?.extract_json_with_url(url)
+    let page = fetch(&FetchOptions::new(url)).await?;
+    page.extract_json_with_url(&page.url)
 }
 
 /// Fetch a URL and return plain text (`document.body.innerText`) (blocking).
@@ -431,7 +436,7 @@ async fn probe_pdf(target: &url::Url, opts: &FetchOptions) -> crate::error::Resu
     Ok(crate::pdf::probe(target, &headers, opts.effective_timeout())
         .await
         .as_deref()
-        .map(pdf_page))
+        .map(|bytes| pdf_page(target.as_str(), bytes)))
 }
 
 fn pdf_headers(opts: &FetchOptions) -> crate::error::Result<http::HeaderMap> {
@@ -448,9 +453,10 @@ fn pdf_headers(opts: &FetchOptions) -> crate::error::Result<http::HeaderMap> {
     Ok(headers)
 }
 
-pub(crate) fn pdf_page(bytes: &[u8]) -> Page {
+pub(crate) fn pdf_page(url: &str, bytes: &[u8]) -> Page {
     let text = crate::extract::extract_pdf(bytes);
     Page {
+        url: url.into(),
         html: String::new(),
         inner_text: text,
         ..Page::default()
@@ -600,6 +606,22 @@ mod tests {
         };
         let md = page.markdown().unwrap();
         assert!(md.contains("hello world"));
+    }
+
+    #[test]
+    fn page_markdown_resolves_relative_links_against_document_url() {
+        let page = Page {
+            url: "https://example.com/final/page".into(),
+            html: "<html><body><main><a href=\"relative\">Relative link</a></main></body></html>".into(),
+            inner_text: "Relative link".into(),
+            ..Page::default()
+        };
+
+        assert!(
+            page.markdown()
+                .unwrap()
+                .contains("[Relative link](https://example.com/final/relative)")
+        );
     }
 
     #[test]
@@ -853,6 +875,7 @@ mod tests {
                     level: bridge::ConsoleLevel::Log,
                     message: "x".into(),
                 }],
+                url: "https://example.com/final".into(),
             };
             let page = Page::from_servo(sp);
             assert_eq!(page.html, "<html><head><title>T</title></head><body>B</body></html>");

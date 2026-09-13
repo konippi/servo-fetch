@@ -66,12 +66,7 @@ impl Client {
         let page = py
             .detach(|| servo_fetch::blocking::fetch(&prepared.opts))
             .map_err(map_error)?;
-        Ok(Page::new(
-            page,
-            prepared.url,
-            prepared.screenshot_requested,
-            prepared.js_requested,
-        ))
+        Ok(Page::new(page, prepared.screenshot_requested, prepared.js_requested))
     }
 
     /// Crawl a site recursively and return all pages. Blocking; use `crawl_each` for streaming.

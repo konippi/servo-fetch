@@ -184,7 +184,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `byline` | string | Author or byline (omitted if not detected) |
 | `excerpt` | string | Short excerpt or description (omitted if not detected) |
 | `lang` | string | Document language (omitted if not detected) |
-| `url` | string | Canonical URL (omitted if not detected) |
+| `url` | string | Document URL after redirects and script navigation |
 
 ### Crawl subcommand
 

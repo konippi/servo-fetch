@@ -142,6 +142,7 @@ use servo_fetch::{fetch, FetchOptions};
 use std::time::Duration;
 
 let page = fetch(&FetchOptions::new("https://example.com").timeout(Duration::from_secs(60))).await?;
+println!("{}", page.url); // Final URL after redirects or script navigation
 println!("{}", page.html);
 let md = page.markdown()?;
 

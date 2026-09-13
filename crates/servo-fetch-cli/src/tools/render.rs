@@ -11,13 +11,12 @@ use super::limits::{DEFAULT_MAX_LENGTH, MAX_JS_OUTPUT_LEN, to_len};
 /// Render, sanitize, and paginate a fetched page into the text returned to the caller.
 pub(crate) fn page_text(
     page: &Page,
-    url: &str,
     format: FetchFormat,
     selector: Option<&str>,
     start: usize,
     max_len: usize,
 ) -> ToolResult<String> {
-    let full = render_page(page, url, format, selector)?;
+    let full = render_page(page, &page.url, format, selector)?;
     Ok(paginate(&servo_fetch::sanitize::sanitize(&full), start, max_len))
 }
 
@@ -46,7 +45,7 @@ pub(crate) fn render_page<'a>(
         FetchFormat::Markdown => Cow::Owned(
             match selector {
                 Some(s) => page.markdown_with_selector(url, s),
-                None => page.markdown_with_url(url),
+                None => page.markdown(),
             }
             .map_err(ToolError::from)?,
         ),

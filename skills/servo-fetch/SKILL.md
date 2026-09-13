@@ -24,7 +24,7 @@ description: "Fetch and render web pages using the Servo browser engine — a si
 
 Start the MCP server: `servo-fetch mcp` (stdio) or `servo-fetch mcp --port 8080` (Streamable HTTP)
 
-Large multi-block responses can omit URL-labeled blocks and include an omitted-count summary; paginate `fetch` output with `maxLength` and `startIndex`.
+Large multi-block responses can omit URL-labeled blocks and include an omitted-count summary; paginate `fetch` output with `maxLength` and `startIndex`. Extracted Markdown and JSON use the final document URL after redirects, while batch and crawl block labels preserve the requested URL.
 
 ### fetch
 

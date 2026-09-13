@@ -68,7 +68,7 @@ pub(crate) async fn batch_fetch_pages(spec: BatchSpec<'_>) -> ToolResult<Vec<(St
         let opts = spec.options.apply(content_options(&url, format, spec.visibility));
         set.spawn_blocking(move || {
             let _permit = permit;
-            let text = render_one(&url, format, selector.as_deref(), max_len, &opts);
+            let text = render_one(format, selector.as_deref(), max_len, &opts);
             (url, text)
         });
     }
@@ -93,15 +93,9 @@ async fn collect_batch_tasks(
     Ok(results)
 }
 
-fn render_one(
-    url: &str,
-    format: FetchFormat,
-    selector: Option<&str>,
-    max_len: usize,
-    opts: &FetchOptions,
-) -> ToolResult<String> {
+fn render_one(format: FetchFormat, selector: Option<&str>, max_len: usize, opts: &FetchOptions) -> ToolResult<String> {
     let page = servo_fetch::blocking::fetch(opts).map_err(ToolError::from)?;
-    page_text(&page, url, format, selector, 0, max_len)
+    page_text(&page, format, selector, 0, max_len)
 }
 
 #[cfg(test)]

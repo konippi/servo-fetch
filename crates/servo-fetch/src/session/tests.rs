@@ -190,6 +190,7 @@ fn unexpected_cookies_response_is_terminal() {
 fn page_wire_detaches_binary_payloads() {
     let size = MAX_WORKER_BLOB_CHUNK_BYTES + 1;
     let page = Page {
+        url: "https://example.com/final".into(),
         screenshot_png: Some(vec![0xff; size]),
         extracted: Some(serde_json::json!({"ok": true, "count": 2})),
         ..Page::default()
@@ -201,6 +202,7 @@ fn page_wire_detaches_binary_payloads() {
     let screenshot = screenshot.unwrap();
     assert_eq!(screenshot.len(), size);
     let decoded = wire.into_page(Some(screenshot)).unwrap();
+    assert_eq!(decoded.url, "https://example.com/final");
     assert_eq!(decoded.extracted, Some(serde_json::json!({"ok": true, "count": 2})));
     let decoded = decoded.screenshot_png.unwrap();
     assert_eq!(decoded.len(), size);

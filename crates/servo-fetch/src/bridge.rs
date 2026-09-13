@@ -262,6 +262,7 @@ pub(crate) struct ServoPage {
     pub accessibility_tree: Option<String>,
     pub a11y: Option<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>,
     pub console_messages: Vec<ConsoleMessage>,
+    pub url: String,
 }
 
 /// Parameters for a [`fetch_page`] call.
@@ -418,6 +419,14 @@ fn build_request(opts: FetchOptions<'_>, reply: ReplyFn) -> FetchRequest {
         headers: opts.headers.clone(),
         reply,
     }
+}
+
+/// The document URL to expose: the WebView's current URL (falling back to the request) with credentials stripped.
+fn document_url(current: Option<&Url>, requested: &str) -> Result<String, EngineError> {
+    let candidate = current.map_or(requested, Url::as_str);
+    crate::net::validate_url_with_policy(candidate, engine_policy())
+        .map(|url| url.to_string())
+        .map_err(|error| anyhow!("invalid document URL: {error:?}").into())
 }
 
 fn extraction_deadline_for(page_deadline: Instant) -> Instant {
@@ -802,6 +811,8 @@ fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage, Eng
         }
     };
 
+    let url = document_url(p.webview.url().as_ref(), &p.request.url)?;
+
     Ok(ServoPage {
         html,
         inner_text,
@@ -812,6 +823,7 @@ fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage, Eng
         accessibility_tree,
         a11y,
         console_messages: p.state.console_messages.borrow_mut().drain(..).collect(),
+        url,
     })
 }
 
@@ -1211,5 +1223,18 @@ mod tests {
         }));
         drop(req);
         assert!(rx.await.is_err());
+    }
+
+    #[test]
+    fn document_url_prefers_current_url_and_strips_credentials() {
+        let current = Url::parse("https://user:secret@example.com/final?q=1#frag").unwrap();
+        assert_eq!(
+            document_url(Some(&current), "https://example.com/start").unwrap(),
+            "https://example.com/final?q=1#frag"
+        );
+        assert_eq!(
+            document_url(None, "https://user:secret@example.com/start").unwrap(),
+            "https://example.com/start"
+        );
     }
 }

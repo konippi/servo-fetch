@@ -29,7 +29,7 @@ excerpt?: string,
  */
 lang?: string, 
 /**
- * Canonical URL.
+ * Document URL after redirects and script navigation.
  */
 url?: string, };
 

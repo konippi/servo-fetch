@@ -92,7 +92,7 @@ async fn run_single_with_cookie_jar(args: &FetchArgs, url: &str) -> Result<()> {
     spinner.finish_and_clear();
     let page = page?;
     if let Some(path) = &args.cookie_jar {
-        servo_fetch::save_cookies(path, &session.cookies(url).await?)?;
+        servo_fetch::save_cookies(path, &session.cookies(&page.url).await?)?;
     }
     session.close().await?;
     dispatch_output(args, &page, url, sink(args))

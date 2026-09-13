@@ -120,7 +120,7 @@ impl Markdown<'_> {
 
     fn render(&self) -> Result<String> {
         if let Some(selector) = self.selector {
-            let input = servo_fetch::extract::ExtractInput::new(&self.page.html, self.url)
+            let input = servo_fetch::extract::ExtractInput::new(&self.page.html, &self.page.url)
                 .with_layout_json(self.page.layout_json.as_deref())
                 .with_inner_text(Some(&self.page.inner_text))
                 .with_selector(Some(selector));
@@ -130,7 +130,7 @@ impl Markdown<'_> {
             }
             Ok(text)
         } else {
-            Ok(self.page.markdown_with_url(self.url)?)
+            Ok(self.page.markdown_with_url(&self.page.url)?)
         }
     }
 }
@@ -153,8 +153,8 @@ impl Json<'_> {
 
     fn article(&self) -> Result<servo_fetch_types::Article> {
         let data = match self.selector {
-            Some(selector) => self.page.article_with_selector(self.url, selector)?,
-            None => self.page.article(self.url)?,
+            Some(selector) => self.page.article_with_selector(&self.page.url, selector)?,
+            None => self.page.article(&self.page.url)?,
         };
         Ok(crate::wire::article(data))
     }
@@ -208,7 +208,7 @@ impl Extracted<'_> {
 
     fn payload(&self) -> servo_fetch_types::SchemaExtractResult {
         let extracted = self.page.extracted.clone().unwrap_or(Value::Null);
-        crate::wire::schema_extract(self.url, extracted)
+        crate::wire::schema_extract(&self.page.url, extracted)
     }
 }
 

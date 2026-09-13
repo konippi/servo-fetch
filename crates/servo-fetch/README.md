@@ -51,6 +51,8 @@ println!("{}", page.html);
 let md = page.markdown()?;
 ```
 
+`Page::url` is the document URL after redirects and script navigation.
+
 ### Screenshot
 
 ```rust

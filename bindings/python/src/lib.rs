@@ -50,7 +50,6 @@ fn fetch(
         .map_err(map_error)?;
     Ok(page::Page::new(
         servo_page,
-        prepared.url,
         prepared.screenshot_requested,
         prepared.js_requested,
     ))

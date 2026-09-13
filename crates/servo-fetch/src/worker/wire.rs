@@ -467,6 +467,7 @@ pub(crate) struct PageWire {
     extracted_json: Option<Vec<u8>>,
     screenshot_png_bytes: Option<u32>,
     visibility_bits: u32,
+    url: String,
 }
 
 impl PageWire {
@@ -505,6 +506,7 @@ impl PageWire {
             extracted_json,
             screenshot_png_bytes,
             visibility_bits: page.visibility_policy.strip_if_any.bits(),
+            url: page.url,
         };
         let frame_size = encoded_size(&wire)?.saturating_add(RESPONSE_FRAME_HEADROOM);
         if frame_size > MAX_WORKER_FRAME_BYTES {
@@ -555,6 +557,7 @@ impl PageWire {
         let visibility = crate::VisibilityFlags::from_bits(self.visibility_bits)
             .ok_or_else(|| worker_error("worker page contains unknown visibility flags"))?;
         Ok(Page {
+            url: self.url,
             html: self.html,
             inner_text: self.inner_text,
             title: self.title,

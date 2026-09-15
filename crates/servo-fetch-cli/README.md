@@ -254,7 +254,7 @@ scripts can branch without parsing stderr:
 | `65` | `EX_DATAERR` | Invalid extraction schema |
 | `66` | `EX_NOINPUT` | Cookies file missing or unreadable |
 | `69` | `EX_UNAVAILABLE` | Blocked address (private/loopback) or unreachable host |
-| `70` | `EX_SOFTWARE` | Engine, JavaScript, screenshot, or extraction failure |
+| `70` | `EX_SOFTWARE` | Engine failure (including a crashed page), JavaScript, screenshot, or extraction failure |
 | `74` | `EX_IOERR` | I/O error |
 | `75` | `EX_TEMPFAIL` | Navigation timeout (retryable) |
 | `1` | — | Any other error |

@@ -172,6 +172,74 @@ fn default_produces_markdown() {
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
+fn csp_sandbox_pipeline_crash_fails_fast() {
+    block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-security-policy", "sandbox")
+                    .set_body_raw(
+                        b"<!doctype html><html><body>Sandboxed</body></html>",
+                        "text/html; charset=utf-8",
+                    ),
+            )
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let jar = dir.path().join("cookies.txt");
+        let started = Instant::now();
+        let output = servo_fetch()
+            .args([
+                "--allow-private-addresses",
+                "--cookie-jar",
+                jar.to_str().unwrap(),
+                "--timeout",
+                "30",
+                &server.uri(),
+            ])
+            .output()
+            .expect("run servo-fetch");
+        let elapsed = started.elapsed();
+        let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
+        let stdout = from_utf8(&output.stdout).expect("stdout is UTF-8");
+
+        assert_eq!(output.status.code(), Some(70), "stdout: {stdout}; stderr: {stderr}");
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "elapsed: {elapsed:?}; stdout: {stdout}; stderr: {stderr}"
+        );
+        assert!(stderr.contains("page crashed"), "stdout: {stdout}; stderr: {stderr}");
+        assert!(!stderr.contains("timed out"), "stderr: {stderr}");
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn slow_first_byte_is_not_mistaken_for_a_crash() {
+    block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(
+                mock_page("<!doctype html><html><body><h1>Late</h1></body></html>")
+                    .set_delay(Duration::from_millis(2500)),
+            )
+            .mount(&server)
+            .await;
+
+        servo_fetch()
+            .args(["--allow-private-addresses", TIMEOUT, &server.uri()])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Late"));
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
 fn cookie_jar_captures_http_and_javascript_cookies_without_json_leakage() {
     block_on(async {
         const HTTP_SECRET: &str = "HTTP_ONLY_SECRET_395";

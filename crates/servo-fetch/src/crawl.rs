@@ -557,7 +557,7 @@ fn spawn_fetch(
     let f = fetcher.clone();
     in_flight.spawn_blocking(move || {
         let result = f
-            .fetch_page(bridge::FetchOptions {
+            .fetch_page(bridge::PageOptions {
                 url: &url_str,
                 timeout_secs: timeout,
                 settle_ms: settle,
@@ -776,7 +776,7 @@ mod tests {
     }
 
     impl PageFetcher for MockFetcher {
-        fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
+        fn fetch_page(&self, opts: bridge::PageOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
             self.0
                 .get(opts.url)
                 .map(|(url, html)| bridge::ServoPage {
@@ -792,7 +792,7 @@ mod tests {
     struct TimeoutFetcher;
 
     impl PageFetcher for TimeoutFetcher {
-        fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
+        fn fetch_page(&self, opts: bridge::PageOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
             Err(bridge::EngineError::Timeout(opts.timeout_secs))
         }
     }
@@ -818,7 +818,7 @@ mod tests {
     struct ControlledFailureFetcher(Arc<ControlledFailureState>);
 
     impl PageFetcher for ControlledFailureFetcher {
-        fn fetch_page(&self, opts: bridge::FetchOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
+        fn fetch_page(&self, opts: bridge::PageOptions<'_>) -> Result<bridge::ServoPage, bridge::EngineError> {
             match Url::parse(opts.url).expect("test URL").path() {
                 "/" => Ok(bridge::ServoPage {
                     url: opts.url.to_string(),

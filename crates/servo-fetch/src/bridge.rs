@@ -13,9 +13,9 @@ use dpi::PhysicalSize;
 use image::RgbaImage;
 use serde_json::Value;
 use servo::{
-    ConsoleLogLevel, EventLoopWaker, JSValue, LoadStatus, NavigationRequest, Preferences, RenderingContext,
-    ServoBuilder, SoftwareRenderingContext, UrlRequest, UserContentManager, WebView, WebViewBuilder, WebViewDelegate,
-    WebViewId,
+    ConsoleLogLevel, EventLoopWaker, JSValue, JavaScriptEvaluationError, LoadStatus, NavigationRequest, Preferences,
+    RenderingContext, ServoBuilder, SoftwareRenderingContext, UrlRequest, UserContentManager, WebView, WebViewBuilder,
+    WebViewDelegate, WebViewId,
 };
 use tokio::sync::{mpsc, oneshot};
 use url::Url;
@@ -24,6 +24,11 @@ use crate::cookies::CookieSpec;
 use crate::{layout, visibility};
 
 const EXTRACTION_BUDGET: Duration = Duration::from_secs(10);
+const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(1);
+
+fn page_crashed(reason: &str) -> EngineError {
+    EngineError::Other(anyhow!("page crashed: {reason}"))
+}
 
 /// Servo's builder default for a webview created without an initial URL.
 const SHELL_URL: &str = "about:blank";
@@ -38,6 +43,7 @@ pub(crate) fn default_user_agent() -> &'static str {
         crate::net::sanitize_user_agent(raw)
     })
 }
+
 const LAYOUT_JS: &str = include_str!("js/layout.js");
 const VISIBILITY_JS: &str = include_str!("js/visibility.js");
 const MAX_CONSOLE_MESSAGES: usize = 100;
@@ -102,13 +108,75 @@ pub(crate) fn wait_for_wake(timeout: Duration) {
     });
 }
 
-#[derive(Default)]
 struct WebViewState {
+    has_document: Cell<bool>,
     loaded_at: Cell<Option<Instant>>,
+    last_ping: Cell<Instant>,
+    crashed: RefCell<Option<String>>,
     deferred_load: RefCell<Option<UrlRequest>>,
     a11y_truncated: Cell<bool>,
     a11y_nodes: RefCell<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>,
     console_messages: RefCell<Vec<ConsoleMessage>>,
+}
+
+impl WebViewState {
+    fn new(deferred_load: Option<UrlRequest>) -> Self {
+        Self {
+            has_document: Cell::new(false),
+            loaded_at: Cell::new(None),
+            last_ping: Cell::new(Instant::now()),
+            crashed: RefCell::new(None),
+            deferred_load: RefCell::new(deferred_load),
+            a11y_truncated: Cell::new(false),
+            a11y_nodes: RefCell::new(HashMap::new()),
+            console_messages: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn next_ping_at(&self) -> Instant {
+        self.last_ping.get() + KEEP_ALIVE_INTERVAL
+    }
+
+    fn awaiting_load(&self) -> bool {
+        self.has_document.get() && self.loaded_at.get().is_none()
+    }
+
+    fn ping_due(&self, now: Instant) -> bool {
+        now >= self.next_ping_at()
+    }
+
+    fn record_crash(&self, reason: &str) -> EngineError {
+        let mut crashed = self.crashed.borrow_mut();
+        page_crashed(crashed.get_or_insert_with(|| reason.to_owned()))
+    }
+
+    fn fail_if_stopped(&self, result: &Result<JSValue, JavaScriptEvaluationError>) -> Result<(), EngineError> {
+        match result {
+            Err(JavaScriptEvaluationError::InternalError) => Err(self.record_crash("script thread stopped responding")),
+            _ => Ok(()),
+        }
+    }
+
+    fn crash_error(&self) -> Option<EngineError> {
+        self.crashed.borrow().as_deref().map(page_crashed)
+    }
+
+    fn take_a11y(&self) -> Option<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>> {
+        let mut nodes = self.a11y_nodes.borrow_mut();
+        if nodes.is_empty() {
+            return None;
+        }
+        for node in nodes.values_mut() {
+            if node.role() == servo::accesskit::Role::PasswordInput {
+                node.clear_value();
+            }
+        }
+        Some(std::mem::take(&mut *nodes))
+    }
+
+    fn take_console_messages(&self) -> Vec<ConsoleMessage> {
+        std::mem::take(&mut self.console_messages.borrow_mut())
+    }
 }
 
 struct SharedDelegate {
@@ -118,10 +186,7 @@ struct SharedDelegate {
 
 impl SharedDelegate {
     fn register(&self, id: WebViewId, deferred_load: Option<UrlRequest>) -> Rc<WebViewState> {
-        let state = Rc::new(WebViewState {
-            deferred_load: RefCell::new(deferred_load),
-            ..Default::default()
-        });
+        let state = Rc::new(WebViewState::new(deferred_load));
         self.states.borrow_mut().insert(id, state.clone());
         state
     }
@@ -193,13 +258,25 @@ impl WebViewDelegate for SharedDelegate {
             {
                 webview.load_request(request);
             }
-        } else if status == LoadStatus::Complete {
-            self.with_state(webview.id(), |s| s.loaded_at.set(Some(Instant::now())));
+        } else {
+            self.with_state(webview.id(), |s| {
+                s.has_document.set(true);
+                if status == LoadStatus::Complete {
+                    s.loaded_at.set(Some(Instant::now()));
+                }
+            });
         }
     }
 
     fn notify_new_frame_ready(&self, webview: WebView) {
         webview.paint();
+    }
+
+    fn notify_crashed(&self, webview: WebView, reason: String, backtrace: Option<String>) {
+        tracing::debug!(%reason, backtrace = backtrace.as_deref().unwrap_or(""), "page pipeline crashed");
+        self.with_state(webview.id(), |state| {
+            state.record_crash(&reason);
+        });
     }
 
     fn request_navigation(&self, _webview: WebView, navigation_request: NavigationRequest) {
@@ -259,14 +336,13 @@ pub(crate) struct ServoPage {
     pub visibility_json: Option<String>,
     pub screenshot: Option<RgbaImage>,
     pub js_result: Option<String>,
-    pub accessibility_tree: Option<String>,
     pub a11y: Option<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>,
     pub console_messages: Vec<ConsoleMessage>,
     pub url: String,
 }
 
 /// Parameters for a [`fetch_page`] call.
-pub(crate) struct FetchOptions<'a> {
+pub(crate) struct PageOptions<'a> {
     pub url: &'a str,
     pub timeout_secs: u64,
     /// Extra wait after Servo fires `LoadStatus::Complete`.
@@ -293,9 +369,14 @@ pub(crate) enum EngineError {
     Other(#[from] anyhow::Error),
 }
 
-type ReplyFn = Box<dyn FnOnce(Result<ServoPage, EngineError>) + Send + 'static>;
+pub(crate) enum WaitError {
+    PageCrashed(EngineError),
+    TimedOut,
+}
 
-struct FetchRequest {
+type Reply<T> = oneshot::Sender<Result<T, EngineError>>;
+
+struct PageRequest {
     url: String,
     timeout_secs: u64,
     settle_ms: u64,
@@ -303,15 +384,35 @@ struct FetchRequest {
     user_agent: Option<String>,
     cookies: Vec<CookieSpec>,
     headers: http::HeaderMap,
-    reply: ReplyFn,
+    reply: Reply<ServoPage>,
 }
 
 struct PendingFetch {
     webview: WebView,
-    request: FetchRequest,
+    request: PageRequest,
     deadline: Instant,
     state: Rc<WebViewState>,
     dedicated_ctx: Option<Rc<SoftwareRenderingContext>>,
+}
+
+impl PendingFetch {
+    fn completes_at(&self) -> Instant {
+        self.state.loaded_at.get().map_or(self.deadline, |loaded| {
+            (loaded + Duration::from_millis(self.request.settle_ms)).min(self.deadline)
+        })
+    }
+
+    fn is_done(&self, now: Instant) -> bool {
+        self.state.crash_error().is_some() || now >= self.completes_at()
+    }
+
+    fn next_wake_at(&self) -> Instant {
+        if self.state.awaiting_load() {
+            self.completes_at().min(self.state.next_ping_at())
+        } else {
+            self.completes_at()
+        }
+    }
 }
 
 /// Dispatch envelope for the process-local Servo engine thread.
@@ -320,62 +421,85 @@ enum EngineMsg {
         user_agent: Option<String>,
         cookie_scope: Option<String>,
         cookies: Vec<CookieSpec>,
-        reply: std::sync::mpsc::SyncSender<Result<(), EngineError>>,
+        reply: Reply<()>,
     },
-    Fetch(FetchRequest),
+    Fetch(PageRequest),
     Cookies {
         url: Url,
-        reply: std::sync::mpsc::SyncSender<Vec<CookieSpec>>,
+        reply: Reply<Vec<CookieSpec>>,
     },
 }
 
 type EngineTx = mpsc::Sender<EngineMsg>;
 type EngineRx = mpsc::Receiver<EngineMsg>;
 
+#[derive(Clone, Default)]
+pub(crate) struct EngineConfig {
+    pub(crate) policy: crate::net::NetworkPolicy,
+    pub(crate) storage: Option<(PathBuf, bool)>,
+}
+
 struct Engine {
     requests: EngineTx,
     wake: Arc<WakeFlag>,
-    policy: crate::net::NetworkPolicy,
+    config: EngineConfig,
 }
 
-/// Servo engine — lives for the process lifetime. Shutdown is via process exit.
-static ENGINE: OnceLock<Engine> = OnceLock::new();
-static POLICY: OnceLock<crate::net::NetworkPolicy> = OnceLock::new();
-static ENGINE_STORAGE: OnceLock<(PathBuf, bool)> = OnceLock::new();
-
-pub(crate) fn configure_engine_storage(config_dir: PathBuf, temporary_storage: bool) -> Result<(), EngineError> {
-    ENGINE_STORAGE
-        .set((config_dir, temporary_storage))
-        .map_err(|_| anyhow!("Servo engine storage is already configured").into())
-}
-
-pub(crate) fn try_set_engine_policy(policy: crate::net::NetworkPolicy) -> Result<(), EngineError> {
-    if ENGINE.get().is_some() {
-        return Err(anyhow!("Servo engine policy cannot be changed after initialization").into());
+impl Engine {
+    fn request<T>(&self, make: impl FnOnce(Reply<T>) -> EngineMsg) -> Result<T, EngineError> {
+        let (reply, receive) = oneshot::channel();
+        self.requests.try_send(make(reply)).map_err(|error| match error {
+            mpsc::error::TrySendError::Full(_) => Self::queue_full(),
+            mpsc::error::TrySendError::Closed(_) => Self::not_running(),
+        })?;
+        self.wake.signal();
+        receive.blocking_recv().unwrap_or_else(|_| Err(Self::stopped()))
     }
-    POLICY
-        .set(policy)
-        .map_err(|_| anyhow!("Servo engine policy is already configured").into())
+
+    async fn request_async<T>(&self, make: impl FnOnce(Reply<T>) -> EngineMsg) -> Result<T, EngineError> {
+        let (reply, receive) = oneshot::channel();
+        self.requests.send(make(reply)).await.map_err(|_| Self::not_running())?;
+        self.wake.signal();
+        receive.await.unwrap_or_else(|_| Err(Self::stopped()))
+    }
+
+    fn queue_full() -> EngineError {
+        anyhow!("Servo engine queue is full ({PENDING_CAPACITY} pending); back off and retry").into()
+    }
+
+    fn not_running() -> EngineError {
+        anyhow!("Servo engine is not running (it may have crashed on a previous request)").into()
+    }
+
+    fn stopped() -> EngineError {
+        anyhow!("Servo engine stopped while processing request").into()
+    }
 }
 
-pub(crate) fn set_engine_policy(policy: crate::net::NetworkPolicy) {
-    try_set_engine_policy(policy).expect("servo_fetch::init must be called at most once before engine initialization");
-}
+/// Servo engine — lives for the process lifetime.
+static ENGINE: OnceLock<Engine> = OnceLock::new();
+static ENGINE_CONFIG: OnceLock<EngineConfig> = OnceLock::new();
 
-fn pending_policy() -> crate::net::NetworkPolicy {
-    POLICY.get().copied().unwrap_or(crate::net::NetworkPolicy::STRICT)
+pub(crate) fn configure(config: EngineConfig) -> Result<(), EngineError> {
+    if ENGINE.get().is_some() {
+        return Err(anyhow!("Servo engine cannot be configured after initialization").into());
+    }
+    ENGINE_CONFIG
+        .set(config)
+        .map_err(|_| anyhow!("Servo engine is already configured").into())
 }
 
 pub(crate) fn engine_policy() -> crate::net::NetworkPolicy {
-    match ENGINE.get() {
-        Some(e) => e.policy,
-        None => pending_policy(),
-    }
+    ENGINE
+        .get()
+        .map(|engine| engine.config.policy)
+        .or_else(|| ENGINE_CONFIG.get().map(|config| config.policy))
+        .unwrap_or_default()
 }
 
 /// Page fetching abstraction for testability.
 pub(crate) trait PageFetcher: Send + Sync + 'static {
-    fn fetch_page(&self, opts: FetchOptions<'_>) -> Result<ServoPage, EngineError>;
+    fn fetch_page(&self, opts: PageOptions<'_>) -> Result<ServoPage, EngineError>;
 }
 
 /// Production implementation backed by the Servo engine.
@@ -383,7 +507,7 @@ pub(crate) trait PageFetcher: Send + Sync + 'static {
 pub(crate) struct ServoFetcher;
 
 impl PageFetcher for ServoFetcher {
-    fn fetch_page(&self, opts: FetchOptions<'_>) -> Result<ServoPage, EngineError> {
+    fn fetch_page(&self, opts: PageOptions<'_>) -> Result<ServoPage, EngineError> {
         fetch_page(opts)
     }
 }
@@ -395,30 +519,18 @@ fn ensure_engine() -> &'static Engine {
         let (tx, rx) = mpsc::channel::<EngineMsg>(PENDING_CAPACITY);
         let wake = Arc::new(WakeFlag::default());
         let wake_for_thread = wake.clone();
-        let policy = pending_policy();
+        let config = ENGINE_CONFIG.get().cloned().unwrap_or_default();
+        let thread_config = config.clone();
         thread::Builder::new()
             .name("servo-engine".into())
-            .spawn(move || servo_thread(rx, wake_for_thread, policy))
+            .spawn(move || servo_thread(rx, wake_for_thread, thread_config))
             .expect("failed to spawn servo thread");
         Engine {
             requests: tx,
             wake,
-            policy,
+            config,
         }
     })
-}
-
-fn build_request(opts: FetchOptions<'_>, reply: ReplyFn) -> FetchRequest {
-    FetchRequest {
-        url: opts.url.to_string(),
-        timeout_secs: opts.timeout_secs,
-        settle_ms: opts.settle_ms,
-        mode: opts.mode,
-        user_agent: opts.user_agent.map(String::from),
-        cookies: opts.cookies.to_vec(),
-        headers: opts.headers.clone(),
-        reply,
-    }
 }
 
 /// The document URL to expose: the WebView's current URL (falling back to the request) with credentials stripped.
@@ -438,109 +550,168 @@ pub(crate) fn initialize_session(
     cookie_scope: Option<&str>,
     cookies: &[CookieSpec],
 ) -> Result<(), EngineError> {
-    let engine = ensure_engine();
-    let (reply, recv) = std::sync::mpsc::sync_channel(1);
-    engine
-        .requests
-        .try_send(EngineMsg::Initialize {
-            user_agent: user_agent.map(String::from),
-            cookie_scope: cookie_scope.map(String::from),
-            cookies: cookies.to_vec(),
-            reply,
-        })
-        .map_err(|e| anyhow!("failed to initialize isolated Servo session: {e}"))?;
-    engine.wake.signal();
-    recv.recv()
-        .unwrap_or_else(|_| Err(anyhow!("Servo engine stopped during session initialization").into()))
+    ensure_engine().request(|reply| EngineMsg::Initialize {
+        user_agent: user_agent.map(String::from),
+        cookie_scope: cookie_scope.map(String::from),
+        cookies: cookies.to_vec(),
+        reply,
+    })
 }
 
-pub(crate) fn fetch_page(opts: FetchOptions<'_>) -> Result<ServoPage, EngineError> {
-    let engine = ensure_engine();
-    let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<Result<ServoPage, EngineError>>(1);
-    let request = build_request(
-        opts,
-        Box::new(move |r| {
-            let _ = reply_tx.send(r);
-        }),
-    );
-    engine
-        .requests
-        .try_send(EngineMsg::Fetch(request))
-        .map_err(|e| match e {
-            mpsc::error::TrySendError::Full(_) => {
-                anyhow!("Servo engine queue is full ({PENDING_CAPACITY} pending); back off and retry")
-            }
-            mpsc::error::TrySendError::Closed(_) => {
-                anyhow!("Servo engine is not running (it may have crashed on a previous request)")
-            }
-        })?;
-    engine.wake.signal();
-    reply_rx
-        .recv()
-        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page").into()))
+pub(crate) fn fetch_page(opts: PageOptions<'_>) -> Result<ServoPage, EngineError> {
+    ensure_engine().request(|reply| {
+        EngineMsg::Fetch(PageRequest {
+            url: opts.url.to_string(),
+            timeout_secs: opts.timeout_secs,
+            settle_ms: opts.settle_ms,
+            mode: opts.mode,
+            user_agent: opts.user_agent.map(String::from),
+            cookies: opts.cookies.to_vec(),
+            headers: opts.headers.clone(),
+            reply,
+        })
+    })
 }
 
 pub(crate) fn cookies_for(url: Url) -> Result<Vec<CookieSpec>, EngineError> {
-    let engine = ensure_engine();
-    let (reply, recv) = std::sync::mpsc::sync_channel(1);
-    engine
-        .requests
-        .try_send(EngineMsg::Cookies { url, reply })
-        .map_err(|e| match e {
-            mpsc::error::TrySendError::Full(_) => {
-                anyhow!("Servo engine queue is full ({PENDING_CAPACITY} pending); back off and retry")
-            }
-            mpsc::error::TrySendError::Closed(_) => {
-                anyhow!("Servo engine is not running (it may have crashed on a previous request)")
-            }
-        })?;
-    engine.wake.signal();
-    recv.recv()
-        .map_err(|_| anyhow!("Servo engine crashed while reading session cookies").into())
+    ensure_engine().request(|reply| EngineMsg::Cookies { url, reply })
 }
 
-pub(crate) async fn fetch_page_async(opts: FetchOptions<'_>) -> Result<ServoPage, EngineError> {
-    let engine = ensure_engine();
-    let (reply_tx, reply_rx) = oneshot::channel::<Result<ServoPage, EngineError>>();
-    let request = build_request(
-        opts,
-        Box::new(move |result| {
-            let _ = reply_tx.send(result);
-        }),
-    );
-    engine
-        .requests
-        .send(EngineMsg::Fetch(request))
+pub(crate) async fn fetch_page_async(opts: PageOptions<'_>) -> Result<ServoPage, EngineError> {
+    ensure_engine()
+        .request_async(|reply| {
+            EngineMsg::Fetch(PageRequest {
+                url: opts.url.to_string(),
+                timeout_secs: opts.timeout_secs,
+                settle_ms: opts.settle_ms,
+                mode: opts.mode,
+                user_agent: opts.user_agent.map(String::from),
+                cookies: opts.cookies.to_vec(),
+                headers: opts.headers.clone(),
+                reply,
+            })
+        })
         .await
-        .map_err(|_| anyhow!("Servo engine is not running (it may have crashed on a previous request)"))?;
-    engine.wake.signal();
-    reply_rx
-        .await
-        .unwrap_or_else(|_| Err(anyhow!("Servo engine crashed while processing this page").into()))
 }
 
 fn is_apple_gl_driver_noise(line: &str) -> bool {
     line.contains("GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type")
 }
 
+fn pong_callback(state: &Rc<WebViewState>) -> impl FnOnce(Result<JSValue, JavaScriptEvaluationError>) + 'static {
+    let state = Rc::downgrade(state);
+    move |result| {
+        if let Some(state) = state.upgrade() {
+            let _ = state.fail_if_stopped(&result);
+        }
+    }
+}
+
+fn ping_if_due(webview: &WebView, state: &Rc<WebViewState>, now: Instant) {
+    if state.ping_due(now) {
+        state.last_ping.set(now);
+        webview.evaluate_javascript("0", pong_callback(state));
+    }
+}
+
+/// A loaded page and the deadline every extraction step shares.
+pub(crate) struct PageHandle<'a> {
+    servo: &'a servo::Servo,
+    webview: &'a WebView,
+    state: &'a Rc<WebViewState>,
+    deadline: Instant,
+}
+
+impl PageHandle<'_> {
+    pub(crate) fn spin_until<T>(&self, mut ready: impl FnMut() -> Option<T>) -> Result<T, WaitError> {
+        loop {
+            self.servo.spin_event_loop();
+            if let Some(error) = self.state.crash_error() {
+                return Err(WaitError::PageCrashed(error));
+            }
+            if let Some(value) = ready() {
+                return Ok(value);
+            }
+            let now = Instant::now();
+            if now >= self.deadline {
+                return Err(WaitError::TimedOut);
+            }
+            ping_if_due(self.webview, self.state, now);
+            wait_for_wake(
+                self.deadline
+                    .min(self.state.next_ping_at())
+                    .saturating_duration_since(now),
+            );
+        }
+    }
+
+    pub(crate) fn eval(&self, script: &str) -> Result<String, EngineError> {
+        if let Some(error) = self.state.crash_error() {
+            return Err(error);
+        }
+        if Instant::now() >= self.deadline {
+            return Err(eval_error(WaitError::TimedOut));
+        }
+        let result = Rc::new(Cell::new(None));
+        let callback_result = result.clone();
+        self.webview
+            .evaluate_javascript(script, move |value| callback_result.set(Some(value)));
+        let value = self.spin_until(|| result.take()).map_err(eval_error)?;
+        self.state.fail_if_stopped(&value)?;
+        js_value_to_string(value)
+    }
+
+    /// Wait for `document.readyState` to reach `"complete"`.
+    ///
+    /// TODO(upstream): Servo's `LoadStatus::Complete` fires before the DOM is
+    /// fully parsed on pages with heavy inline scripts (e.g. amazon.co.jp); see
+    /// servo/servo#41972.
+    fn eval_optional(&self, script: &str) -> Result<Option<String>, EngineError> {
+        match self.eval(script) {
+            Ok(value) => Ok(Some(value)),
+            Err(error) => self.state.crash_error().map_or(Ok(None), |_| Err(error)),
+        }
+    }
+
+    fn wait_for_ready_state(&self) -> Result<(), EngineError> {
+        match self
+            .spin_until(|| matches!(self.eval("document.readyState"), Ok(value) if value == "complete").then_some(()))
+        {
+            Ok(()) => Ok(()),
+            Err(WaitError::PageCrashed(error)) => Err(error),
+            Err(WaitError::TimedOut) => {
+                tracing::warn!("document did not finish loading; content may be incomplete");
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) fn webview(&self) -> &WebView {
+        self.webview
+    }
+}
+
 #[expect(
     clippy::needless_pass_by_value,
     reason = "the thread owns its receiver for its lifetime"
 )]
-fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, policy: crate::net::NetworkPolicy) {
+fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, config: EngineConfig) {
     let _filter = crate::sys::StderrFilter::install(is_apple_gl_driver_noise).ok();
 
-    let (rc_ctx, servo) = match build_servo(FlagWaker(wake.clone())) {
+    let (rendering_context, servo) = match build_servo(FlagWaker(wake.clone()), &config) {
         Ok(pair) => pair,
-        Err(e) => {
+        Err(error) => {
             if let Some(msg) = request_rx.blocking_recv() {
+                let error = EngineError::from(error.context("Servo initialization failed"));
                 match msg {
                     EngineMsg::Initialize { reply, .. } => {
-                        let _ = reply.send(Err(e.context("Servo initialization failed").into()));
+                        let _ = reply.send(Err(error));
                     }
-                    EngineMsg::Fetch(req) => (req.reply)(Err(e.context("Servo initialization failed").into())),
+                    EngineMsg::Fetch(req) => {
+                        let _ = req.reply.send(Err(error));
+                    }
                     EngineMsg::Cookies { reply, .. } => {
-                        let _ = reply.send(Vec::new());
+                        let _ = reply.send(Ok(Vec::new()));
                     }
                 }
             }
@@ -548,133 +719,230 @@ fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, policy: crate::ne
         }
     };
 
-    WAKE.with(|slot| *slot.borrow_mut() = Some(wake.clone()));
+    WAKE.with(|slot| *slot.borrow_mut() = Some(wake));
 
     let delegate = Rc::new(SharedDelegate {
         states: RefCell::new(HashMap::new()),
-        policy,
+        policy: config.policy,
     });
-    let ucm = Rc::new(UserContentManager::new(&servo));
-    ucm.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
+    let user_content = Rc::new(UserContentManager::new(&servo));
+    user_content.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
 
-    let mut pending: HashMap<WebViewId, PendingFetch> = HashMap::new();
-    let mut baseline_user_agent = default_user_agent().to_owned();
-
-    loop {
-        while let Ok(msg) = request_rx.try_recv() {
-            accept_message(
-                &servo,
-                &rc_ctx,
-                &delegate,
-                &ucm,
-                msg,
-                &mut pending,
-                &mut baseline_user_agent,
-            );
-        }
-
-        if pending.is_empty() {
-            // Idle: block until a new message nudges us or the channel hangs up.
-            match request_rx.blocking_recv() {
-                Some(msg) => accept_message(
-                    &servo,
-                    &rc_ctx,
-                    &delegate,
-                    &ucm,
-                    msg,
-                    &mut pending,
-                    &mut baseline_user_agent,
-                ),
-                None => return,
-            }
-            continue;
-        }
-
-        servo.spin_event_loop();
-        harvest(&servo, &delegate, &mut pending);
-
-        if !pending.is_empty() {
-            // Wait for Servo to wake us or the next pending deadline, whichever is sooner.
-            let now = Instant::now();
-            let next_deadline = pending
-                .values()
-                .map(|p| {
-                    p.state
-                        .loaded_at
-                        .get()
-                        .map_or(p.deadline, |t| t + Duration::from_millis(p.request.settle_ms))
-                })
-                .min()
-                .expect("pending is non-empty");
-            wake.wait_and_take(next_deadline.saturating_duration_since(now));
-        }
+    EngineLoop {
+        servo,
+        rendering_context,
+        delegate,
+        user_content,
+        pending: HashMap::new(),
+        baseline_user_agent: default_user_agent().to_owned(),
     }
+    .run(request_rx);
 }
 
-fn accept_message(
-    servo: &servo::Servo,
-    rc_ctx: &Rc<SoftwareRenderingContext>,
-    delegate: &Rc<SharedDelegate>,
-    ucm: &Rc<UserContentManager>,
-    msg: EngineMsg,
-    pending: &mut HashMap<WebViewId, PendingFetch>,
-    baseline_user_agent: &mut String,
-) {
-    match msg {
-        EngineMsg::Initialize {
-            user_agent,
-            cookie_scope,
-            cookies,
-            reply,
-        } => {
-            *baseline_user_agent = user_agent.unwrap_or_else(|| default_user_agent().to_owned());
-            servo.set_preference("user_agent", servo::PrefValue::Str(baseline_user_agent.clone()));
-            let result = if cookies.is_empty() {
-                Ok(())
-            } else if let Some(scope) = cookie_scope {
-                match Url::parse(&scope) {
-                    Ok(scope) => {
-                        crate::cookies::seed(servo, &scope, &cookies);
-                        Ok(())
-                    }
-                    Err(e) => Err(anyhow!("invalid cookie scope URL: {e}").into()),
+struct EngineLoop {
+    servo: servo::Servo,
+    rendering_context: Rc<SoftwareRenderingContext>,
+    delegate: Rc<SharedDelegate>,
+    user_content: Rc<UserContentManager>,
+    pending: HashMap<WebViewId, PendingFetch>,
+    baseline_user_agent: String,
+}
+
+impl EngineLoop {
+    fn run(mut self, mut request_rx: EngineRx) {
+        loop {
+            while let Ok(msg) = request_rx.try_recv() {
+                self.accept(msg);
+            }
+
+            if self.pending.is_empty() {
+                match request_rx.blocking_recv() {
+                    Some(msg) => self.accept(msg),
+                    None => return,
                 }
-            } else {
-                Err(anyhow!("cookie_scope is required when session cookies are configured").into())
-            };
-            let _ = reply.send(result);
-        }
-        EngineMsg::Fetch(req) => {
-            if let Some(p) = start_fetch(servo, rc_ctx, delegate, ucm, baseline_user_agent, req) {
-                pending.insert(p.webview.id(), p);
+                continue;
+            }
+
+            self.servo.spin_event_loop();
+            self.ping_loading_webviews(Instant::now());
+            self.harvest();
+
+            if let Some(next_wake) = self.pending.values().map(PendingFetch::next_wake_at).min() {
+                wait_for_wake(next_wake.saturating_duration_since(Instant::now()));
             }
         }
-        EngineMsg::Cookies { url, reply } => {
-            let _ = reply.send(crate::cookies::capture(servo, &[url]));
+    }
+
+    fn accept(&mut self, msg: EngineMsg) {
+        match msg {
+            EngineMsg::Initialize {
+                user_agent,
+                cookie_scope,
+                cookies,
+                reply,
+            } => {
+                self.baseline_user_agent = user_agent.unwrap_or_else(|| default_user_agent().to_owned());
+                self.servo
+                    .set_preference("user_agent", servo::PrefValue::Str(self.baseline_user_agent.clone()));
+                let result = if cookies.is_empty() {
+                    Ok(())
+                } else if let Some(scope) = cookie_scope {
+                    match Url::parse(&scope) {
+                        Ok(scope) => {
+                            crate::cookies::seed(&self.servo, &scope, &cookies);
+                            Ok(())
+                        }
+                        Err(error) => Err(anyhow!("invalid cookie scope URL: {error}").into()),
+                    }
+                } else {
+                    Err(anyhow!("cookie_scope is required when session cookies are configured").into())
+                };
+                let _ = reply.send(result);
+            }
+            EngineMsg::Fetch(req) => {
+                if let Some(pending) = self.start_fetch(req) {
+                    self.pending.insert(pending.webview.id(), pending);
+                }
+            }
+            EngineMsg::Cookies { url, reply } => {
+                let _ = reply.send(Ok(crate::cookies::capture(&self.servo, &[url])));
+            }
         }
     }
-}
 
-fn harvest(servo: &servo::Servo, delegate: &Rc<SharedDelegate>, pending: &mut HashMap<WebViewId, PendingFetch>) {
-    let now = Instant::now();
-    let finished: Vec<WebViewId> = pending
-        .iter()
-        .filter_map(|(id, p)| {
-            let settled = p
-                .state
-                .loaded_at
-                .get()
-                .is_some_and(|t| now.duration_since(t) >= Duration::from_millis(p.request.settle_ms));
-            (settled || now > p.deadline).then_some(*id)
+    fn start_fetch(&mut self, req: PageRequest) -> Option<PendingFetch> {
+        let parsed_url = match Url::parse(&req.url) {
+            Ok(url) => url,
+            Err(error) => {
+                let _ = req.reply.send(Err(anyhow!("bad url: {error}").into()));
+                return None;
+            }
+        };
+
+        let user_agent = resolved_user_agent(req.user_agent.as_deref(), &self.baseline_user_agent);
+        self.servo
+            .set_preference("user_agent", servo::PrefValue::Str(user_agent.to_owned()));
+
+        crate::cookies::seed(&self.servo, &parsed_url, &req.cookies);
+
+        let dedicated_ctx = if matches!(req.mode, FetchMode::Screenshot { .. }) {
+            let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
+            match SoftwareRenderingContext::new(size) {
+                Ok(ctx) => {
+                    if let Err(error) = ctx.make_current() {
+                        let _ = req.reply.send(Err(
+                            anyhow!("failed to make screenshot context current: {error:?}").into()
+                        ));
+                        return None;
+                    }
+                    Some(Rc::new(ctx))
+                }
+                Err(error) => {
+                    let _ = req
+                        .reply
+                        .send(Err(anyhow!("failed to create screenshot context: {error:?}").into()));
+                    return None;
+                }
+            }
+        } else {
+            None
+        };
+
+        let rendering_context: Rc<dyn RenderingContext> = match dedicated_ctx.as_ref() {
+            Some(ctx) => ctx.clone(),
+            None => self.rendering_context.clone(),
+        };
+
+        let delegate: Rc<dyn WebViewDelegate> = self.delegate.clone();
+        let builder = WebViewBuilder::new(&self.servo, rendering_context)
+            .delegate(delegate)
+            .user_content_manager(self.user_content.clone());
+        let (webview, deferred) = if req.headers.is_empty() {
+            (builder.url(parsed_url).build(), None)
+        } else {
+            (
+                builder.build(),
+                Some(UrlRequest::new(parsed_url).headers(req.headers.clone())),
+            )
+        };
+
+        if matches!(req.mode, FetchMode::Content { include_a11y: true }) {
+            webview.set_accessibility_active(true);
+        }
+
+        let state = self.delegate.register(webview.id(), deferred);
+        let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
+        Some(PendingFetch {
+            webview,
+            request: req,
+            deadline,
+            state,
+            dedicated_ctx,
         })
-        .collect();
+    }
 
-    for id in finished {
-        let Some(p) = pending.remove(&id) else { continue };
-        let result = finish_fetch(servo, &p);
-        delegate.remove(id);
-        drop(p.webview);
-        (p.request.reply)(result);
+    fn harvest(&mut self) {
+        let now = Instant::now();
+        for pending in self
+            .pending
+            .extract_if(|_, pending| pending.is_done(now))
+            .map(|(_, pending)| pending)
+            .collect::<Vec<_>>()
+        {
+            let result = match pending.state.crash_error() {
+                Some(error) => Err(error),
+                None if pending.state.loaded_at.get().is_none() => {
+                    Err(EngineError::Timeout(pending.request.timeout_secs))
+                }
+                None => self.extract(&pending),
+            };
+            self.delegate.remove(pending.webview.id());
+            drop(pending.webview);
+            let _ = pending.request.reply.send(result);
+        }
+    }
+
+    fn extract(&self, pending: &PendingFetch) -> Result<ServoPage, EngineError> {
+        if let Some(ctx) = &pending.dedicated_ctx {
+            let _ = ctx.make_current();
+        }
+        let page = PageHandle {
+            servo: &self.servo,
+            webview: &pending.webview,
+            state: &pending.state,
+            deadline: extraction_deadline_for(pending.deadline),
+        };
+        page.wait_for_ready_state()?;
+        let html = page.eval("document.documentElement.outerHTML")?;
+        let inner_text = page.eval_optional("document.body.innerText")?;
+        let layout_json = page.eval_optional(LAYOUT_JS)?;
+        let visibility_json = page.eval_optional(VISIBILITY_JS)?;
+        let (screenshot, js_result) = match &pending.request.mode {
+            FetchMode::Screenshot { full_page } => (crate::screenshot::capture(&page, *full_page)?, None),
+            FetchMode::ExecuteJs { expression } => (None, Some(page.eval(expression)?)),
+            FetchMode::Content { .. } => (None, None),
+        };
+        Ok(ServoPage {
+            html,
+            inner_text,
+            layout_json,
+            visibility_json,
+            screenshot,
+            js_result,
+            a11y: pending.state.take_a11y(),
+            console_messages: pending.state.take_console_messages(),
+            url: document_url(pending.webview.url().as_ref(), &pending.request.url)?,
+        })
+    }
+
+    fn ping_loading_webviews(&self, now: Instant) {
+        for pending in self
+            .pending
+            .values()
+            .filter(|pending| pending.state.awaiting_load() && pending.state.crash_error().is_none())
+        {
+            ping_if_due(&pending.webview, &pending.state, now);
+        }
     }
 }
 
@@ -682,152 +950,7 @@ fn resolved_user_agent<'a>(request: Option<&'a str>, baseline: &'a str) -> &'a s
     request.unwrap_or(baseline)
 }
 
-fn start_fetch(
-    servo: &servo::Servo,
-    rc_ctx: &Rc<SoftwareRenderingContext>,
-    delegate: &Rc<SharedDelegate>,
-    ucm: &Rc<UserContentManager>,
-    baseline_user_agent: &str,
-    req: FetchRequest,
-) -> Option<PendingFetch> {
-    let parsed_url = match Url::parse(&req.url) {
-        Ok(u) => u,
-        Err(e) => {
-            (req.reply)(Err(anyhow!("bad url: {e}").into()));
-            return None;
-        }
-    };
-
-    let user_agent = resolved_user_agent(req.user_agent.as_deref(), baseline_user_agent);
-    servo.set_preference("user_agent", servo::PrefValue::Str(user_agent.to_owned()));
-
-    crate::cookies::seed(servo, &parsed_url, &req.cookies);
-
-    let dedicated_ctx = if matches!(req.mode, FetchMode::Screenshot { .. }) {
-        let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
-        match SoftwareRenderingContext::new(size) {
-            Ok(ctx) => {
-                if let Err(e) = ctx.make_current() {
-                    (req.reply)(Err(anyhow!("failed to make screenshot context current: {e:?}").into()));
-                    return None;
-                }
-                Some(Rc::new(ctx))
-            }
-            Err(e) => {
-                (req.reply)(Err(anyhow!("failed to create screenshot context: {e:?}").into()));
-                return None;
-            }
-        }
-    } else {
-        None
-    };
-
-    let rc_dyn: Rc<dyn RenderingContext> = match dedicated_ctx.as_ref() {
-        Some(ctx) => ctx.clone(),
-        None => rc_ctx.clone(),
-    };
-
-    let delegate_dyn: Rc<dyn WebViewDelegate> = delegate.clone();
-    let builder = WebViewBuilder::new(servo, rc_dyn)
-        .delegate(delegate_dyn)
-        .user_content_manager(ucm.clone());
-    let (webview, deferred) = if req.headers.is_empty() {
-        (builder.url(parsed_url).build(), None)
-    } else {
-        (
-            builder.build(),
-            Some(UrlRequest::new(parsed_url).headers(req.headers.clone())),
-        )
-    };
-
-    if matches!(req.mode, FetchMode::Content { include_a11y: true }) {
-        webview.set_accessibility_active(true);
-    }
-
-    let state = delegate.register(webview.id(), deferred);
-    let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
-    Some(PendingFetch {
-        webview,
-        request: req,
-        deadline,
-        state,
-        dedicated_ctx,
-    })
-}
-
-fn finish_fetch(servo: &servo::Servo, p: &PendingFetch) -> Result<ServoPage, EngineError> {
-    let timed_out = p.state.loaded_at.get().is_none() && Instant::now() > p.deadline;
-
-    if timed_out {
-        return Err(EngineError::Timeout(p.request.timeout_secs));
-    }
-
-    if let Some(ref ctx) = p.dedicated_ctx {
-        let _ = ctx.make_current();
-    }
-
-    let extraction_deadline = extraction_deadline_for(p.deadline);
-
-    wait_for_ready_state(servo, &p.webview, extraction_deadline);
-
-    let inner_text = eval_js(servo, &p.webview, "document.body.innerText", extraction_deadline).ok();
-    let layout_json = eval_js(servo, &p.webview, LAYOUT_JS, extraction_deadline).ok();
-    let visibility_json = eval_js(servo, &p.webview, VISIBILITY_JS, extraction_deadline).ok();
-
-    let html = match eval_js(
-        servo,
-        &p.webview,
-        "document.documentElement.outerHTML",
-        extraction_deadline,
-    ) {
-        Ok(h) if !h.is_empty() => h,
-        other => other?,
-    };
-
-    let (screenshot, js_result) = match &p.request.mode {
-        FetchMode::Screenshot { full_page } => (
-            crate::screenshot::capture(servo, &p.webview, *full_page, extraction_deadline),
-            None,
-        ),
-        FetchMode::ExecuteJs { expression } => {
-            (None, Some(eval_js(servo, &p.webview, expression, extraction_deadline)?))
-        }
-        FetchMode::Content { .. } => (None, None),
-    };
-
-    let (a11y, accessibility_tree) = {
-        let mut nodes = p.state.a11y_nodes.borrow_mut();
-        if nodes.is_empty() {
-            (None, None)
-        } else {
-            for node in nodes.values_mut() {
-                if node.role() == servo::accesskit::Role::PasswordInput {
-                    node.clear_value();
-                }
-            }
-            let json = serde_json::to_string(&*nodes).ok();
-            let typed = std::mem::take(&mut *nodes);
-            (Some(typed), json)
-        }
-    };
-
-    let url = document_url(p.webview.url().as_ref(), &p.request.url)?;
-
-    Ok(ServoPage {
-        html,
-        inner_text,
-        layout_json,
-        visibility_json,
-        screenshot,
-        js_result,
-        accessibility_tree,
-        a11y,
-        console_messages: p.state.console_messages.borrow_mut().drain(..).collect(),
-        url,
-    })
-}
-
-fn build_servo(waker: FlagWaker) -> Result<(Rc<SoftwareRenderingContext>, servo::Servo)> {
+fn build_servo(waker: FlagWaker, config: &EngineConfig) -> Result<(Rc<SoftwareRenderingContext>, servo::Servo)> {
     let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
     let ctx = {
         let ctx =
@@ -850,9 +973,9 @@ fn build_servo(waker: FlagWaker) -> Result<(Rc<SoftwareRenderingContext>, servo:
         ..Preferences::default()
     };
 
-    let (config_dir, temporary_storage) = ENGINE_STORAGE
-        .get()
-        .cloned()
+    let (config_dir, temporary_storage) = config
+        .storage
+        .clone()
         .map_or((None, false), |(path, temporary)| (Some(path), temporary));
     let opts = servo::Opts {
         config_dir,
@@ -873,55 +996,23 @@ fn create_noise_removal_stylesheet() -> servo::user_contents::UserStyleSheet {
     servo::user_contents::UserStyleSheet::new(NOISE_REMOVAL_CSS.to_string(), url)
 }
 
-/// Wait for `document.readyState` to reach `"complete"`.
-///
-/// TODO(upstream): Servo's `LoadStatus::Complete` fires before the DOM is
-/// fully parsed on pages with heavy inline scripts (e.g. amazon.co.jp); see
-/// servo/servo#41972.
-fn wait_for_ready_state(servo: &servo::Servo, webview: &WebView, deadline: Instant) {
-    loop {
-        servo.spin_event_loop();
-        if matches!(eval_js(servo, webview, "document.readyState", deadline), Ok(s) if s == "complete") {
-            return;
-        }
-        let now = Instant::now();
-        if now >= deadline {
-            tracing::warn!("document did not finish loading; content may be incomplete");
-            return;
-        }
-        wait_for_wake(deadline.saturating_duration_since(now));
+fn eval_error(error: WaitError) -> EngineError {
+    match error {
+        WaitError::PageCrashed(error) => error,
+        WaitError::TimedOut => anyhow!("timeout waiting for JS evaluation").into(),
     }
 }
 
-pub(crate) fn eval_js(servo: &servo::Servo, webview: &WebView, script: &str, deadline: Instant) -> Result<String> {
-    if Instant::now() >= deadline {
-        return Err(anyhow!("timeout waiting for JS evaluation"));
-    }
-    let result: Rc<RefCell<Option<Result<String>>>> = Rc::new(RefCell::new(None));
-    let cb_result = result.clone();
-
-    webview.evaluate_javascript(script, move |js_result| {
-        let val = match js_result {
-            Ok(JSValue::String(s)) => Ok(s),
-            Ok(JSValue::Undefined | JSValue::Null) => Ok(String::new()),
-            Ok(JSValue::Boolean(b)) => Ok(b.to_string()),
-            Ok(JSValue::Number(n)) => Ok(n.to_string()),
-            Ok(other) => jsvalue_to_json(&other).and_then(|v| serde_json::to_string(&v).map_err(|e| anyhow!("{e}"))),
-            Err(e) => Err(anyhow!("JS eval error: {e:?}")),
-        };
-        *cb_result.borrow_mut() = Some(val);
-    });
-
-    loop {
-        servo.spin_event_loop();
-        if let Some(val) = result.borrow_mut().take() {
-            return val;
-        }
-        let now = Instant::now();
-        if now >= deadline {
-            return Err(anyhow!("timeout waiting for JS evaluation"));
-        }
-        wait_for_wake(deadline.saturating_duration_since(now));
+fn js_value_to_string(value: Result<JSValue, JavaScriptEvaluationError>) -> Result<String, EngineError> {
+    match value {
+        Ok(JSValue::String(s)) => Ok(s),
+        Ok(JSValue::Undefined | JSValue::Null) => Ok(String::new()),
+        Ok(JSValue::Boolean(b)) => Ok(b.to_string()),
+        Ok(JSValue::Number(n)) => Ok(n.to_string()),
+        Ok(other) => jsvalue_to_json(&other)
+            .and_then(|value| serde_json::to_string(&value).map_err(|error| anyhow!("{error}")))
+            .map_err(EngineError::from),
+        Err(error) => Err(anyhow!("JS eval error: {error:?}").into()),
     }
 }
 
@@ -997,9 +1088,58 @@ mod tests {
         assert!(page.visibility_json.is_none());
         assert!(page.screenshot.is_none());
         assert!(page.js_result.is_none());
-        assert!(page.accessibility_tree.is_none());
         assert!(page.a11y.is_none());
         assert!(page.console_messages.is_empty());
+    }
+
+    #[test]
+    fn ping_due_fires_once_per_interval() {
+        let started = Instant::now();
+        let state = WebViewState::new(None);
+        state.last_ping.set(started);
+        assert!(!state.ping_due(started + KEEP_ALIVE_INTERVAL.saturating_sub(Duration::from_millis(1))));
+        assert!(state.ping_due(started + KEEP_ALIVE_INTERVAL));
+
+        let overdue = started + KEEP_ALIVE_INTERVAL * 3;
+        assert!(state.ping_due(overdue));
+        state.last_ping.set(overdue);
+        assert!(!state.ping_due(overdue));
+        assert!(!state.ping_due(overdue + KEEP_ALIVE_INTERVAL.saturating_sub(Duration::from_millis(1))));
+        assert!(state.ping_due(overdue + KEEP_ALIVE_INTERVAL));
+    }
+
+    #[test]
+    fn only_internal_eval_errors_record_a_stopped_script_thread() {
+        let state = WebViewState::new(None);
+        for error in [
+            JavaScriptEvaluationError::DocumentNotFound,
+            JavaScriptEvaluationError::CompilationFailure,
+            JavaScriptEvaluationError::EvaluationFailure(None),
+            JavaScriptEvaluationError::WebViewNotReady,
+        ] {
+            assert!(state.fail_if_stopped(&Err(error)).is_ok());
+        }
+        assert!(state.crash_error().is_none());
+        assert!(
+            state
+                .fail_if_stopped(&Err(JavaScriptEvaluationError::InternalError))
+                .is_err()
+        );
+        assert_eq!(
+            state.crash_error().unwrap().to_string(),
+            "page crashed: script thread stopped responding"
+        );
+    }
+
+    #[test]
+    fn late_pong_does_not_retain_ended_state() {
+        let state = Rc::new(WebViewState::new(None));
+        let weak = Rc::downgrade(&state);
+        let callback = pong_callback(&state);
+        assert_eq!(Rc::strong_count(&state), 1);
+        drop(state);
+        callback(Err(JavaScriptEvaluationError::InternalError));
+        assert!(weak.upgrade().is_none());
     }
 
     #[test]
@@ -1110,7 +1250,7 @@ mod tests {
 
     #[test]
     fn webview_state_default() {
-        let state = WebViewState::default();
+        let state = WebViewState::new(None);
         assert!(state.loaded_at.get().is_none(), "loaded_at should be None");
         assert!(!state.a11y_truncated.get(), "a11y_truncated should be false");
         assert!(state.a11y_nodes.borrow().is_empty(), "a11y_nodes should be empty");
@@ -1120,42 +1260,28 @@ mod tests {
         );
     }
 
-    fn closure_test_request(reply: ReplyFn) -> FetchRequest {
-        FetchRequest {
-            url: "test://".into(),
-            timeout_secs: 1,
-            settle_ms: 0,
-            mode: FetchMode::Content { include_a11y: false },
-            user_agent: None,
-            cookies: Vec::new(),
-            headers: http::HeaderMap::new(),
-            reply,
-        }
+    #[test]
+    fn take_a11y_redacts_password_values_and_drains_state() {
+        let state = WebViewState::new(None);
+        let mut password = servo::accesskit::Node::new(servo::accesskit::Role::PasswordInput);
+        password.set_value("secret");
+        let mut text = servo::accesskit::Node::new(servo::accesskit::Role::TextInput);
+        text.set_value("visible");
+        state.a11y_nodes.borrow_mut().extend([
+            (servo::accesskit::NodeId(1), password),
+            (servo::accesskit::NodeId(2), text),
+        ]);
+
+        let nodes = state.take_a11y().unwrap();
+        assert!(nodes[&servo::accesskit::NodeId(1)].value().is_none());
+        assert_eq!(nodes[&servo::accesskit::NodeId(2)].value(), Some("visible"));
+        assert!(state.take_a11y().is_none());
     }
 
     #[test]
     fn request_user_agent_prefers_override_and_falls_back_to_session() {
         assert_eq!(resolved_user_agent(Some("Request/1"), "Session/1"), "Request/1");
         assert_eq!(resolved_user_agent(None, "Session/1"), "Session/1");
-    }
-
-    #[test]
-    fn build_request_preserves_fields() {
-        let opts = FetchOptions {
-            url: "test://example",
-            timeout_secs: 5,
-            settle_ms: 100,
-            mode: FetchMode::Content { include_a11y: false },
-            user_agent: Some("test-ua"),
-            cookies: &[],
-            headers: &http::HeaderMap::new(),
-        };
-        let req = build_request(opts, Box::new(|_| {}));
-        assert_eq!(req.url, "test://example");
-        assert_eq!(req.timeout_secs, 5);
-        assert_eq!(req.settle_ms, 100);
-        assert_eq!(req.user_agent.as_deref(), Some("test-ua"));
-        assert!(matches!(req.mode, FetchMode::Content { include_a11y: false }));
     }
 
     #[test]
@@ -1173,56 +1299,6 @@ mod tests {
         let future = Instant::now() + Duration::from_secs(60);
         let result = extraction_deadline_for(future);
         assert_eq!(result, future);
-    }
-
-    #[test]
-    fn closure_reply_delivers_via_std_mpsc() {
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<ServoPage, EngineError>>(1);
-        let req = closure_test_request(Box::new(move |r| {
-            let _ = tx.send(r);
-        }));
-        (req.reply)(Ok(ServoPage::default()));
-        let Ok(Ok(page)) = rx.recv_timeout(Duration::from_millis(50)) else {
-            panic!("expected Ok delivery");
-        };
-        assert!(page.html.is_empty());
-    }
-
-    #[tokio::test]
-    async fn closure_reply_delivers_via_oneshot() {
-        let (tx, rx) = oneshot::channel::<Result<ServoPage, EngineError>>();
-        let req = closure_test_request(Box::new(move |r| {
-            let _ = tx.send(r);
-        }));
-        (req.reply)(Err(anyhow!("test failure").into()));
-        let Ok(Err(err)) = rx.await else {
-            panic!("expected Err delivery");
-        };
-        assert!(err.to_string().contains("test failure"));
-    }
-
-    #[test]
-    fn closure_drop_disconnects_std_mpsc_receiver() {
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<ServoPage, EngineError>>(1);
-        let req = closure_test_request(Box::new(move |r| {
-            let _ = tx.send(r);
-        }));
-        drop(req); // simulate engine dropping the request before invoking reply
-        match rx.recv_timeout(Duration::from_millis(50)) {
-            Ok(_) => panic!("expected disconnect"),
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
-            Err(other) => panic!("expected Disconnected, got: {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn closure_drop_disconnects_oneshot_receiver() {
-        let (tx, rx) = oneshot::channel::<Result<ServoPage, EngineError>>();
-        let req = closure_test_request(Box::new(move |r| {
-            let _ = tx.send(r);
-        }));
-        drop(req);
-        assert!(rx.await.is_err());
     }
 
     #[test]

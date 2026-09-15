@@ -13,6 +13,13 @@ pub struct NetworkPolicy {
     deny_private: bool,
 }
 
+/// The default is [`NetworkPolicy::STRICT`].
+impl Default for NetworkPolicy {
+    fn default() -> Self {
+        Self::STRICT
+    }
+}
+
 impl NetworkPolicy {
     /// Block all private/reserved addresses (production default).
     pub const STRICT: Self = Self { deny_private: true };

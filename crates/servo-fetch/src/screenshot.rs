@@ -1,15 +1,14 @@
 //! Screenshot capture — viewport or full-page PNG rendering via Servo.
 
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Instant;
 
 use dpi::PhysicalSize;
 use euclid::{Box2D, Point2D};
 use image::RgbaImage;
 use servo::{DevicePixel, WebView, WebViewRect};
 
-use crate::bridge::{eval_js, wait_for_wake};
+use crate::bridge::{EngineError, PageHandle, WaitError};
 use crate::layout;
 
 /// Matches the GPU texture limit on most modern hardware and caps the RGBA framebuffer at ~1 GB.
@@ -17,42 +16,64 @@ const MAX_SCREENSHOT_DIMENSION: u32 = 16_384;
 const MAX_FULL_PAGE_RESIZE_PASSES: usize = 3;
 const SCENE_PROBE_SIZE: PhysicalSize<u32> = PhysicalSize::new(1, 1);
 
-/// Capture a PNG screenshot of the page, temporarily resizing the viewport
-/// to the full content size when `full_page` is set.
-pub(crate) fn capture(
-    servo: &servo::Servo,
-    webview: &WebView,
-    full_page: bool,
-    deadline: Instant,
-) -> Option<RgbaImage> {
-    if !full_page {
-        return take_screenshot(servo, webview, None, deadline);
-    }
-
-    capture_full_page(servo, webview, deadline)
+enum CaptureError {
+    Crashed(EngineError),
+    Failed(servo::ScreenshotCaptureError),
+    TimedOut,
 }
 
-fn capture_full_page(servo: &servo::Servo, webview: &WebView, deadline: Instant) -> Option<RgbaImage> {
+impl From<WaitError> for CaptureError {
+    fn from(error: WaitError) -> Self {
+        match error {
+            WaitError::PageCrashed(error) => Self::Crashed(error),
+            WaitError::TimedOut => Self::TimedOut,
+        }
+    }
+}
+
+/// Capture a PNG screenshot of the page, temporarily resizing the viewport
+/// to the full content size when `full_page` is set.
+pub(crate) fn capture(page: &PageHandle<'_>, full_page: bool) -> Result<Option<RgbaImage>, EngineError> {
+    let result = if full_page {
+        capture_full_page(page)
+    } else {
+        take_screenshot(page, None)
+    };
+    match result {
+        Ok(image) => Ok(Some(image)),
+        Err(CaptureError::Crashed(error)) => Err(error),
+        Err(CaptureError::Failed(error)) => {
+            tracing::warn!(error = ?error, "screenshot capture failed");
+            Ok(None)
+        }
+        Err(CaptureError::TimedOut) => {
+            tracing::warn!("screenshot capture timed out");
+            Ok(None)
+        }
+    }
+}
+
+fn capture_full_page(page: &PageHandle<'_>) -> Result<RgbaImage, CaptureError> {
     let viewport = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
-    let Some(measured) = measure_full_page(servo, webview, deadline) else {
+    let Some(measured) = measure_full_page(page) else {
         tracing::warn!("failed to measure full page size; falling back to viewport screenshot");
-        return take_screenshot(servo, webview, None, deadline);
+        return take_screenshot(page, None);
     };
     let Some(mut capture_size) = resolve_full_page_size(measured, viewport, MAX_SCREENSHOT_DIMENSION) else {
-        return take_screenshot(servo, webview, None, deadline);
+        return take_screenshot(page, None);
     };
     warn_if_clamped(measured, capture_size);
 
     let _restore = ViewportRestore {
-        webview,
+        webview: page.webview(),
         size: viewport,
     };
 
     for pass in 0..MAX_FULL_PAGE_RESIZE_PASSES {
-        webview.resize(capture_size);
-        wait_for_scene_update(servo, webview, deadline)?;
+        page.webview().resize(capture_size);
+        wait_for_scene_update(page)?;
 
-        let Some(measured) = measure_full_page(servo, webview, deadline) else {
+        let Some(measured) = measure_full_page(page) else {
             tracing::warn!("failed to remeasure full page after resize; capturing current geometry");
             break;
         };
@@ -75,13 +96,12 @@ fn capture_full_page(servo: &servo::Servo, webview: &WebView, deadline: Instant)
         capture_size = grown;
     }
 
-    take_screenshot(servo, webview, Some(device_rect(capture_size)), deadline)
+    take_screenshot(page, Some(device_rect(capture_size)))
 }
 
 /// Wait for Servo's rendered scene to catch up with the most recent resize.
-fn wait_for_scene_update(servo: &servo::Servo, webview: &WebView, deadline: Instant) -> Option<()> {
-    take_screenshot(servo, webview, Some(device_rect(SCENE_PROBE_SIZE)), deadline)?;
-    Some(())
+fn wait_for_scene_update(page: &PageHandle<'_>) -> Result<(), CaptureError> {
+    take_screenshot(page, Some(device_rect(SCENE_PROBE_SIZE))).map(drop)
 }
 
 fn grow_capture_size(current: PhysicalSize<u32>, measured: PhysicalSize<u32>) -> PhysicalSize<u32> {
@@ -114,32 +134,13 @@ impl Drop for ViewportRestore<'_> {
 
 /// Invoke `WebView::take_screenshot` synchronously by spinning the event loop
 /// until the callback fires or the deadline elapses.
-fn take_screenshot(
-    servo: &servo::Servo,
-    webview: &WebView,
-    rect: Option<WebViewRect>,
-    deadline: Instant,
-) -> Option<RgbaImage> {
-    let result: Rc<RefCell<Option<Result<RgbaImage, servo::ScreenshotCaptureError>>>> = Rc::new(RefCell::new(None));
-    let cb_result = result.clone();
-    webview.take_screenshot(rect, move |r| {
-        *cb_result.borrow_mut() = Some(r);
-    });
+fn take_screenshot(page: &PageHandle<'_>, rect: Option<WebViewRect>) -> Result<RgbaImage, CaptureError> {
+    let result = Rc::new(Cell::new(None));
+    let callback_result = result.clone();
+    page.webview()
+        .take_screenshot(rect, move |image| callback_result.set(Some(image)));
 
-    loop {
-        servo.spin_event_loop();
-        if let Some(outcome) = result.borrow_mut().take() {
-            return outcome
-                .inspect_err(|e| tracing::warn!(error = ?e, "screenshot capture failed"))
-                .ok();
-        }
-        let now = Instant::now();
-        if now >= deadline {
-            tracing::warn!("screenshot capture timed out");
-            return None;
-        }
-        wait_for_wake(deadline.saturating_duration_since(now));
-    }
+    page.spin_until(|| result.take())?.map_err(CaptureError::Failed)
 }
 
 #[expect(clippy::cast_precision_loss, reason = "dimensions stay well below 2^23")]
@@ -168,7 +169,7 @@ fn resolve_full_page_size(
 }
 
 /// Read the full scrollable content size via JS, saturating at [`u32::MAX`].
-fn measure_full_page(servo: &servo::Servo, webview: &WebView, deadline: Instant) -> Option<PhysicalSize<u32>> {
+fn measure_full_page(page: &PageHandle<'_>) -> Option<PhysicalSize<u32>> {
     const SIZE_JS: &str = r"
         (() => {
             const root = document.documentElement;
@@ -187,8 +188,8 @@ fn measure_full_page(servo: &servo::Servo, webview: &WebView, deadline: Instant)
         w: f64,
         h: f64,
     }
-    let raw = eval_js(servo, webview, SIZE_JS, deadline).ok()?;
-    let size: Size = serde_json::from_str(&raw).ok()?;
+    let raw = page.eval(SIZE_JS).ok()?;
+    let size = serde_json::from_str::<Size>(&raw).ok()?;
     Some(PhysicalSize::new(
         normalize_dimension(size.w),
         normalize_dimension(size.h),

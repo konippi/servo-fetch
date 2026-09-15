@@ -113,8 +113,10 @@ impl Page {
             .with_selector(selector)
             .with_visibility(self.visibility_policy)
     }
+}
 
-    pub(crate) fn from_servo(page: crate::bridge::ServoPage) -> Self {
+impl From<crate::bridge::ServoPage> for Page {
+    fn from(page: crate::bridge::ServoPage) -> Self {
         let title = {
             let doc = dom_query::Document::from(page.html.as_str());
             let t = doc.select("title").text().to_string();
@@ -135,7 +137,7 @@ impl Page {
             js_result: page.js_result,
             console_messages: page.console_messages.into_iter().map(ConsoleMessage::from).collect(),
             screenshot_png,
-            accessibility_tree: page.accessibility_tree,
+            accessibility_tree: page.a11y.as_ref().and_then(|nodes| serde_json::to_string(nodes).ok()),
             a11y: page.a11y.map(Arc::new),
             extracted: None,
             visibility_policy: crate::visibility::VisibilityPolicy::default(),
@@ -463,8 +465,8 @@ pub(crate) fn pdf_page(url: &str, bytes: &[u8]) -> Page {
     }
 }
 
-fn build_bridge_options(opts: &FetchOptions) -> crate::bridge::FetchOptions<'_> {
-    crate::bridge::FetchOptions {
+fn build_bridge_options(opts: &FetchOptions) -> crate::bridge::PageOptions<'_> {
+    crate::bridge::PageOptions {
         url: &opts.url,
         timeout_secs: opts.effective_timeout().as_secs().max(1),
         settle_ms: u64::try_from(opts.effective_settle().as_millis()).unwrap_or(u64::MAX),
@@ -482,7 +484,7 @@ fn build_bridge_options(opts: &FetchOptions) -> crate::bridge::FetchOptions<'_> 
 }
 
 fn finalize_page(servo_page: crate::bridge::ServoPage, opts: &FetchOptions) -> Page {
-    let mut page = Page::from_servo(servo_page);
+    let mut page = Page::from(servo_page);
     page.visibility_policy = opts.effective_visibility();
     if let Some(schema) = opts.extract_schema.as_ref() {
         page.extracted = Some(schema.extract_from(&page.html));
@@ -747,7 +749,7 @@ mod tests {
         fn extracts_title_from_html() {
             let mut sp = empty_servo_page();
             sp.html = "<html><head><title>Hello World</title></head></html>".into();
-            let page = Page::from_servo(sp);
+            let page = Page::from(sp);
             assert_eq!(page.title.as_deref(), Some("Hello World"));
         }
 
@@ -755,7 +757,7 @@ mod tests {
         fn title_is_none_when_tag_missing() {
             let mut sp = empty_servo_page();
             sp.html = "<html><body>no title here</body></html>".into();
-            let page = Page::from_servo(sp);
+            let page = Page::from(sp);
             assert!(page.title.is_none());
         }
 
@@ -763,13 +765,13 @@ mod tests {
         fn title_is_none_when_tag_empty() {
             let mut sp = empty_servo_page();
             sp.html = "<html><head><title></title></head></html>".into();
-            let page = Page::from_servo(sp);
+            let page = Page::from(sp);
             assert!(page.title.is_none());
         }
 
         #[test]
         fn title_is_none_for_empty_html() {
-            let page = Page::from_servo(empty_servo_page());
+            let page = Page::from(empty_servo_page());
             assert!(page.title.is_none());
         }
 
@@ -777,7 +779,7 @@ mod tests {
         fn inner_text_none_becomes_empty_string() {
             let sp = empty_servo_page();
             assert!(sp.inner_text.is_none());
-            let page = Page::from_servo(sp);
+            let page = Page::from(sp);
             assert_eq!(page.inner_text, "");
         }
 
@@ -785,14 +787,14 @@ mod tests {
         fn screenshot_is_encoded_as_png() {
             let mut sp = empty_servo_page();
             sp.screenshot = Some(synthetic_image(8, 8));
-            let page = Page::from_servo(sp);
+            let page = Page::from(sp);
             let bytes = page.screenshot_png().expect("screenshot encoded");
             assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "PNG magic bytes");
         }
 
         #[test]
         fn console_messages_empty_by_default() {
-            let page = Page::from_servo(empty_servo_page());
+            let page = Page::from(empty_servo_page());
             assert!(page.console_messages.is_empty());
         }
 
@@ -813,7 +815,7 @@ mod tests {
                     level: src,
                     message: "msg".into(),
                 }];
-                let page = Page::from_servo(sp);
+                let page = Page::from(sp);
                 assert_eq!(
                     page.console_messages.len(),
                     1,
@@ -844,7 +846,7 @@ mod tests {
                     message: "third".into(),
                 },
             ];
-            let page = Page::from_servo(sp);
+            let page = Page::from(sp);
             assert_eq!(page.console_messages.len(), 3);
             assert_eq!(page.console_messages[0].message, "first");
             assert_eq!(page.console_messages[1].message, "second");
@@ -856,7 +858,7 @@ mod tests {
 
         #[test]
         fn extracted_starts_as_none_until_schema_applied() {
-            let page = Page::from_servo(empty_servo_page());
+            let page = Page::from(empty_servo_page());
             assert!(page.extracted.is_none());
         }
 
@@ -869,21 +871,32 @@ mod tests {
                 visibility_json: Some("[]".into()),
                 screenshot: Some(synthetic_image(2, 2)),
                 js_result: Some("42".into()),
-                accessibility_tree: Some("{}".into()),
-                a11y: None,
+                a11y: Some(
+                    [(
+                        servo::accesskit::NodeId(1),
+                        servo::accesskit::Node::new(servo::accesskit::Role::Document),
+                    )]
+                    .into(),
+                ),
                 console_messages: vec![bridge::ConsoleMessage {
                     level: bridge::ConsoleLevel::Log,
                     message: "x".into(),
                 }],
                 url: "https://example.com/final".into(),
             };
-            let page = Page::from_servo(sp);
+            let page = Page::from(sp);
             assert_eq!(page.html, "<html><head><title>T</title></head><body>B</body></html>");
             assert_eq!(page.inner_text, "B");
             assert_eq!(page.title.as_deref(), Some("T"));
             assert_eq!(page.layout_json.as_deref(), Some("[]"));
             assert_eq!(page.js_result.as_deref(), Some("42"));
-            assert_eq!(page.accessibility_tree.as_deref(), Some("{}"));
+            let accessibility_tree = page.accessibility_tree.as_deref().unwrap();
+            let nodes: std::collections::HashMap<servo::accesskit::NodeId, servo::accesskit::Node> =
+                serde_json::from_str(accessibility_tree).unwrap();
+            assert_eq!(
+                nodes[&servo::accesskit::NodeId(1)].role(),
+                servo::accesskit::Role::Document
+            );
             assert_eq!(page.console_messages.len(), 1);
             assert!(page.screenshot_png().is_some());
             assert!(page.extracted.is_none());

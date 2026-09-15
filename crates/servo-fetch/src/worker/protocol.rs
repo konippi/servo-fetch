@@ -234,19 +234,19 @@ pub(super) fn handle_worker_initialize(config: InitializeSession, state: &mut Wo
 
     // Mutating process-global Servo state makes any initialization failure terminal.
     *state = WorkerState::Failed;
-    let result = crate::bridge::configure_engine_storage(config.config_dir, config.temporary_storage)
+    let result = crate::bridge::configure(crate::bridge::EngineConfig {
+        policy: config.policy,
+        storage: Some((config.config_dir, config.temporary_storage)),
+    })
+    .map_err(|error| worker_error(error.to_string()))
+    .and_then(|()| {
+        crate::bridge::initialize_session(
+            config.user_agent.as_deref(),
+            config.cookie_scope.as_deref(),
+            &config.cookies,
+        )
         .map_err(|error| worker_error(error.to_string()))
-        .and_then(|()| {
-            crate::bridge::try_set_engine_policy(config.policy).map_err(|error| worker_error(error.to_string()))
-        })
-        .and_then(|()| {
-            crate::bridge::initialize_session(
-                config.user_agent.as_deref(),
-                config.cookie_scope.as_deref(),
-                &config.cookies,
-            )
-            .map_err(|error| worker_error(error.to_string()))
-        });
+    });
     match result {
         Ok(()) => {
             *state = WorkerState::Ready {

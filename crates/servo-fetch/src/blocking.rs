@@ -1,4 +1,7 @@
 //! Blocking API mirror of the top-level async API.
+//!
+//! These functions block the calling thread and panic when called from within an async runtime;
+//! call them from a plain thread or [`tokio::task::spawn_blocking`], or use the async API instead.
 
 mod client;
 

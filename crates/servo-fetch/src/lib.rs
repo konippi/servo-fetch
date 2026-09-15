@@ -61,5 +61,6 @@ pub use worker::run_worker_stdio;
 
 /// Set the network policy. Must be called at most once, before any engine use.
 pub fn init(policy: NetworkPolicy) {
-    bridge::set_engine_policy(policy);
+    bridge::configure(bridge::EngineConfig { policy, storage: None })
+        .expect("servo_fetch::init must be called at most once before engine initialization");
 }

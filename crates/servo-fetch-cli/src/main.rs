@@ -59,7 +59,7 @@ fn dispatch(args: &Cli) -> anyhow::Result<()> {
         } else {
             servo_fetch::NetworkPolicy::STRICT
         };
-        servo_fetch::init(policy);
+        servo_fetch::init(policy)?;
     }
     match &args.command {
         Some(Command::Mcp(mcp)) => commands::mcp::run(mcp),

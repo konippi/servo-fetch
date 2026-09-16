@@ -42,7 +42,7 @@ const HTML: &str = r#"<!DOCTYPE html>
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "e2e: spawns the Servo engine; Linux CI sees SIGSEGV during destructor cleanup"]
 async fn moderate_policy_filters_hidden_content() {
-    servo_fetch::init(NetworkPolicy::PERMISSIVE);
+    servo_fetch::init(NetworkPolicy::PERMISSIVE).unwrap();
 
     let server = MockServer::start().await;
     Mock::given(method("GET"))

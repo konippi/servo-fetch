@@ -8,7 +8,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "e2e: spawns the Servo engine; Linux CI sees SIGSEGV during destructor cleanup"]
 async fn custom_header_reaches_the_target() {
-    servo_fetch::init(NetworkPolicy::PERMISSIVE);
+    servo_fetch::init(NetworkPolicy::PERMISSIVE).unwrap();
 
     let server = MockServer::start().await;
     Mock::given(method("GET"))

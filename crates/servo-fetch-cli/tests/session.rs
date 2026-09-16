@@ -16,7 +16,7 @@ use common::{mock_page, slow_page};
 static INIT: Once = Once::new();
 
 fn broker(max_sessions: usize, queue_capacity: usize) -> SessionBroker {
-    INIT.call_once(|| servo_fetch::init(NetworkPolicy::PERMISSIVE));
+    INIT.call_once(|| servo_fetch::init(NetworkPolicy::PERMISSIVE).unwrap());
     let config = SessionBrokerConfig::default()
         .max_sessions(max_sessions)
         .queue_capacity(queue_capacity)

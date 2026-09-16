@@ -59,8 +59,7 @@ pub use visibility::{VisibilityFlags, VisibilityPolicy};
 #[doc(hidden)]
 pub use worker::run_worker_stdio;
 
-/// Set the network policy. Must be called at most once, before any engine use.
-pub fn init(policy: NetworkPolicy) {
-    bridge::configure(bridge::EngineConfig { policy, storage: None })
-        .expect("servo_fetch::init must be called at most once before engine initialization");
+/// Set the network policy for this process; without a call, [`NetworkPolicy::STRICT`] applies.
+pub fn init(policy: NetworkPolicy) -> Result<()> {
+    bridge::configure(bridge::EngineConfig { policy, storage: None }).map_err(|error| Error::engine(error, None))
 }

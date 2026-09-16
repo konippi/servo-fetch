@@ -46,6 +46,7 @@ pub(crate) fn default_user_agent() -> &'static str {
 
 const LAYOUT_JS: &str = include_str!("js/layout.js");
 const VISIBILITY_JS: &str = include_str!("js/visibility.js");
+const HTML_SNAPSHOT_JS: &str = r#"(document.doctype ? "<!DOCTYPE " + document.doctype.name + ">" : "") + (document.documentElement?.outerHTML ?? "")"#;
 const MAX_CONSOLE_MESSAGES: usize = 100;
 const MAX_CONSOLE_MESSAGE_LEN: usize = 4096;
 const MAX_A11Y_NODES: usize = 100_000;
@@ -919,7 +920,7 @@ impl EngineLoop {
         let visibility_json = page.eval_optional(VISIBILITY_JS)?;
 
         // visibility.js stamps data-vf-id on the DOM; the snapshot must include those stamps.
-        let html = page.eval("document.documentElement.outerHTML")?;
+        let html = page.eval(HTML_SNAPSHOT_JS)?;
         let (screenshot, js_result) = match &pending.request.mode {
             FetchMode::Screenshot { full_page } => (crate::screenshot::capture(&page, *full_page)?, None),
             FetchMode::ExecuteJs { expression } => (None, Some(page.eval(expression)?)),

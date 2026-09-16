@@ -884,3 +884,46 @@ fn mcp_help_shows_options() {
         .stdout(predicate::str::contains("MCP"))
         .stdout(predicate::str::contains("--port"));
 }
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn format_html_preserves_doctype() {
+    block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/with-doctype"))
+            .respond_with(mock_page("<!doctype html><html><body>With doctype</body></html>"))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/without-doctype"))
+            .respond_with(mock_page("<html><body>Without doctype</body></html>"))
+            .mount(&server)
+            .await;
+
+        servo_fetch()
+            .args([
+                "--format",
+                "html",
+                "--allow-private-addresses",
+                TIMEOUT,
+                &format!("{}/with-doctype", server.uri()),
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::starts_with("<!DOCTYPE html><html"));
+
+        servo_fetch()
+            .args([
+                "--format",
+                "html",
+                "--allow-private-addresses",
+                TIMEOUT,
+                &format!("{}/without-doctype", server.uri()),
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::starts_with("<html"))
+            .stdout(predicate::str::contains("DOCTYPE").not());
+    });
+}

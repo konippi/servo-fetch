@@ -69,6 +69,8 @@ async fn moderate_policy_filters_hidden_content() {
         "ARIA-HIDDEN-MARKER",
         "MODAL-MARKER",
         "FOOTER-MARKER",
+        "NAV-MARKER",
+        "BANNER-MARKER",
         "OPACITY-ZERO-MARKER",
         "CLIPPED-MARKER",
         "TEXT-INDENT-MARKER",
@@ -77,7 +79,6 @@ async fn moderate_policy_filters_hidden_content() {
     }
 
     // Tracked limitations: a11y tree fires only on dynamic updates.
-    for marker in ["NAV-MARKER", "BANNER-MARKER", "CV-HIDDEN-MARKER"] {
-        assert!(md.contains(marker), "{marker} now stripped — gap closed?\n{md}");
-    }
+    let marker = "CV-HIDDEN-MARKER";
+    assert!(md.contains(marker), "{marker} now stripped — gap closed?\n{md}");
 }

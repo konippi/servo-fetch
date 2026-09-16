@@ -913,15 +913,19 @@ impl EngineLoop {
             deadline: extraction_deadline_for(pending.deadline),
         };
         page.wait_for_ready_state()?;
-        let html = page.eval("document.documentElement.outerHTML")?;
+
         let inner_text = page.eval_optional("document.body.innerText")?;
         let layout_json = page.eval_optional(LAYOUT_JS)?;
         let visibility_json = page.eval_optional(VISIBILITY_JS)?;
+
+        // visibility.js stamps data-vf-id on the DOM; the snapshot must include those stamps.
+        let html = page.eval("document.documentElement.outerHTML")?;
         let (screenshot, js_result) = match &pending.request.mode {
             FetchMode::Screenshot { full_page } => (crate::screenshot::capture(&page, *full_page)?, None),
             FetchMode::ExecuteJs { expression } => (None, Some(page.eval(expression)?)),
             FetchMode::Content { .. } => (None, None),
         };
+
         Ok(ServoPage {
             html,
             inner_text,

@@ -110,7 +110,6 @@ pub(crate) fn wait_for_wake(timeout: Duration) {
 }
 
 struct WebViewState {
-    has_document: Cell<bool>,
     loaded_at: Cell<Option<Instant>>,
     last_ping: Cell<Instant>,
     crashed: RefCell<Option<String>>,
@@ -123,7 +122,6 @@ struct WebViewState {
 impl WebViewState {
     fn new(deferred_load: Option<UrlRequest>) -> Self {
         Self {
-            has_document: Cell::new(false),
             loaded_at: Cell::new(None),
             last_ping: Cell::new(Instant::now()),
             crashed: RefCell::new(None),
@@ -136,10 +134,6 @@ impl WebViewState {
 
     fn next_ping_at(&self) -> Instant {
         self.last_ping.get() + KEEP_ALIVE_INTERVAL
-    }
-
-    fn awaiting_load(&self) -> bool {
-        self.has_document.get() && self.loaded_at.get().is_none()
     }
 
     fn ping_due(&self, now: Instant) -> bool {
@@ -259,13 +253,8 @@ impl WebViewDelegate for SharedDelegate {
             {
                 webview.load_request(request);
             }
-        } else {
-            self.with_state(webview.id(), |s| {
-                s.has_document.set(true);
-                if status == LoadStatus::Complete {
-                    s.loaded_at.set(Some(Instant::now()));
-                }
-            });
+        } else if status == LoadStatus::Complete {
+            self.with_state(webview.id(), |s| s.loaded_at.set(Some(Instant::now())));
         }
     }
 
@@ -405,14 +394,6 @@ impl PendingFetch {
 
     fn is_done(&self, now: Instant) -> bool {
         self.state.crash_error().is_some() || now >= self.completes_at()
-    }
-
-    fn next_wake_at(&self) -> Instant {
-        if self.state.awaiting_load() {
-            self.completes_at().min(self.state.next_ping_at())
-        } else {
-            self.completes_at()
-        }
     }
 }
 
@@ -637,6 +618,7 @@ impl PageHandle<'_> {
             if now >= self.deadline {
                 return Err(WaitError::TimedOut);
             }
+            // Pinging before load can hit a pipeline the constellation has not activated yet.
             ping_if_due(self.webview, self.state, now);
             wait_for_wake(
                 self.deadline
@@ -765,10 +747,9 @@ impl EngineLoop {
             }
 
             self.servo.spin_event_loop();
-            self.ping_loading_webviews(Instant::now());
             self.harvest();
 
-            if let Some(next_wake) = self.pending.values().map(PendingFetch::next_wake_at).min() {
+            if let Some(next_wake) = self.pending.values().map(PendingFetch::completes_at).min() {
                 wait_for_wake(next_wake.saturating_duration_since(Instant::now()));
             }
         }
@@ -938,16 +919,6 @@ impl EngineLoop {
             console_messages: pending.state.take_console_messages(),
             url: document_url(pending.webview.url().as_ref(), &pending.request.url)?,
         })
-    }
-
-    fn ping_loading_webviews(&self, now: Instant) {
-        for pending in self
-            .pending
-            .values()
-            .filter(|pending| pending.state.awaiting_load() && pending.state.crash_error().is_none())
-        {
-            ping_if_due(&pending.webview, &pending.state, now);
-        }
     }
 }
 

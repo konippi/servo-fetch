@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0](https://github.com/konippi/servo-fetch/compare/0.14.2..0.15.0) - 2026-09-17
+
+
+### Breaking Changes
+
+- *(api)* Make init return Result ([#486](https://github.com/konippi/servo-fetch/pull/486))
+
+### Features
+
+- *(api)* [**breaking**] Make init return Result ([#486](https://github.com/konippi/servo-fetch/pull/486))
+- *(fetch)* Expose the final document URL as Page.url ([#483](https://github.com/konippi/servo-fetch/pull/483))
+- *(session)* Add --cookie-jar support (#479)
+- *(session)* Fetch PDFs inside sessions on a single async HTTP stack (#467)
+- *(mcp)* Make every page tool cancellable in isolated workers ([#466](https://github.com/konippi/servo-fetch/pull/466))
+- *(mcp)* Run page tools in cancellable one-use isolated workers ([#464](https://github.com/konippi/servo-fetch/pull/464))
+
+### Bug Fixes
+
+- *(fetch)* Include the doctype in Page.html ([#488](https://github.com/konippi/servo-fetch/pull/488))
+- *(bridge)* Take the HTML snapshot after visibility.js stamps the DOM ([#487](https://github.com/konippi/servo-fetch/pull/487))
+- *(bridge)* Fail fast when a page pipeline crashes (#484)
+- *(error)* Render error source chains once ([#478](https://github.com/konippi/servo-fetch/pull/478))
+- *(tests)* Abort the session fetch only once the slow navigation arrives ([#465](https://github.com/konippi/servo-fetch/pull/465))
+- *(mcp)* Separate tool and internal errors (#451)
+- *(mcp)* Bound and sanitize tool responses ([#449](https://github.com/konippi/servo-fetch/pull/449))
+- *(bridge)* Send keep-alive pings only after the page has loaded ([#489](https://github.com/konippi/servo-fetch/pull/489))
+- *(worker)* Preserve typed error kinds across the worker wire ([#461](https://github.com/konippi/servo-fetch/pull/461))
+- *(session)* Session cancellation lifecycle (#459)
+
+### Refactor
+
+- *(tools)* Resolve request options once at the handler boundary ([#462](https://github.com/konippi/servo-fetch/pull/462))
+- *(map)* Make URL discovery natively async and drop-cancellable ([#463](https://github.com/konippi/servo-fetch/pull/463))
+
+### Dependencies
+
+- *(deps)* Bump quick-xml from 0.41.0 to 0.42.0 (#458)
+
 ## [0.14.2](https://github.com/konippi/servo-fetch/compare/0.14.1..0.14.2) - 2026-08-28
 
 ### Bug Fixes

@@ -576,10 +576,6 @@ pub(crate) async fn fetch_page_async(opts: PageOptions<'_>) -> Result<ServoPage,
         .await
 }
 
-fn is_apple_gl_driver_noise(line: &str) -> bool {
-    line.contains("GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type")
-}
-
 fn pong_callback(state: &Rc<WebViewState>) -> impl FnOnce(Result<JSValue, JavaScriptEvaluationError>) + 'static {
     let state = Rc::downgrade(state);
     move |result| {
@@ -679,8 +675,6 @@ impl PageHandle<'_> {
     reason = "the thread owns its receiver for its lifetime"
 )]
 fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, config: EngineConfig) {
-    let _filter = crate::sys::StderrFilter::install(is_apple_gl_driver_noise).ok();
-
     let (rendering_context, servo) = match build_servo(FlagWaker(wake.clone()), &config) {
         Ok(pair) => pair,
         Err(error) => {

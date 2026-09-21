@@ -63,6 +63,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+os_pipe = "=1.2.3"
+
 [dev-dependencies]
 assert_cmd = { workspace = true }
 futures-util = { workspace = true }

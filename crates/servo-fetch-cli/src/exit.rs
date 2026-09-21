@@ -56,13 +56,16 @@ fn is_broken_pipe(err: &Error) -> bool {
 
 /// Flush stdio and terminate via `libc::_exit`, skipping SpiderMonkey's
 /// static destructors that race on `pthread_mutex_destroy`.
-pub(crate) fn flush_and_exit(code: i32) -> ! {
+#[expect(
+    unsafe_code,
+    reason = "libc::_exit bypasses the static destructors that crash on exit"
+)]
+pub(crate) fn flush_and_exit(code: i32, stderr_filter: Option<crate::stderr_filter::StderrFilter>) -> ! {
     let _ = io::stdout().flush();
     let _ = io::stderr().flush();
-    #[allow(unsafe_code)]
-    unsafe {
-        libc::_exit(code);
-    }
+    drop(stderr_filter);
+    // SAFETY: `_exit` only terminates the process; no Rust state is touched afterwards.
+    unsafe { libc::_exit(code) }
 }
 
 #[cfg(test)]

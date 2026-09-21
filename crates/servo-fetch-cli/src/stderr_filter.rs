@@ -309,3 +309,8 @@ impl StderrFilter {
         Ok(Self(()))
     }
 }
+
+#[cfg(not(target_os = "macos"))]
+impl Drop for StderrFilter {
+    fn drop(&mut self) {}
+}

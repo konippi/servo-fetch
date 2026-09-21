@@ -264,7 +264,7 @@ scripts can branch without parsing stderr:
 | Variable | Description |
 | -------- | ----------- |
 | `SERVO_FETCH_USER_AGENT` | Default User-Agent string (overridden by `--user-agent`) |
-| `SERVO_FETCH_NO_STDERR_FILTER` | Disable Apple OpenGL driver noise filter (debug use) |
+| `SERVO_FETCH_NO_STDERR_FILTER` | Disable the Apple OpenGL driver noise filter on macOS when set to any non-empty value (debug use) |
 | `RUST_LOG` | Fine-grained log filter (overrides `-v`/`-q`) |
 
 ## MCP Server

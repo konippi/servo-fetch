@@ -6,7 +6,10 @@ use std::str::from_utf8;
 #[cfg(unix)]
 use std::{
     io::Read as _,
-    os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+    os::{
+        fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+        unix::process::CommandExt as _,
+    },
     process::Stdio,
     time::{Duration, Instant},
 };
@@ -926,4 +929,47 @@ fn format_html_preserves_doctype() {
             .stdout(predicate::str::starts_with("<html"))
             .stdout(predicate::str::contains("DOCTYPE").not());
     });
+}
+
+#[test]
+fn final_error_line_survives_exit() {
+    for _ in 0..5 {
+        let output = servo_fetch().arg("ftp://x.invalid/").output().expect("run servo-fetch");
+        let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
+        let error_lines = stderr.lines().filter(|line| line.starts_with("error:")).count();
+        assert_eq!(output.status.code(), Some(64), "stderr: {stderr}");
+        assert_eq!(error_lines, 1, "stderr: {stderr}");
+    }
+}
+
+#[test]
+fn usage_error_prints_full_diagnostic() {
+    let output = servo_fetch()
+        .arg("--definitely-invalid")
+        .output()
+        .expect("run servo-fetch");
+    let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
+    assert_eq!(output.status.code(), Some(2), "stderr: {stderr}");
+    assert!(stderr.contains("Usage:"), "stderr: {stderr}");
+}
+
+#[cfg(unix)]
+#[test]
+#[expect(unsafe_code, reason = "pre_exec closes inherited stderr before exec")]
+fn closed_stderr_is_tolerated() {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_servo-fetch"));
+    command.arg("ftp://x.invalid/").stdout(Stdio::piped());
+    // SAFETY: the callback only calls the async-signal-safe `close` function.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::close(libc::STDERR_FILENO) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = command.output().expect("run servo-fetch with fd 2 closed");
+    assert_eq!(output.status.code(), Some(64));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
 }

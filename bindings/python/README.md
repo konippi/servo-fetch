@@ -135,3 +135,7 @@ Servo's native extension uses large thread-local storage. On some Linux systems,
 ```bash
 export GLIBC_TUNABLES=glibc.rtld.optional_static_tls=16384
 ```
+
+### macOS: harmless OpenGL warning
+
+macOS users may see a harmless `GLD_TEXTURE_INDEX_2D is unloadable…` line on stderr. Applications can redirect file descriptor 2 themselves if needed.

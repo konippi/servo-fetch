@@ -11,30 +11,34 @@ mod output;
 mod progress;
 mod rpc;
 mod serve;
+mod stderr_filter;
 mod tools;
 mod wire;
 
 use clap::Parser;
 
 use crate::cli::{Cli, Command};
+use crate::stderr_filter::StderrFilter;
 
 fn main() -> ! {
     install_process_defaults();
 
     if is_internal_worker() {
+        let stderr_filter = StderrFilter::install().ok();
         let code = exit::exit_code(servo_fetch::run_worker_stdio().map_err(anyhow::Error::from));
-        exit::flush_and_exit(code);
+        exit::flush_and_exit(code, stderr_filter);
     }
     if let Err(error) = configure_worker_command() {
         let result: anyhow::Result<()> = Err(error);
-        exit::flush_and_exit(exit::exit_code(result));
+        exit::flush_and_exit(exit::exit_code(result), None);
     }
 
     let args = Cli::parse();
     logging::init(logging::Verbosity::from_flags(args.verbose, args.quiet));
+    let stderr_filter = StderrFilter::install().ok();
 
     let code = exit::exit_code(dispatch(&args));
-    exit::flush_and_exit(code);
+    exit::flush_and_exit(code, stderr_filter);
 }
 
 fn is_internal_worker() -> bool {

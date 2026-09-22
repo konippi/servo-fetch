@@ -34,6 +34,8 @@ servo-fetch https://example.com --cookie-jar cookies.txt              # Save coo
 servo-fetch URL1 URL2 --output-dir ./out/                             # One file per URL
 ```
 
+CLI batch fetches attempt every URL, keep successful output, and exit non-zero if any fetch fails. Mixed failures are summarized with deterministic per-category counts and selected by fixed category precedence, not by treating numeric `sysexits` values as severity. Aside from a closed output pipe, command-level output errors are fatal and take precedence over the item-failure summary.
+
 ## Crawling
 
 Use `crawl` to follow links within a site and extract content from multiple pages.
@@ -51,6 +53,10 @@ CLI equivalent:
 servo-fetch crawl "https://docs.example.com" --limit 20 --max-depth 3
 servo-fetch crawl "https://docs.example.com" --include "/guide/**"
 ```
+
+CLI `crawl --limit` must be at least 1. Per-page failures exit non-zero only when every attempted page fails; partial success exits zero, while command-level setup, configuration, and output failures other than a closed output pipe are fatal. JSON stats are emitted before an all-pages-failed result whenever the stats stream remains writable.
+
+For CLI automation, distinguish Clap syntax/value failures (`2`) from runtime-invalid URLs, headers, glob patterns, and browser-session configurations (`64`, `EX_USAGE`). Other option-combination validation errors use status `1`. Raw or wrapped I/O failures, including failure to read a schema file, exit `74` (`EX_IOERR`), while malformed or invalid schemas exit `65` (`EX_DATAERR`). A closed output pipe remains a successful exit for pipelines.
 
 ## Format selection
 

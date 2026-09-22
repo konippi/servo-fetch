@@ -192,7 +192,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 
 | Flag | Description |
 | ---- | ----------- |
-| `--limit <N>` | Maximum pages to crawl (default: 50) |
+| `--limit <N>` | Maximum pages to crawl, at least 1 (default: 50) |
 | `--max-depth <N>` | Maximum link depth (default: 3) |
 | `--include <GLOB>` | URL path patterns to include |
 | `--exclude <GLOB>` | URL path patterns to exclude |
@@ -249,15 +249,18 @@ scripts can branch without parsing stderr:
 
 | Code | Name | Cause |
 | ---- | ---- | ----- |
-| `0` | `EX_OK` | Success (also returned when stdout is closed early, e.g. `\| head`) |
-| `64` | `EX_USAGE` | Invalid URL or argument |
+| `0` | `EX_OK` | Success or closed output pipe |
+| `2` | — | CLI syntax or value-parsing error |
+| `64` | `EX_USAGE` | Invalid usage or configuration |
 | `65` | `EX_DATAERR` | Invalid extraction schema |
-| `66` | `EX_NOINPUT` | Cookies file missing or unreadable |
-| `69` | `EX_UNAVAILABLE` | Blocked address (private/loopback) or unreachable host |
-| `70` | `EX_SOFTWARE` | Engine failure (including a crashed page), JavaScript, screenshot, or extraction failure |
-| `74` | `EX_IOERR` | I/O error |
-| `75` | `EX_TEMPFAIL` | Navigation timeout (retryable) |
-| `1` | — | Any other error |
+| `66` | `EX_NOINPUT` | Missing or unreadable cookies file |
+| `69` | `EX_UNAVAILABLE` | Blocked address |
+| `70` | `EX_SOFTWARE` | Engine or processing failure |
+| `74` | `EX_IOERR` | I/O failure |
+| `75` | `EX_TEMPFAIL` | Retryable timeout or capacity failure |
+| `1` | — | Other failure |
+
+Batch fetch attempts every URL and exits non-zero for detected fetch failures. Crawl exits non-zero for detected page failures only when every attempted page fails. Command-level failures are fatal; a closed output pipe is the exception and is treated as success.
 
 ## Environment Variables
 

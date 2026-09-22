@@ -21,16 +21,15 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     opts = opts.headers(servo_fetch::headers::parse_lines(&args.headers)?);
 
     let counter = crate::progress::counter();
-    let mut completed = 0u64;
-    let mut errors = 0u64;
+    let mut completed = 0usize;
+    let mut failures = crate::exit::Failures::default();
     let mut write_err: Option<anyhow::Error> = None;
     let started = Instant::now();
 
     servo_fetch::blocking::crawl_each(&opts, |result| {
         completed += 1;
-        let ok = result.outcome.is_ok();
-        if !ok {
-            errors += 1;
+        if let Some(err) = result.outcome.as_ref().err() {
+            failures.record(err);
         }
         if write_err.is_some() {
             return;
@@ -50,23 +49,30 @@ pub(crate) fn run(args: &CrawlArgs) -> anyhow::Result<()> {
     })?;
     counter.finish_and_clear();
 
-    if let Some(e) = write_err {
-        return Err(e);
-    }
-    if json {
+    let failed = failures.failed();
+    let stats_error = if json {
         let elapsed = started.elapsed();
-        if sink.is_stdout() {
-            emit_stats(&mut io::stdout(), completed, errors, elapsed)?;
+        let result = if sink.is_stdout() {
+            emit_stats(&mut io::stdout(), completed, failed, elapsed)
         } else {
-            emit_stats(&mut io::stderr(), completed, errors, elapsed)?;
-        }
-    }
-    Ok(())
+            emit_stats(&mut io::stderr(), completed, failed, elapsed)
+        };
+        result.err().map(crate::exit::output_error)
+    } else {
+        None
+    };
+    let output_error = write_err.or(stats_error);
+    let failure_error = if completed != 0 && failed == completed {
+        failures.into_error("pages", completed)
+    } else {
+        None
+    };
+    crate::exit::finalize_multi_item_result(output_error, failure_error)
 }
 
 fn build_crawl_options(args: &CrawlArgs, json: bool) -> servo_fetch::CrawlOptions {
     let mut opts = servo_fetch::CrawlOptions::new(&args.url)
-        .limit(args.limit)
+        .limit(args.limit.get())
         .max_depth(args.max_depth)
         .timeout(Duration::from_secs(args.timeout))
         .settle(Duration::from_millis(args.settle))
@@ -97,7 +103,9 @@ fn emit_json(url: &str, result: servo_fetch::CrawlResult, sink: Sink<'_>) -> any
     sink.writeln(url, Ext::Json, &line)
 }
 
-fn emit_stats(out: &mut impl io::Write, crawled: u64, errors: u64, elapsed: Duration) -> io::Result<()> {
+fn emit_stats(out: &mut impl io::Write, crawled: usize, errors: usize, elapsed: Duration) -> io::Result<()> {
+    let crawled = u64::try_from(crawled).unwrap_or(u64::MAX);
+    let errors = u64::try_from(errors).unwrap_or(u64::MAX);
     let elapsed_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
     let event = crate::wire::crawl_stats(crawled, errors, elapsed_ms);
     let line = serde_json::to_string(&event).expect("CrawlEvent is always serializable");
@@ -114,9 +122,10 @@ fn emit_markdown(result: &servo_fetch::CrawlResult, sink: Sink<'_>) -> anyhow::R
     };
     if sink.is_stdout() {
         let mut out = io::stdout().lock();
-        writeln!(out, "--- {} ---", result.url)?;
-        out.write_all(servo_fetch::sanitize::sanitize(&page.content).as_bytes())?;
-        writeln!(out)?;
+        writeln!(out, "--- {} ---", result.url).map_err(crate::exit::output_error)?;
+        out.write_all(servo_fetch::sanitize::sanitize(&page.content).as_bytes())
+            .map_err(crate::exit::output_error)?;
+        writeln!(out).map_err(crate::exit::output_error)?;
         Ok(())
     } else {
         sink.write(&result.url, Ext::Markdown, &page.content)

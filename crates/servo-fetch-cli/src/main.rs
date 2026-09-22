@@ -78,11 +78,6 @@ fn dispatch(args: &Cli) -> anyhow::Result<()> {
 }
 
 fn install_process_defaults() {
-    #[cfg(unix)]
-    #[allow(unsafe_code)]
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-    }
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("failed to install rustls crypto provider");

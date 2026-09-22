@@ -1,5 +1,6 @@
 //! CLI argument parsing.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 use clap::builder::NonEmptyStringValueParser;
@@ -195,8 +196,8 @@ pub(crate) struct CrawlArgs {
     pub url: String,
 
     /// Maximum number of pages to crawl
-    #[arg(long, default_value_t = 50, value_name = "N")]
-    pub limit: usize,
+    #[arg(long, default_value = "50", value_name = "N")]
+    pub limit: NonZeroUsize,
 
     /// Maximum link depth from the seed URL
     #[arg(long, default_value_t = 3, value_name = "N")]
@@ -340,6 +341,13 @@ mod tests {
         assert!(CrawlFormat::from_str("html", true).is_err());
     }
 
+    #[test]
+    fn crawl_limit_zero_is_rejected() {
+        assert_eq!(
+            error_kind(&["crawl", "https://example.com", "--limit", "0"]),
+            ErrorKind::ValueValidation,
+        );
+    }
     #[test]
     fn settle_rejects_out_of_range() {
         assert_eq!(

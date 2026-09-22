@@ -973,3 +973,226 @@ fn closed_stderr_is_tolerated() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
 }
+
+#[cfg(unix)]
+#[test]
+#[allow(unsafe_code)]
+fn closed_stdout_pipe_is_success() {
+    let mut descriptors = [-1; 2];
+    assert_eq!(unsafe { libc::pipe(descriptors.as_mut_ptr()) }, 0);
+    let read_end = unsafe { OwnedFd::from_raw_fd(descriptors[0]) };
+    let write_end = unsafe { OwnedFd::from_raw_fd(descriptors[1]) };
+    drop(read_end);
+
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_servo-fetch"))
+        .arg("--help")
+        .stdout(Stdio::from(write_end))
+        .stderr(Stdio::piped())
+        .status()
+        .expect("run servo-fetch with closed stdout pipe");
+
+    assert_eq!(status.code(), Some(0), "status: {status}");
+}
+
+#[test]
+fn malformed_schema_exits_dataerr() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let schema = temp.path().join("schema.json");
+    fs::write(&schema, "{").expect("write malformed schema");
+
+    let output = servo_fetch()
+        .args(["--schema", schema.to_str().unwrap(), "https://example.com"])
+        .output()
+        .expect("run servo-fetch");
+    let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
+
+    assert_eq!(output.status.code(), Some(65), "stderr: {stderr}");
+    assert!(stderr.contains("failed to parse schema"), "stderr: {stderr}");
+}
+
+#[test]
+fn missing_schema_exits_ioerr() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let schema = temp.path().join("missing.json");
+
+    let output = servo_fetch()
+        .args(["--schema", schema.to_str().unwrap(), "https://example.com"])
+        .output()
+        .expect("run servo-fetch");
+    let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
+
+    assert_eq!(output.status.code(), Some(74), "stderr: {stderr}");
+    assert!(stderr.contains("failed to read schema file"), "stderr: {stderr}");
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn batch_partial_failure_uses_category_precedence() {
+    block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/first"))
+            .respond_with(mock_page(
+                "<!doctype html><html><body><main><h1>BATCH-FIRST-MARKER</h1></main></body></html>",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/second"))
+            .respond_with(mock_page(
+                "<!doctype html><html><body><main><h1>BATCH-SECOND-MARKER</h1></main></body></html>",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/slow"))
+            .respond_with(mock_page("<!doctype html><html><body>slow</body></html>").set_delay(Duration::from_secs(3)))
+            .mount(&server)
+            .await;
+        let first = format!("{}/first", server.uri());
+        let second = format!("{}/second", server.uri());
+        let slow = format!("{}/slow", server.uri());
+
+        let output = servo_fetch()
+            .args([
+                "--allow-private-addresses",
+                "--timeout",
+                "1",
+                &first,
+                "ftp://example.invalid/",
+                &slow,
+                &second,
+            ])
+            .output()
+            .expect("run servo-fetch");
+        let stdout = from_utf8(&output.stdout).expect("stdout is UTF-8");
+        let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
+
+        assert_eq!(output.status.code(), Some(64), "stdout: {stdout}; stderr: {stderr}");
+        assert!(stdout.contains("BATCH-FIRST-MARKER"), "stdout: {stdout}");
+        assert!(stdout.contains("BATCH-SECOND-MARKER"), "stdout: {stdout}");
+        assert!(
+            stderr.contains("2 of 4 URLs failed (invalid input: 1, temporary failure: 1)"),
+            "stderr: {stderr}"
+        );
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn crawl_partial_failure_exits_zero_with_success_and_stats() {
+    block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(
+                "<!doctype html><html><body><main>CRAWL-ROOT-MARKER<a href='/slow'>slow</a></main></body></html>",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/slow"))
+            .respond_with(mock_page("<!doctype html><html><body>slow</body></html>").set_delay(Duration::from_secs(3)))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/robots.txt"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let output = servo_fetch()
+            .args([
+                "crawl",
+                &server.uri(),
+                "--format",
+                "json",
+                "--limit",
+                "2",
+                "--timeout",
+                "1",
+                "--allow-private-addresses",
+            ])
+            .output()
+            .expect("run servo-fetch");
+        let stdout = from_utf8(&output.stdout).expect("stdout is UTF-8");
+        let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
+        let records = stdout
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).expect("valid NDJSON"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(output.status.code(), Some(0), "stdout: {stdout}; stderr: {stderr}");
+        assert!(stdout.contains("CRAWL-ROOT-MARKER"), "stdout: {stdout}");
+        assert!(
+            records
+                .iter()
+                .any(|record| record["type"] == "stats" && record["errors"] == 1),
+            "stdout: {stdout}"
+        );
+    });
+}
+
+#[test]
+fn raw_output_directory_io_error_exits_ioerr() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let not_a_directory = temp.path().join("file");
+    fs::write(&not_a_directory, "not a directory").expect("write sentinel file");
+
+    let output = servo_fetch()
+        .args(["https://example.com", "--output-dir", not_a_directory.to_str().unwrap()])
+        .output()
+        .expect("run servo-fetch");
+    let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
+
+    assert_eq!(output.status.code(), Some(74), "stderr: {stderr}");
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn crawl_all_failed_json_emits_stats_and_exits_nonzero() {
+    block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page("<!doctype html><html><body>slow</body></html>").set_delay(Duration::from_secs(3)))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/robots.txt"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let output = servo_fetch()
+            .args([
+                "crawl",
+                &server.uri(),
+                "--format",
+                "json",
+                "--timeout",
+                "1",
+                "--allow-private-addresses",
+            ])
+            .output()
+            .expect("run servo-fetch");
+        let stdout = from_utf8(&output.stdout).expect("stdout is UTF-8");
+        let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
+        let records = stdout
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).expect("valid NDJSON"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(output.status.code(), Some(75), "stdout: {stdout}; stderr: {stderr}");
+        assert!(
+            records
+                .iter()
+                .any(|record| record["type"] == "stats" && record["crawled"] == 1 && record["errors"] == 1),
+            "stdout: {stdout}"
+        );
+        assert!(
+            stderr.contains("1 of 1 pages failed (temporary failure: 1)"),
+            "stderr: {stderr}"
+        );
+    });
+}

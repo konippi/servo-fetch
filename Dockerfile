@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 
 ARG TARGETARCH
 ARG VERSION=dev
@@ -16,7 +16,7 @@ LABEL org.opencontainers.image.title="servo-fetch" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.licenses="MIT OR Apache-2.0" \
       org.opencontainers.image.base.name="debian:trixie-slim" \
-      org.opencontainers.image.base.digest="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+      org.opencontainers.image.base.digest="sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \

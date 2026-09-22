@@ -5,8 +5,8 @@ use std::io::{self, Write as _};
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Error, Result, bail};
-use servo_fetch::{BrowserSession, BrowserSessionConfig, FetchOptions, Page};
+use anyhow::{Context as _, Error, Result, bail};
+use servo_fetch::{BrowserSession, BrowserSessionConfig, Error as FetchError, FetchOptions, Page};
 
 use crate::cli::{FetchArgs, Format};
 use crate::output::{self, Sink};
@@ -143,15 +143,20 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
     drop(tx);
 
     let sink = sink(args);
-    let mut failures = 0usize;
+    let mut failures = crate::exit::Failures::default();
+    let mut output_error = None;
     while let Some((url, result)) = rx.recv().await {
         match result {
             Ok(page) => {
-                batch_emit(args, &page, &url, sink)?;
+                if output_error.is_none()
+                    && let Err(error) = batch_emit(args, &page, &url, sink)
+                {
+                    output_error = Some(error);
+                }
                 bar.set_message(url);
             }
             Err(err) => {
-                failures += 1;
+                failures.record(&err);
                 tracing::error!(url = %url, "{err}");
                 bar.set_message(url);
             }
@@ -160,10 +165,7 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
     }
     bar.finish_and_clear();
 
-    if failures == total {
-        bail!("all {total} URLs failed");
-    }
-    Ok(())
+    crate::exit::finalize_multi_item_result(output_error, failures.into_error("URLs", total))
 }
 
 fn batch_emit(args: &FetchArgs, page: &Page, url: &str, sink: Sink<'_>) -> Result<()> {
@@ -175,9 +177,9 @@ fn batch_emit(args: &FetchArgs, page: &Page, url: &str, sink: Sink<'_>) -> Resul
         Format::Json => output::Json { page, url, selector }.execute_compact(sink),
         Format::Markdown => {
             if sink.is_stdout() {
-                writeln!(io::stdout(), "--- {url} ---")?;
+                writeln!(io::stdout(), "--- {url} ---").map_err(crate::exit::output_error)?;
                 output::Markdown { page, url, selector }.execute(sink)?;
-                writeln!(io::stdout())?;
+                writeln!(io::stdout()).map_err(crate::exit::output_error)?;
                 Ok(())
             } else {
                 output::Markdown { page, url, selector }.execute(sink)
@@ -248,5 +250,7 @@ fn build_session_config(args: &FetchArgs, url: &str) -> Result<BrowserSessionCon
 }
 
 fn load_schema(path: &Path) -> Result<servo_fetch::schema::ExtractSchema> {
-    servo_fetch::schema::ExtractSchema::from_path(path).map_err(|e| anyhow::anyhow!("schema '{}': {e}", path.display()))
+    servo_fetch::schema::ExtractSchema::from_path(path)
+        .map_err(FetchError::from)
+        .with_context(|| format!("schema '{}'", path.display()))
 }

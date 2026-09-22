@@ -75,9 +75,9 @@ impl<'a> Sink<'a> {
         match self {
             Self::Stdout { .. } => {
                 let mut out = io::stdout().lock();
-                out.write_all(sanitized.as_bytes())?;
+                out.write_all(sanitized.as_bytes()).map_err(crate::exit::output_error)?;
                 if needs_nl {
-                    out.write_all(b"\n")?;
+                    out.write_all(b"\n").map_err(crate::exit::output_error)?;
                 }
                 Ok(())
             }
@@ -174,7 +174,7 @@ impl Screenshot<'_> {
             Sink::Stdout { explicit } => {
                 use std::io::IsTerminal as _;
                 refuse_binary_to_tty(explicit, io::stdout().is_terminal())?;
-                io::stdout().lock().write_all(png)?;
+                io::stdout().lock().write_all(png).map_err(crate::exit::output_error)?;
                 Ok(())
             }
             Sink::File(path) => {

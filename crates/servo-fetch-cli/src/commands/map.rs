@@ -27,10 +27,10 @@ pub(crate) fn run(args: &MapArgs) -> anyhow::Result<()> {
     if args.json {
         let entries: Vec<_> = results.iter().map(crate::wire::mapped_url).collect();
         let json = serde_json::to_string_pretty(&entries)?;
-        writeln!(out, "{json}")?;
+        writeln!(out, "{json}").map_err(crate::exit::output_error)?;
     } else {
         for entry in &results {
-            writeln!(out, "{}", entry.url)?;
+            writeln!(out, "{}", entry.url).map_err(crate::exit::output_error)?;
         }
     }
     Ok(())

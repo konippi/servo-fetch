@@ -145,6 +145,7 @@ servo-fetch crawl URL --output-dir ./pages/                      # One file per 
 
 - Servo's web compatibility is improving but not at Chromium level — best for docs, blogs, and SSR sites
 - Private/reserved IP addresses are blocked (SSRF protection)
+- CLI batch fetch exits non-zero on any fetch failure that servo-fetch detects, while crawl page failures exit non-zero only when every attempted page fails
 - Default timeout is 30 seconds; increase with `timeout` parameter for slow pages
 - Cookie banners and newsletter popups are stripped via injected user stylesheets
 

@@ -127,6 +127,10 @@ servo-fetch serve                                          # HTTP API server
 
 Full CLI reference → [`servo-fetch-cli`](crates/servo-fetch-cli/README.md)
 
+### Exit status
+
+Batch fetch attempts every URL and exits non-zero for any fetch failure servo-fetch detects. Crawl exits non-zero for page failures only when every attempted page fails. Command-level failures remain fatal; a closed output pipe is treated as success. See the [CLI exit-code reference](crates/servo-fetch-cli/README.md#exit-codes) for exact codes.
+
 ### Rust
 
 ```bash

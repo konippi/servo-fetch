@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.1](https://github.com/konippi/servo-fetch/compare/0.15.0..0.15.1) - 2026-09-22
+
+### Bug Fixes
+
+- *(python)* Enable bundled FreeType for Linux wheels ([#502](https://github.com/konippi/servo-fetch/pull/502))
+
 ## [0.15.0](https://github.com/konippi/servo-fetch/compare/0.14.2..0.15.0) - 2026-09-22
 
 

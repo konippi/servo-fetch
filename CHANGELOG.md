@@ -9,6 +9,14 @@ All notable changes to this project will be documented in this file.
 
 - *(api)* Make init return Result ([#486](https://github.com/konippi/servo-fetch/pull/486))
 
+### Migration Guide
+
+`servo_fetch::init` now returns `Result<()>`; callers must handle or propagate the initialization error.
+
+```rust
+servo_fetch::init(policy)?;
+```
+
 ### Features
 
 - *(api)* [**breaking**] Make init return Result ([#486](https://github.com/konippi/servo-fetch/pull/486))

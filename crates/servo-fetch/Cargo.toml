@@ -12,6 +12,9 @@ keywords = ["servo", "headless-browser", "web-scraping", "readability", "content
 categories = ["web-programming", "web-programming::http-client"]
 include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "LICENSE-APACHE", "README.md"]
 
+[features]
+bundled-freetype = ["servo/bundled_freetype"]
+
 [dependencies]
 servo = { workspace = true }
 anyhow = { workspace = true }

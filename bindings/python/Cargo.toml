@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
-extension-module = ["pyo3/extension-module"]
+extension-module = ["pyo3/extension-module", "servo-fetch/bundled-freetype"]
 
 [dependencies]
 pyo3 = { version = "0.29", features = ["abi3-py311"] }

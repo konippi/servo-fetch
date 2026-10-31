@@ -193,15 +193,17 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      RUST_NIGHTLY: nightly-2026-05-08
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
-          toolchain: nightly-2026-05-08
+          toolchain: ${{ env.RUST_NIGHTLY }}
           components: rustfmt
-      - run: cargo fmt --all --check
+      - run: cargo "+$RUST_NIGHTLY" fmt --all --check
 
   cargo-doc:
     name: Doc

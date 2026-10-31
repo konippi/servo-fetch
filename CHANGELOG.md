@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.2](https://github.com/konippi/servo-fetch/compare/0.15.1..0.15.2) - 2026-10-31
+
+### Bug Fixes
+
+- *(deps)* Bump rmcp to 3.7.0 to fix MCP HTTP server DoS ([#546](https://github.com/konippi/servo-fetch/pull/546))
+
 ## [0.15.1](https://github.com/konippi/servo-fetch/compare/0.15.0..0.15.1) - 2026-09-22
 
 ### Bug Fixes

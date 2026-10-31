@@ -11,6 +11,11 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      dom-query:
+        patterns: ["dom_query", "dom_smoothie"]
+      dom-query-security:
+        applies-to: security-updates
+        patterns: ["dom_query", "dom_smoothie"]
       patch-updates:
         update-types: ["patch"]
   - package-ecosystem: github-actions

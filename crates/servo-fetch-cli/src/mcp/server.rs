@@ -7,7 +7,8 @@ use base64::Engine as _;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, ContentBlock, ErrorCode, JsonObject, ProtocolVersion, ServerCapabilities, ServerInfo,
+    CallToolResult, ContentBlock, ErrorCode, Implementation, JsonObject, ProtocolVersion, ServerCapabilities,
+    ServerConfig,
 };
 use rmcp::schemars::{JsonSchema, Schema, SchemaGenerator};
 use rmcp::service::{RequestContext, RoleServer};
@@ -409,19 +410,15 @@ async fn run_map(p: MapRequest, ct: CancellationToken) -> Result<Outcome<CallToo
 
 #[tool_handler]
 impl ServerHandler for ServoFetchMcp {
-    fn get_info(&self) -> ServerInfo {
-        let mut info = ServerInfo::default();
-        info.protocol_version = ProtocolVersion::V_2025_03_26;
-        info.server_info.name = "servo-fetch".into();
-        info.server_info.version = env!("CARGO_PKG_VERSION").into();
-        info.instructions = Some(
-            "servo-fetch renders web pages with the Servo browser engine. \
-             It executes JavaScript, computes CSS layout, and strips navigation noise. \
-             Single binary, no Chromium required."
-                .to_string(),
-        );
-        info.capabilities = ServerCapabilities::builder().enable_tools().build();
-        info
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_protocol_version(ProtocolVersion::V_2025_03_26)
+            .with_server_info(Implementation::new("servo-fetch", env!("CARGO_PKG_VERSION")))
+            .with_instructions(
+                "servo-fetch renders web pages with the Servo browser engine. \
+                 It executes JavaScript, computes CSS layout, and strips navigation noise. \
+                 Single binary, no Chromium required.",
+            )
     }
 }
 
@@ -438,6 +435,7 @@ mod tests {
         assert!(info.server_info.name.contains("servo-fetch"));
         assert!(!info.server_info.version.is_empty());
         assert!(info.instructions.is_some());
+        assert_eq!(info.protocol_version, ProtocolVersion::V_2025_03_26);
     }
 
     struct IdentitySchema;

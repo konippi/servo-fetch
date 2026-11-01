@@ -38,6 +38,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 indicatif = "0.18"
 libc = "0.2"
 pdf-extract = "0.12"
+pkcs1 = { version = "=0.8.0-rc.4", default-features = false }
 postcard = { version = "=1.1.3", default-features = false, features = ["use-std"] }
 predicates = "3"
 psl = "2"
@@ -47,7 +48,13 @@ rmcp = { version = "3.7", features = ["server", "transport-io", "transport-strea
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-servo = { version = "0.5.0", default-features = false, features = ["baked-in-resources", "js_jit"] }
+servo = { version = "0.7.0", default-features = false, features = [
+  "baked-in-resources",
+  "brotli-compression-stream",
+  "js_jit",
+  "webcrypto",
+  "webgl",
+] }
 servo-fetch = { path = "crates/servo-fetch", version = "0.15.1" }
 servo-fetch-types = { path = "crates/servo-fetch-types", version = "0.15.1" }
 tempfile = "3"

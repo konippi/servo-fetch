@@ -23,6 +23,7 @@ npm install servo-fetch
 The prebuilt binary for your platform is selected automatically through
 [`optionalDependencies`](https://docs.npmjs.com/cli/configuring-npm/package-json#optionaldependencies).
 Supported targets: macOS (arm64, x64), Linux glibc (x64, arm64), Windows x64.
+musl-based distributions such as Alpine are not supported.
 
 ## Quick Start
 

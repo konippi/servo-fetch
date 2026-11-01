@@ -17,8 +17,8 @@ afterEach(() => {
   setArch(ORIGINAL_ARCH);
   if (ORIGINAL_OVERRIDE === undefined) delete process.env.SERVO_FETCH_BINARY_PATH;
   else process.env.SERVO_FETCH_BINARY_PATH = ORIGINAL_OVERRIDE;
-  // binaryPath() memoizes in module scope; reset so each test re-resolves.
   vi.resetModules();
+  vi.restoreAllMocks();
 });
 
 describe("binaryPath", () => {
@@ -46,7 +46,15 @@ describe("binaryPath", () => {
     setPlatform("win32");
     setArch("x64");
     const { binaryPath } = await import("./binary.js");
-    // The package is not installed in dev/CI, so resolution fails referencing it.
     expect(() => binaryPath()).toThrow(/win32-x64-msvc/);
+  });
+
+  it("reports musl Linux as unsupported", async () => {
+    delete process.env.SERVO_FETCH_BINARY_PATH;
+    setPlatform("linux");
+    setArch("x64");
+    vi.spyOn(process.report, "getReport").mockReturnValue({ header: {} });
+    const { binaryPath } = await import("./binary.js");
+    expect(() => binaryPath()).toThrow(/musl-based Linux such as Alpine is not supported/);
   });
 });

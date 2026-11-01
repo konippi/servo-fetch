@@ -49,7 +49,7 @@
   },
   "overrides": [
     {
-      "includes": ["bin/**"],
+      "includes": ["src/cli.ts"],
       "linter": {
         "rules": {
           "suspicious": {

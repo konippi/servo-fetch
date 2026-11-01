@@ -54,7 +54,7 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "format": "biome format --write",
-    "lint": "biome check",
+    "lint": "biome check --error-on-warnings",
     "lint:fix": "biome check --write",
     "test": "vitest run",
     "test:e2e": "vitest run test/e2e.test.ts",

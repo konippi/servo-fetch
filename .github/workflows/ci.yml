@@ -444,7 +444,7 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Biome
         working-directory: bindings/node
-        run: pnpm exec biome ci
+        run: pnpm exec biome ci --error-on-warnings
       - name: Typecheck
         working-directory: bindings/node
         run: pnpm run typecheck

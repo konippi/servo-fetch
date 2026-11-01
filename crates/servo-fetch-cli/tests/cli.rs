@@ -208,7 +208,7 @@ fn computed_style_hidden_content_is_stripped() {
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
-fn csp_sandbox_pipeline_crash_fails_fast() {
+fn csp_sandbox_page_is_extracted() {
     block_on(async {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -224,31 +224,25 @@ fn csp_sandbox_pipeline_crash_fails_fast() {
             .mount(&server)
             .await;
 
+        servo_fetch()
+            .args(["--allow-private-addresses", TIMEOUT, &server.uri()])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Sandboxed"));
+
         let dir = tempfile::tempdir().expect("tempdir");
         let jar = dir.path().join("cookies.txt");
-        let started = Instant::now();
-        let output = servo_fetch()
+        servo_fetch()
             .args([
                 "--allow-private-addresses",
                 "--cookie-jar",
                 jar.to_str().unwrap(),
-                "--timeout",
-                "30",
+                TIMEOUT,
                 &server.uri(),
             ])
-            .output()
-            .expect("run servo-fetch");
-        let elapsed = started.elapsed();
-        let stderr = from_utf8(&output.stderr).expect("stderr is UTF-8");
-        let stdout = from_utf8(&output.stdout).expect("stdout is UTF-8");
-
-        assert_eq!(output.status.code(), Some(70), "stdout: {stdout}; stderr: {stderr}");
-        assert!(
-            elapsed < Duration::from_secs(10),
-            "elapsed: {elapsed:?}; stdout: {stdout}; stderr: {stderr}"
-        );
-        assert!(stderr.contains("page crashed"), "stdout: {stdout}; stderr: {stderr}");
-        assert!(!stderr.contains("timed out"), "stderr: {stderr}");
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Sandboxed"));
     });
 }
 

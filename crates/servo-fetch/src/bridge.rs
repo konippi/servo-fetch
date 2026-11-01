@@ -938,7 +938,6 @@ fn build_servo(waker: FlagWaker, config: &EngineConfig) -> Result<(Rc<SoftwareRe
         dom_bluetooth_enabled: false,
         dom_intersection_observer_enabled: true,
         dom_indexeddb_enabled: true,
-        layout_grid_enabled: true,
         user_agent: default_user_agent().to_owned(),
         ..Preferences::default()
     };

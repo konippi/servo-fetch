@@ -39,11 +39,10 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "servo-fetch": "bin/servo-fetch.cjs"
+    "servo-fetch": "./dist/cli.mjs"
   },
   "files": [
     "dist",
-    "bin",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],

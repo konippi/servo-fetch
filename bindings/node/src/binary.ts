@@ -26,7 +26,7 @@ function isMusl(): boolean {
 
 function platformKey(): string {
   const { platform, arch } = process;
-  if (platform === "linux") return `linux-${arch}-${isMusl() ? "musl" : "gnu"}`;
+  if (platform === "linux") return `linux-${arch}-gnu`;
   if (platform === "win32") return `win32-${arch}-msvc`;
   return `${platform}-${arch}`;
 }
@@ -65,10 +65,17 @@ export function binaryPath(): string {
   try {
     manifest = require.resolve(`${pkg}/package.json`);
   } catch {
+    // Package managers skip the glibc-only packages on musl.
+    if (isMusl()) {
+      throw new Error(
+        `servo-fetch: musl-based Linux such as Alpine is not supported. ` +
+          `Use a glibc-based distribution, or set SERVO_FETCH_BINARY_PATH.`,
+      );
+    }
     throw new Error(
-      `servo-fetch: optional platform package "${pkg}" is not installed ` +
-        `(it may have been skipped by --no-optional or --ignore-scripts). ` +
-        `Reinstall with optional dependencies, or set SERVO_FETCH_BINARY_PATH.`,
+      `servo-fetch: platform package "${pkg}" is not installed. ` +
+        `Reinstall without --omit=optional or --no-optional, regenerate the lockfile if it was created on another platform, ` +
+        `or set SERVO_FETCH_BINARY_PATH.`,
     );
   }
 

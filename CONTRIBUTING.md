@@ -87,7 +87,7 @@ uv run --no-sync ruff check python tests && uv run --no-sync ty check python  # 
 ```sh
 cd bindings/node
 pnpm install
-pnpm run build            # tsdown → dist (ESM + CJS + d.ts)
+pnpm run build            # tsdown → dist (ESM + d.ts)
 pnpm test                 # vitest
 pnpm run typecheck && pnpm run lint   # tsc + biome
 ```

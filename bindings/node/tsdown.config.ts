@@ -1,19 +1,8 @@
 import { defineConfig } from "tsdown";
 
-export default defineConfig([
-  {
-    entry: ["src/index.ts"],
-    format: ["esm", "cjs"],
-    dts: true,
-    sourcemap: true,
-    target: "node22",
-    publint: true,
-    attw: { profile: "node16", level: "error" },
-  },
-  {
-    entry: ["src/cli.ts"],
-    format: "esm",
-    dts: false,
-    target: "node22",
-  },
-]);
+export default defineConfig({
+  entry: ["src/index.ts", "src/cli.ts"],
+  dts: { entry: "src/index.ts" },
+  publint: true,
+  attw: { level: "error" },
+});

@@ -12,7 +12,7 @@ Node.js bindings for [servo-fetch](https://github.com/konippi/servo-fetch) — f
 - **JavaScript execution** — full Servo engine with SpiderMonkey
 - **Schema extraction** — declarative CSS-selector → structured JSON, no LLM
 - **Streaming crawl** — `for await` over pages as they complete
-- **Typed** — first-class TypeScript types, ESM and CommonJS
+- **Typed** — first-class TypeScript types
 
 ## Install
 
@@ -24,6 +24,9 @@ The prebuilt binary for your platform is selected automatically through
 [`optionalDependencies`](https://docs.npmjs.com/cli/configuring-npm/package-json#optionaldependencies).
 Supported targets: macOS (arm64, x64), Linux glibc (x64, arm64), Windows x64.
 musl-based distributions such as Alpine are not supported.
+
+The package is ESM-only. CommonJS code can still `require("servo-fetch")` (Node.js 22.12+);
+TypeScript CommonJS projects need `"module": "node20"` or `"nodenext"`.
 
 ## Quick Start
 

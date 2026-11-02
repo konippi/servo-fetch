@@ -5,6 +5,8 @@ on:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
+      tag:
+        description: "Release tag to rebuild and publish (e.g. v0.12.1)"
       dry-run:
         type: boolean
         default: false
@@ -13,11 +15,12 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_INCREMENTAL: 0
+  SOURCE_REF: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) }}
 
 jobs:
   build-linux:
@@ -35,6 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.SOURCE_REF }}
           persist-credentials: false
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
@@ -52,17 +56,20 @@ jobs:
 
   build-macos:
     name: Build / ${{ matrix.target }}
-    runs-on: macos-14
-    timeout-minutes: 60
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+        include:
+          - { runner: macos-26, target: aarch64-apple-darwin }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin }
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.SOURCE_REF }}
           persist-credentials: false
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
@@ -76,7 +83,7 @@ jobs:
 
   build-windows:
     name: Build / x86_64-pc-windows-msvc
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 60
     permissions:
       contents: read
@@ -85,6 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.SOURCE_REF }}
           persist-credentials: false
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
@@ -105,6 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.SOURCE_REF }}
           persist-credentials: false
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
@@ -119,7 +128,7 @@ jobs:
   publish:
     name: Publish to PyPI
     needs: [build-linux, build-macos, build-windows, sdist]
-    if: startsWith(github.ref, 'refs/tags/') && !inputs.dry-run
+    if: (startsWith(github.ref, 'refs/tags/') || startsWith(inputs.tag, 'v')) && !inputs.dry-run
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:

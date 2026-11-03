@@ -165,7 +165,6 @@ fn duplicate_initialization_preserves_state() {
                 cookies: Vec::new(),
                 cookie_scope: None,
                 config_dir: PathBuf::from("/unused"),
-                temporary_storage: true,
             },
             &mut state,
         );
@@ -184,7 +183,6 @@ fn initialization_validates_before_state_mutation() {
             cookies: Vec::new(),
             cookie_scope: None,
             config_dir: PathBuf::from("relative"),
-            temporary_storage: true,
         },
         &mut state,
     );
@@ -201,7 +199,6 @@ fn initialization_sanitizes_ua_and_scope() {
         cookies: Vec::new(),
         cookie_scope: Some("https://user:secret@example.com/path".into()),
         config_dir: dir.path().to_path_buf(),
-        temporary_storage: true,
     })
     .unwrap();
     assert_eq!(value.policy, NetworkPolicy::STRICT);

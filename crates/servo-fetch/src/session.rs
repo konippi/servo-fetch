@@ -509,7 +509,6 @@ impl SessionBroker {
             cookies: config.cookies.into_iter().map(CookieWire::from).collect(),
             cookie_scope: config.cookie_scope,
             config_dir: supervisor.config_dir.clone(),
-            temporary_storage: true,
         };
         supervisor.initialize_session(initialization)?;
         Ok(BrowserSession {

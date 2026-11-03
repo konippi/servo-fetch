@@ -236,7 +236,7 @@ pub(super) fn handle_worker_initialize(config: InitializeSession, state: &mut Wo
     *state = WorkerState::Failed;
     let result = crate::bridge::configure(crate::bridge::EngineConfig {
         policy: config.policy,
-        storage: Some((config.config_dir, config.temporary_storage)),
+        config_dir: Some(config.config_dir),
     })
     .map_err(|error| worker_error(error.to_string()))
     .and_then(|()| {
@@ -264,7 +264,6 @@ pub(super) struct ValidatedInitialize {
     cookies: Vec<crate::cookies::CookieSpec>,
     pub(crate) cookie_scope: Option<String>,
     config_dir: PathBuf,
-    temporary_storage: bool,
 }
 
 impl ValidatedInitialize {
@@ -314,7 +313,6 @@ impl ValidatedInitialize {
             cookies,
             cookie_scope,
             config_dir: config.config_dir,
-            temporary_storage: config.temporary_storage,
         })
     }
 }
@@ -447,7 +445,6 @@ pub(crate) struct InitializeSession {
     pub(crate) cookies: Vec<CookieWire>,
     pub(crate) cookie_scope: Option<String>,
     pub(crate) config_dir: PathBuf,
-    pub(crate) temporary_storage: bool,
 }
 
 #[derive(Serialize, Deserialize)]

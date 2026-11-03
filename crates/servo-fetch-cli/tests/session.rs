@@ -15,14 +15,17 @@ use common::{mock_page, slow_page};
 
 static INIT: Once = Once::new();
 
-fn broker(max_sessions: usize, queue_capacity: usize) -> SessionBroker {
-    INIT.call_once(|| servo_fetch::init(NetworkPolicy::PERMISSIVE).unwrap());
-    let config = SessionBrokerConfig::default()
+fn config(max_sessions: usize, queue_capacity: usize) -> SessionBrokerConfig {
+    SessionBrokerConfig::default()
         .max_sessions(max_sessions)
         .queue_capacity(queue_capacity)
         .prewarm(0)
         .acquire_timeout(Duration::from_secs(2))
-        .worker_command(WorkerCommand::new(env!("CARGO_BIN_EXE_servo-fetch")).arg("__worker"));
+        .worker_command(WorkerCommand::new(env!("CARGO_BIN_EXE_servo-fetch")).arg("__worker"))
+}
+
+fn broker(config: SessionBrokerConfig) -> SessionBroker {
+    INIT.call_once(|| servo_fetch::init(NetworkPolicy::PERMISSIVE).unwrap());
     SessionBroker::new(config).expect("broker starts")
 }
 
@@ -39,7 +42,7 @@ async fn page(server: &MockServer, path_name: &str) {
 async fn logical_sessions_isolate_cookie_state() {
     let server = MockServer::start().await;
     page(&server, "/").await;
-    let broker = broker(2, 2);
+    let broker = broker(config(2, 2));
 
     let mut first = broker.session(BrowserSessionConfig::new()).await.unwrap();
     let url = format!("{}/", server.uri());
@@ -73,6 +76,33 @@ async fn logical_sessions_isolate_cookie_state() {
     second.close().await.unwrap();
 }
 
+#[cfg(unix)]
+#[tokio::test]
+#[ignore = "e2e: requires Servo engine"]
+async fn sessions_keep_http_cache_out_of_tmpdir() {
+    let server = MockServer::start().await;
+    page(&server, "/").await;
+    let tmpdir = tempfile::tempdir().unwrap();
+    let worker = WorkerCommand::new("/usr/bin/env")
+        .arg(format!("TMPDIR={}", tmpdir.path().display()))
+        .arg(env!("CARGO_BIN_EXE_servo-fetch"))
+        .arg("__worker");
+    let broker = broker(config(1, 1).worker_command(worker));
+
+    let mut session = broker.session(BrowserSessionConfig::new()).await.unwrap();
+    session
+        .fetch(&FetchOptions::new(&format!("{}/", server.uri())))
+        .await
+        .unwrap();
+    session.close().await.unwrap();
+
+    let leaked: Vec<_> = std::fs::read_dir(tmpdir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(leaked, Vec::<std::ffi::OsString>::new());
+}
+
 #[tokio::test]
 #[ignore = "e2e: requires Servo engine"]
 async fn cancelling_fetch_kills_worker_and_releases_capacity() {
@@ -83,7 +113,7 @@ async fn cancelling_fetch_kills_worker_and_releases_capacity() {
         .respond_with(slow)
         .mount(&server)
         .await;
-    let broker = broker(1, 1);
+    let broker = broker(config(1, 1));
     let url = format!("{}/slow", server.uri());
     let task_broker = broker.clone();
 
@@ -136,7 +166,7 @@ async fn cancelling_a_pdf_probe_closes_the_socket_promptly() {
             .expect("report client disconnect");
     });
 
-    let broker = broker(1, 1);
+    let broker = broker(config(1, 1));
     let cancellation = SessionCancellation::new();
     let mut session = broker
         .session_with_cancellation(BrowserSessionConfig::new(), &cancellation)
@@ -173,7 +203,7 @@ async fn cancelling_a_pdf_probe_closes_the_socket_promptly() {
 #[tokio::test]
 #[ignore = "e2e: requires Servo engine"]
 async fn cancelled_session_rejects_pdf_fetches_without_touching_the_network() {
-    let broker = broker(1, 1);
+    let broker = broker(config(1, 1));
     let mut session = broker
         .session(BrowserSessionConfig::new())
         .await

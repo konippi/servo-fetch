@@ -61,5 +61,9 @@ pub use worker::run_worker_stdio;
 
 /// Set the network policy for this process; without a call, [`NetworkPolicy::STRICT`] applies.
 pub fn init(policy: NetworkPolicy) -> Result<()> {
-    bridge::configure(bridge::EngineConfig { policy, storage: None }).map_err(|error| Error::engine(error, None))
+    bridge::configure(bridge::EngineConfig {
+        policy,
+        config_dir: None,
+    })
+    .map_err(|error| Error::engine(error, None))
 }

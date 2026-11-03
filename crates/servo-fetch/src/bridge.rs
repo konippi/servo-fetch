@@ -418,7 +418,7 @@ type EngineRx = mpsc::Receiver<EngineMsg>;
 #[derive(Clone, Default)]
 pub(crate) struct EngineConfig {
     pub(crate) policy: crate::net::NetworkPolicy,
-    pub(crate) storage: Option<(PathBuf, bool)>,
+    pub(crate) config_dir: Option<PathBuf>,
 }
 
 struct Engine {
@@ -939,16 +939,13 @@ fn build_servo(waker: FlagWaker, config: &EngineConfig) -> Result<(Rc<SoftwareRe
         dom_intersection_observer_enabled: true,
         dom_indexeddb_enabled: true,
         user_agent: default_user_agent().to_owned(),
+        // Explicit so a future Servo default cannot enable a disk cache shared across sessions.
+        network_http_disk_cache: String::new(),
         ..Preferences::default()
     };
 
-    let (config_dir, temporary_storage) = config
-        .storage
-        .clone()
-        .map_or((None, false), |(path, temporary)| (Some(path), temporary));
     let opts = servo::Opts {
-        config_dir,
-        temporary_storage,
+        config_dir: config.config_dir.clone(),
         ..servo::Opts::default()
     };
     let rc = Rc::new(ctx);

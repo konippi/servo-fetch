@@ -20,8 +20,9 @@ servo-fetch processes untrusted web content. The following areas are in scope:
 
 - URL validation: only `http://` and `https://` schemes allowed
 - SSRF protection: all private, reserved, and special-purpose IP ranges from the [IANA Special-Purpose Address Registry (RFC 6890)](https://datatracker.ietf.org/doc/html/rfc6890) are blocked, including cloud metadata endpoints
-- HTTP redirects are disabled (`max_redirects: 0`) to block SSRF via redirect to a private IP after initial validation
+- servo-fetch's own HTTP client never follows redirects automatically. Callers that follow them validate each hop, and the rendered page's final document URL is re-validated
 - In-page navigation is validated: Servo `NavigationRequest`s to private or reserved hosts are denied by the navigation delegate
+- Every load the engine makes (documents, iframes, sub-resources, `fetch()`/XHR, WebSockets, workers) must be `http(s)` to an allowed host, `data:`, `blob:`, or `about:blank`. Anything else, including `file:`, gets an empty `403` response
 - Credentials are automatically stripped from URLs
 - All output is sanitized to remove ANSI escape sequences, control characters, and BiDi override characters ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574))
 - `--js` output is sanitized before printing to the terminal
@@ -33,9 +34,8 @@ servo-fetch processes untrusted web content. The following areas are in scope:
 ## Known limitations
 
 - Servo's `evaluate_javascript` runs in the page context (no isolated world)
-- DNS rebinding: the initial URL is validated by hostname/IP, but a hostname that resolves to a public IP during validation and a private IP at fetch time could still be reached. This is partially mitigated because HTTP redirects are disabled (see Mitigations)
-- Sub-resource requests (images, scripts, iframes) loaded by the page are not subject to SSRF validation — only the initial navigation URL and in-page navigations are checked
-- JavaScript executed via `--js` or `execute_js` can make secondary network requests (e.g. `fetch()`) that bypass URL validation, constrained only by the browser's Same-Origin Policy
+- DNS rebinding: hosts are validated by hostname/IP, so a hostname that resolves to a private IP at connection time could still be reached
+- Redirect targets of engine loads are not checked. Servo reports the original URL to the resource policy, so a public URL that redirects to a private address is still requested (the final document URL is re-validated before output)
 - Password input values in the accessibility tree output are cleared, but other sensitive form data (e.g. credit card numbers in text inputs) is not filtered
 - Process isolation (seccomp-bpf) is not yet implemented
 

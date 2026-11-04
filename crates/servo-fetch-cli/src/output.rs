@@ -120,11 +120,7 @@ impl Markdown<'_> {
 
     fn render(&self) -> Result<String> {
         if let Some(selector) = self.selector {
-            let input = servo_fetch::extract::ExtractInput::new(&self.page.html, &self.page.url)
-                .with_layout_json(self.page.layout_json.as_deref())
-                .with_inner_text(Some(&self.page.inner_text))
-                .with_selector(Some(selector));
-            let text = servo_fetch::extract::extract_text(&input)?;
+            let text = self.page.markdown_with_selector(&self.page.url, selector)?;
             if text.is_empty() {
                 tracing::warn!(selector, "no elements matched the selector");
             }

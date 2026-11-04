@@ -198,6 +198,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `--exclude <GLOB>` | URL path patterns to exclude |
 | `--format json` | Output content as JSON per page |
 | `--selector <CSS>` | Extract specific section per page |
+| `--visibility <POLICY>` | `moderate` (default), `strict`, or `off` |
 | `--concurrency <N>` | Maximum parallel page fetches (default: 1; completion order when >1) |
 | `--delay-ms <MS>` | Minimum dispatch interval in ms (default: 500; 0 disables rate limiting) |
 | `--user-agent <UA>` | Override the User-Agent string |
@@ -346,6 +347,7 @@ Plus the common options above.
 | `exclude` | string[]? | URL path patterns to exclude |
 | `maxLength` | number? | Max characters per page result (default 5000) |
 | `selector` | string? | CSS selector to extract a specific section per page |
+| `visibility` | string? | `moderate` (default), `strict`, or `off` |
 
 Plus the common options above.
 

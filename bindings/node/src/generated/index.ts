@@ -194,6 +194,10 @@ selector?: string,
  */
 format?: FetchFormat, 
 /**
+ * Visibility filtering policy (default: moderate).
+ */
+visibility?: Visibility, 
+/**
  * Truncate each page result to this many characters (default: 5000).
  */
 maxLength?: number, 

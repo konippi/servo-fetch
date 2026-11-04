@@ -234,6 +234,7 @@ async fn crawl(params: Value, id: &RequestId, tx: &UnboundedSender<String>) -> R
         exclude: req.exclude.as_deref(),
         concurrency: req.concurrency,
         delay_ms: req.delay_ms,
+        visibility: tools::visibility_policy(req.visibility),
         options: tools::ResolvedRequestOptions::try_from(req.options)?,
     };
     let opts = spec.options.apply_crawl(tools::build_crawl_options(&spec));

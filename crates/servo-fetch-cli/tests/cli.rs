@@ -173,53 +173,80 @@ fn default_produces_markdown() {
     });
 }
 
-async fn assert_hidden_content_stripped(args: &[&str]) {
+/// Hidden-text techniques paired with their markers. The unstyled row is the visible control.
+const VISIBILITY_CASES: [(&str, &str); 4] = [
+    ("", "VISIBLE-MARKER"),
+    ("opacity:0", "OPACITY-ZERO-MARKER"),
+    ("clip-path:inset(100%);position:absolute", "CLIPPED-MARKER"),
+    (
+        "text-indent:-9999px;overflow:hidden;white-space:nowrap",
+        "TEXT-INDENT-MARKER",
+    ),
+];
+
+async fn assert_visibility(args: &[&str], keep_hidden: bool) {
+    let paragraphs = VISIBILITY_CASES
+        .iter()
+        .map(|(style, marker)| format!(r#"<p style="{style}">{marker}</p>"#))
+        .collect::<Vec<_>>()
+        .join("\n");
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/"))
-        .respond_with(mock_page(
-            r#"<!doctype html><html><head><title>Visibility</title><style>
-.o{opacity:0}
-.c{clip-path:inset(100%);position:absolute}
-.t{text-indent:-9999px;overflow:hidden;white-space:nowrap}
-</style></head><body><main><article>
-<p>VISIBLE-MARKER and some additional words to satisfy Readability heuristics for content density.</p>
-<p class="o">OPACITY-ZERO-MARKER</p>
-<p class="c">CLIPPED-MARKER</p>
-<p class="t">TEXT-INDENT-MARKER</p>
-</article></main></body></html>"#,
-        ))
+        .respond_with(mock_page(format!(
+            "<!doctype html><html><head><title>Visibility</title></head><body><main><article>
+<p>Enough additional words to satisfy Readability heuristics for content density.</p>
+{paragraphs}
+</article></main></body></html>"
+        )))
         .mount(&server)
         .await;
 
-    servo_fetch()
+    let output = servo_fetch()
         .args(args)
         .arg(server.uri())
         .args(["--allow-private-addresses", TIMEOUT])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("VISIBLE-MARKER"))
-        .stdout(predicate::str::contains("OPACITY-ZERO-MARKER").not())
-        .stdout(predicate::str::contains("CLIPPED-MARKER").not())
-        .stdout(predicate::str::contains("TEXT-INDENT-MARKER").not());
+        .success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    let present: Vec<_> = VISIBILITY_CASES
+        .iter()
+        .map(|&(_, m)| m)
+        .filter(|m| stdout.contains(m))
+        .collect();
+    let expected: Vec<_> = VISIBILITY_CASES
+        .iter()
+        .filter(|(style, _)| keep_hidden || style.is_empty())
+        .map(|&(_, m)| m)
+        .collect();
+    assert_eq!(present, expected, "stdout:\n{stdout}");
 }
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
 fn hidden_content_is_stripped() {
-    block_on(assert_hidden_content_stripped(&[]));
+    block_on(assert_visibility(&[], false));
 }
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
 fn hidden_content_is_stripped_with_selector() {
-    block_on(assert_hidden_content_stripped(&["--selector", "main"]));
+    block_on(assert_visibility(&["--selector", "main"], false));
 }
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
 fn hidden_content_is_stripped_in_crawl() {
-    block_on(assert_hidden_content_stripped(&["crawl", "--limit", "1"]));
+    block_on(assert_visibility(&["crawl", "--limit", "1"], false));
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn crawl_visibility_off_keeps_hidden_content() {
+    block_on(assert_visibility(
+        &["crawl", "--limit", "1", "--visibility", "off"],
+        true,
+    ));
 }
 
 #[test]

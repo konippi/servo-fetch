@@ -48,6 +48,8 @@ export interface CrawlOptions {
   cookiesFile?: string;
   /** CSS selector to extract a specific section per page. */
   selector?: string;
+  /** Visibility filtering policy. Default: "moderate". */
+  visibility?: Visibility;
   /** Custom request headers sent with each page's navigation request. */
   headers?: Record<string, string>;
   signal?: AbortSignal;

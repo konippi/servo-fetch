@@ -80,6 +80,7 @@ Parameters:
 - `exclude`: URL path patterns to exclude
 - `maxLength`: max characters per page result (default 5000)
 - `selector`: CSS selector to extract a specific section per page
+- `visibility`: `"moderate"` (default), `"strict"`, or `"off"`
 - common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
 
 ```text

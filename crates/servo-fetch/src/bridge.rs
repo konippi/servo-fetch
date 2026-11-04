@@ -113,7 +113,7 @@ struct WebViewState {
     loaded_at: Cell<Option<Instant>>,
     last_ping: Cell<Instant>,
     crashed: RefCell<Option<String>>,
-    deferred_load: RefCell<Option<UrlRequest>>,
+    deferred_load: Cell<Option<UrlRequest>>,
     a11y_truncated: Cell<bool>,
     a11y_nodes: RefCell<HashMap<servo::accesskit::NodeId, servo::accesskit::Node>>,
     console_messages: RefCell<Vec<ConsoleMessage>>,
@@ -125,7 +125,7 @@ impl WebViewState {
             loaded_at: Cell::new(None),
             last_ping: Cell::new(Instant::now()),
             crashed: RefCell::new(None),
-            deferred_load: RefCell::new(deferred_load),
+            deferred_load: Cell::new(deferred_load),
             a11y_truncated: Cell::new(false),
             a11y_nodes: RefCell::new(HashMap::new()),
             console_messages: RefCell::new(Vec::new()),
@@ -174,35 +174,22 @@ impl WebViewState {
     }
 }
 
-struct SharedDelegate {
-    states: RefCell<HashMap<WebViewId, Rc<WebViewState>>>,
+struct PageDelegate {
+    state: Rc<WebViewState>,
     policy: crate::net::NetworkPolicy,
 }
 
-impl SharedDelegate {
-    fn register(&self, id: WebViewId, deferred_load: Option<UrlRequest>) -> Rc<WebViewState> {
-        let state = Rc::new(WebViewState::new(deferred_load));
-        self.states.borrow_mut().insert(id, state.clone());
-        state
-    }
+struct EngineDelegate {
+    policy: crate::net::NetworkPolicy,
+}
 
-    fn remove(&self, id: WebViewId) -> Option<Rc<WebViewState>> {
-        self.states.borrow_mut().remove(&id)
-    }
-
-    fn with_state<R>(&self, id: WebViewId, f: impl FnOnce(&WebViewState) -> R) -> Option<R> {
-        let state = self.states.borrow().get(&id).cloned();
-        state.map(|s| f(&s))
-    }
-
-    fn gate_resource_load(&self, load: WebResourceLoad) {
-        let url = &load.request().url;
-        if !self.policy.allows_load(url) {
-            tracing::warn!(%url, "blocked resource load");
-            // Servo never finishes a cancelled frame load, so respond with an empty 403 instead of `cancel()`.
-            let response = WebResourceResponse::new(url.clone()).status_code(http::StatusCode::FORBIDDEN);
-            load.intercept(response).finish();
-        }
+fn gate_resource_load(policy: crate::net::NetworkPolicy, load: WebResourceLoad) {
+    let url = &load.request().url;
+    if !policy.allows_load(url) {
+        tracing::warn!(%url, "blocked resource load");
+        // Servo never finishes a cancelled frame load, so respond with an empty 403 instead of `cancel()`.
+        let response = WebResourceResponse::new(url.clone()).status_code(http::StatusCode::FORBIDDEN);
+        load.intercept(response).finish();
     }
 }
 
@@ -254,23 +241,20 @@ impl From<ConsoleLogLevel> for ConsoleLevel {
     }
 }
 
-impl ServoDelegate for SharedDelegate {
+impl ServoDelegate for EngineDelegate {
     fn load_web_resource(&self, load: WebResourceLoad) {
-        self.gate_resource_load(load);
+        gate_resource_load(self.policy, load);
     }
 }
 
-impl WebViewDelegate for SharedDelegate {
+impl WebViewDelegate for PageDelegate {
     fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
         if webview.url().is_some_and(|u| u.as_str() == SHELL_URL) {
-            if let Some(request) = self
-                .with_state(webview.id(), |s| s.deferred_load.borrow_mut().take())
-                .flatten()
-            {
+            if let Some(request) = self.state.deferred_load.take() {
                 webview.load_request(request);
             }
         } else if status == LoadStatus::Complete {
-            self.with_state(webview.id(), |s| s.loaded_at.set(Some(Instant::now())));
+            self.state.loaded_at.set(Some(Instant::now()));
         }
     }
 
@@ -278,11 +262,9 @@ impl WebViewDelegate for SharedDelegate {
         webview.paint();
     }
 
-    fn notify_crashed(&self, webview: WebView, reason: String, backtrace: Option<String>) {
+    fn notify_crashed(&self, _webview: WebView, reason: String, backtrace: Option<String>) {
         tracing::debug!(%reason, backtrace = backtrace.as_deref().unwrap_or(""), "page pipeline crashed");
-        self.with_state(webview.id(), |state| {
-            state.record_crash(&reason);
-        });
+        self.state.record_crash(&reason);
     }
 
     fn request_navigation(&self, _webview: WebView, navigation_request: NavigationRequest) {
@@ -297,43 +279,39 @@ impl WebViewDelegate for SharedDelegate {
     }
 
     fn load_web_resource(&self, _webview: WebView, load: WebResourceLoad) {
-        self.gate_resource_load(load);
+        gate_resource_load(self.policy, load);
     }
 
-    fn notify_accessibility_tree_update(&self, webview: WebView, tree_update: servo::accesskit::TreeUpdate) {
-        self.with_state(webview.id(), |state| {
-            let mut nodes = state.a11y_nodes.borrow_mut();
-            for (id, node) in tree_update.nodes {
-                if nodes.len() >= MAX_A11Y_NODES && !nodes.contains_key(&id) {
-                    if !state.a11y_truncated.get() {
-                        state.a11y_truncated.set(true);
-                        tracing::warn!(limit = MAX_A11Y_NODES, "accessibility tree truncated");
-                    }
-                    continue;
+    fn notify_accessibility_tree_update(&self, _webview: WebView, tree_update: servo::accesskit::TreeUpdate) {
+        let mut nodes = self.state.a11y_nodes.borrow_mut();
+        for (id, node) in tree_update.nodes {
+            if nodes.len() >= MAX_A11Y_NODES && !nodes.contains_key(&id) {
+                if !self.state.a11y_truncated.get() {
+                    self.state.a11y_truncated.set(true);
+                    tracing::warn!(limit = MAX_A11Y_NODES, "accessibility tree truncated");
                 }
-                nodes.insert(id, node);
+                continue;
             }
-        });
+            nodes.insert(id, node);
+        }
     }
 
-    fn show_console_message(&self, webview: WebView, level: ConsoleLogLevel, message: String) {
-        self.with_state(webview.id(), |state| {
-            let mut msgs = state.console_messages.borrow_mut();
-            if msgs.len() < MAX_CONSOLE_MESSAGES {
-                let message = if message.len() > MAX_CONSOLE_MESSAGE_LEN {
-                    let mut s = message;
-                    s.truncate(crate::sanitize::floor_char_boundary(&s, MAX_CONSOLE_MESSAGE_LEN));
-                    s.push_str("… (truncated)");
-                    s
-                } else {
-                    message
-                };
-                msgs.push(ConsoleMessage {
-                    level: level.into(),
-                    message,
-                });
-            }
-        });
+    fn show_console_message(&self, _webview: WebView, level: ConsoleLogLevel, message: String) {
+        let mut msgs = self.state.console_messages.borrow_mut();
+        if msgs.len() < MAX_CONSOLE_MESSAGES {
+            let message = if message.len() > MAX_CONSOLE_MESSAGE_LEN {
+                let mut s = message;
+                s.truncate(crate::sanitize::floor_char_boundary(&s, MAX_CONSOLE_MESSAGE_LEN));
+                s.push_str("… (truncated)");
+                s
+            } else {
+                message
+            };
+            msgs.push(ConsoleMessage {
+                level: level.into(),
+                message,
+            });
+        }
     }
 }
 
@@ -718,12 +696,8 @@ fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, config: EngineCon
 
     WAKE.with(|slot| *slot.borrow_mut() = Some(wake));
 
-    let delegate = Rc::new(SharedDelegate {
-        states: RefCell::new(HashMap::new()),
-        policy: config.policy,
-    });
     // Loads without a live WebView skip the WebView delegate, so gate them at the engine level too.
-    servo.set_delegate(delegate.clone());
+    servo.set_delegate(Rc::new(EngineDelegate { policy: config.policy }));
 
     let user_content = Rc::new(UserContentManager::new(&servo));
     user_content.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
@@ -731,7 +705,7 @@ fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, config: EngineCon
     EngineLoop {
         servo,
         rendering_context,
-        delegate,
+        policy: config.policy,
         user_content,
         pending: HashMap::new(),
         baseline_user_agent: default_user_agent().to_owned(),
@@ -742,7 +716,7 @@ fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, config: EngineCon
 struct EngineLoop {
     servo: servo::Servo,
     rendering_context: Rc<SoftwareRenderingContext>,
-    delegate: Rc<SharedDelegate>,
+    policy: crate::net::NetworkPolicy,
     user_content: Rc<UserContentManager>,
     pending: HashMap<WebViewId, PendingFetch>,
     baseline_user_agent: String,
@@ -852,24 +826,25 @@ impl EngineLoop {
             None => self.rendering_context.clone(),
         };
 
-        let delegate: Rc<dyn WebViewDelegate> = self.delegate.clone();
-        let builder = WebViewBuilder::new(&self.servo, rendering_context)
-            .delegate(delegate)
-            .user_content_manager(self.user_content.clone());
-        let (webview, deferred) = if req.headers.is_empty() {
-            (builder.url(parsed_url).build(), None)
+        let builder =
+            WebViewBuilder::new(&self.servo, rendering_context).user_content_manager(self.user_content.clone());
+        let (builder, deferred) = if req.headers.is_empty() {
+            (builder.url(parsed_url), None)
         } else {
-            (
-                builder.build(),
-                Some(UrlRequest::new(parsed_url).headers(req.headers.clone())),
-            )
+            (builder, Some(UrlRequest::new(parsed_url).headers(req.headers.clone())))
         };
+        let state = Rc::new(WebViewState::new(deferred));
+        let webview = builder
+            .delegate(Rc::new(PageDelegate {
+                state: state.clone(),
+                policy: self.policy,
+            }))
+            .build();
 
         if matches!(req.mode, FetchMode::Content { include_a11y: true }) {
             webview.set_accessibility_active(true);
         }
 
-        let state = self.delegate.register(webview.id(), deferred);
         let deadline = Instant::now() + Duration::from_secs(req.timeout_secs);
         Some(PendingFetch {
             webview,
@@ -895,7 +870,6 @@ impl EngineLoop {
                 }
                 None => self.extract(&pending),
             };
-            self.delegate.remove(pending.webview.id());
             drop(pending.webview);
             let _ = pending.request.reply.send(result);
         }

@@ -14,8 +14,8 @@ use image::RgbaImage;
 use serde_json::Value;
 use servo::{
     ConsoleLogLevel, EventLoopWaker, JSValue, JavaScriptEvaluationError, LoadStatus, NavigationRequest, Preferences,
-    RenderingContext, ServoBuilder, SoftwareRenderingContext, UrlRequest, UserContentManager, WebView, WebViewBuilder,
-    WebViewDelegate, WebViewId,
+    RenderingContext, ServoBuilder, ServoDelegate, SoftwareRenderingContext, UrlRequest, UserContentManager,
+    WebResourceLoad, WebResourceResponse, WebView, WebViewBuilder, WebViewDelegate, WebViewId,
 };
 use tokio::sync::{mpsc, oneshot};
 use url::Url;
@@ -194,6 +194,16 @@ impl SharedDelegate {
         let state = self.states.borrow().get(&id).cloned();
         state.map(|s| f(&s))
     }
+
+    fn gate_resource_load(&self, load: WebResourceLoad) {
+        let url = &load.request().url;
+        if !self.policy.allows_load(url) {
+            tracing::warn!(%url, "blocked resource load");
+            // Servo never finishes a cancelled frame load, so respond with an empty 403 instead of `cancel()`.
+            let response = WebResourceResponse::new(url.clone()).status_code(http::StatusCode::FORBIDDEN);
+            load.intercept(response).finish();
+        }
+    }
 }
 
 /// A captured console message from the page.
@@ -244,6 +254,12 @@ impl From<ConsoleLogLevel> for ConsoleLevel {
     }
 }
 
+impl ServoDelegate for SharedDelegate {
+    fn load_web_resource(&self, load: WebResourceLoad) {
+        self.gate_resource_load(load);
+    }
+}
+
 impl WebViewDelegate for SharedDelegate {
     fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
         if webview.url().is_some_and(|u| u.as_str() == SHELL_URL) {
@@ -278,6 +294,10 @@ impl WebViewDelegate for SharedDelegate {
                 navigation_request.deny();
             }
         }
+    }
+
+    fn load_web_resource(&self, _webview: WebView, load: WebResourceLoad) {
+        self.gate_resource_load(load);
     }
 
     fn notify_accessibility_tree_update(&self, webview: WebView, tree_update: servo::accesskit::TreeUpdate) {
@@ -702,6 +722,9 @@ fn servo_thread(mut request_rx: EngineRx, wake: Arc<WakeFlag>, config: EngineCon
         states: RefCell::new(HashMap::new()),
         policy: config.policy,
     });
+    // Loads without a live WebView skip the WebView delegate, so gate them at the engine level too.
+    servo.set_delegate(delegate.clone());
+
     let user_content = Rc::new(UserContentManager::new(&servo));
     user_content.add_stylesheet(Rc::new(create_noise_removal_stylesheet()));
 

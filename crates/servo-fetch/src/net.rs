@@ -31,6 +31,16 @@ impl NetworkPolicy {
     pub fn is_host_allowed(self, host: &str) -> bool {
         !self.deny_private || !is_private_host(host)
     }
+
+    /// Check whether the engine may load `url` as a document or subresource.
+    pub(crate) fn allows_load(self, url: &Url) -> bool {
+        match url.scheme() {
+            "http" | "https" => url.host_str().is_some_and(|host| self.is_host_allowed(host)),
+            "data" | "blob" => true,
+            "about" => url.path() == "blank",
+            _ => false,
+        }
+    }
 }
 
 /// Validate a URL for fetching. Rejects disallowed schemes and private addresses
@@ -150,6 +160,28 @@ fn is_private_ipv6(ip: &Ipv6Addr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn allows_load_rejects_local_schemes_and_private_hosts() {
+        let cases = [
+            ("https://example.com/", true, true),
+            ("http://127.0.0.1/", false, true),
+            ("data:text/plain,hi", true, true),
+            ("blob:https://example.com/id", true, true),
+            ("about:blank", true, true),
+            ("about:memory", false, false),
+            ("file:///etc/passwd", false, false),
+        ];
+        let actual = cases.map(|(input, ..)| {
+            let url = Url::parse(input).unwrap();
+            (
+                input,
+                NetworkPolicy::STRICT.allows_load(&url),
+                NetworkPolicy::PERMISSIVE.allows_load(&url),
+            )
+        });
+        assert_eq!(actual, cases);
+    }
 
     #[test]
     fn blocks_localhost() {

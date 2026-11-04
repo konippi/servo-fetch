@@ -287,9 +287,9 @@ npx skills add https://github.com/konippi/servo-fetch/tree/main/skills/servo-fet
 
 ## Security
 
-servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatracker.ietf.org/doc/html/rfc6890)),
-strips credentials from URLs, disables HTTP redirects to prevent SSRF bypass, and sanitizes all output against
-terminal escape injection ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574)).
+servo-fetch blocks all private and reserved IP ranges ([RFC 6890](https://datatracker.ietf.org/doc/html/rfc6890))
+for pages and the resources they load, refuses local schemes such as `file:`, strips credentials from URLs, and
+sanitizes all output against terminal escape injection ([CVE-2021-42574](https://www.cve.org/CVERecord?id=CVE-2021-42574)).
 See [SECURITY.md](./SECURITY.md) for details.
 
 ## Limitations

@@ -351,6 +351,51 @@ fn cookie_jar_captures_http_and_javascript_cookies_without_json_leakage() {
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
+fn page_cannot_load_local_files_or_private_subresources() {
+    block_on(async {
+        let server = MockServer::start().await;
+        let port = server.address().port();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let local_image = dir.path().join("local.png");
+        image::RgbaImage::new(1, 1).save(&local_image).expect("write PNG");
+        let hosts = dir.path().join("hosts");
+        fs::write(&hosts, "127.0.0.1 public.test\n").expect("write hosts file");
+        let local_url = url::Url::from_file_path(&local_image).expect("absolute path");
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(format!(
+                r#"<!doctype html><html><body>
+<img src="{local_url}" onload="document.title = 'loaded'" onerror="document.title = 'blocked'">
+<iframe src="http://127.0.0.1:{port}/secret"></iframe>
+</body></html>"#
+            )))
+            .mount(&server)
+            .await;
+
+        servo_fetch()
+            .env("HOST_FILE", &hosts)
+            .args([
+                "--js",
+                "document.title",
+                TIMEOUT,
+                &format!("http://public.test:{port}/"),
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("blocked"));
+        let paths: Vec<_> = server
+            .received_requests()
+            .await
+            .expect("request recording enabled")
+            .into_iter()
+            .map(|request| request.url.path().to_owned())
+            .collect();
+        assert_eq!(paths, ["/"]);
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
 fn json_produces_valid_json() {
     block_on(async {
         let s = MockServer::start().await;

@@ -173,15 +173,12 @@ fn default_produces_markdown() {
     });
 }
 
-#[test]
-#[ignore = "e2e: requires Servo engine"]
-fn computed_style_hidden_content_is_stripped() {
-    block_on(async {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/"))
-            .respond_with(mock_page(
-                r#"<!doctype html><html><head><title>Visibility</title><style>
+async fn assert_hidden_content_stripped(args: &[&str]) {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(mock_page(
+            r#"<!doctype html><html><head><title>Visibility</title><style>
 .o{opacity:0}
 .c{clip-path:inset(100%);position:absolute}
 .t{text-indent:-9999px;overflow:hidden;white-space:nowrap}
@@ -191,19 +188,38 @@ fn computed_style_hidden_content_is_stripped() {
 <p class="c">CLIPPED-MARKER</p>
 <p class="t">TEXT-INDENT-MARKER</p>
 </article></main></body></html>"#,
-            ))
-            .mount(&server)
-            .await;
+        ))
+        .mount(&server)
+        .await;
 
-        servo_fetch()
-            .args(["--allow-private-addresses", TIMEOUT, &server.uri()])
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("VISIBLE-MARKER"))
-            .stdout(predicate::str::contains("OPACITY-ZERO-MARKER").not())
-            .stdout(predicate::str::contains("CLIPPED-MARKER").not())
-            .stdout(predicate::str::contains("TEXT-INDENT-MARKER").not());
-    });
+    servo_fetch()
+        .args(args)
+        .arg(server.uri())
+        .args(["--allow-private-addresses", TIMEOUT])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("VISIBLE-MARKER"))
+        .stdout(predicate::str::contains("OPACITY-ZERO-MARKER").not())
+        .stdout(predicate::str::contains("CLIPPED-MARKER").not())
+        .stdout(predicate::str::contains("TEXT-INDENT-MARKER").not());
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn hidden_content_is_stripped() {
+    block_on(assert_hidden_content_stripped(&[]));
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn hidden_content_is_stripped_with_selector() {
+    block_on(assert_hidden_content_stripped(&["--selector", "main"]));
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
+fn hidden_content_is_stripped_in_crawl() {
+    block_on(assert_hidden_content_stripped(&["crawl", "--limit", "1"]));
 }
 
 #[test]

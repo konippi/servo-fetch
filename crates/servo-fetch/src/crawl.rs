@@ -610,6 +610,7 @@ fn process_ok_fetch(
     };
     let input = crate::extract::ExtractInput::new(html, document_url.as_str())
         .with_layout_json(page.layout_json.as_deref())
+        .with_visibility_json(page.visibility_json.as_deref())
         .with_inner_text(page.inner_text.as_deref())
         .with_selector(ctx.opts.selector.as_deref());
 

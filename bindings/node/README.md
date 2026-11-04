@@ -104,7 +104,7 @@ npx servo-fetch "https://example.com" --format png -o page.png
 | `map(url, opts?)` | `Promise<MappedUrl[]>` | `map` |
 | `version()` | `Promise<string>` | `--version` |
 
-Single-page calls accept `{ timeout, settle, userAgent, cookiesFile, headers, selector, visibility, signal }`; `crawl` and `map` also accept `headers`.
+Single-page calls accept `{ timeout, settle, userAgent, cookiesFile, headers, selector, visibility, signal }`; `crawl` also accepts `visibility`, and `crawl` and `map` also accept `headers`.
 
 Calls share one persistent `servo-fetch` process (warm engine), spawned on first use; `shutdown()` stops it.
 

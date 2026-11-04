@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use servo_fetch::VisibilityPolicy;
 use servo_fetch_types::FetchFormat;
 
 use super::error::{ToolError, ToolResult};
@@ -19,6 +20,7 @@ pub(crate) struct CrawlSpec<'a> {
     pub exclude: Option<&'a [String]>,
     pub concurrency: Option<u64>,
     pub delay_ms: Option<u64>,
+    pub visibility: VisibilityPolicy,
     pub options: ResolvedRequestOptions,
 }
 
@@ -29,7 +31,8 @@ pub(crate) fn build_crawl_options(spec: &CrawlSpec<'_>) -> servo_fetch::CrawlOpt
         .max_depth(clamp_count(spec.max_depth, CRAWL_DEPTH))
         .concurrency(clamp_count(spec.concurrency, CRAWL_CONCURRENCY))
         .delay(resolve_delay(spec.delay_ms))
-        .json(matches!(spec.format, FetchFormat::Json));
+        .json(matches!(spec.format, FetchFormat::Json))
+        .visibility(spec.visibility);
     if let Some(selector) = spec.selector {
         builder = builder.selector(selector);
     }

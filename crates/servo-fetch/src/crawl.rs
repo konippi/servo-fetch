@@ -12,6 +12,7 @@ use crate::bridge::{self, PageFetcher};
 use crate::net;
 use crate::robots::RobotsPolicy;
 use crate::scope::{is_same_site, matches_scope, normalize_url};
+use crate::visibility::VisibilityPolicy;
 
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
 
@@ -34,6 +35,7 @@ pub struct CrawlOptions {
     pub(crate) delay: Option<Duration>,
     pub(crate) cookies: Vec<crate::cookies::CookieSpec>,
     pub(crate) headers: http::HeaderMap,
+    pub(crate) visibility: VisibilityPolicy,
 }
 
 impl CrawlOptions {
@@ -55,6 +57,7 @@ impl CrawlOptions {
             delay: Some(Duration::from_millis(500)),
             cookies: Vec::new(),
             headers: http::HeaderMap::new(),
+            visibility: VisibilityPolicy::default(),
         }
     }
 
@@ -146,6 +149,12 @@ impl CrawlOptions {
     /// Custom request headers sent with every page's navigation request.
     pub fn headers(mut self, headers: http::HeaderMap) -> Self {
         self.headers = headers;
+        self
+    }
+
+    /// Visibility filtering policy applied to every page (default: moderate).
+    pub fn visibility(mut self, policy: VisibilityPolicy) -> Self {
+        self.visibility = policy;
         self
     }
 }
@@ -355,6 +364,7 @@ fn build_crawl_plan(opts: &CrawlOptions) -> crate::error::Result<CrawlPlan> {
         delay: opts.delay,
         cookies: opts.cookies.clone(),
         headers: opts.headers.clone(),
+        visibility: opts.visibility,
     })
 }
 
@@ -378,6 +388,7 @@ pub(crate) struct CrawlPlan {
     pub delay: Option<Duration>,
     pub cookies: Vec<crate::cookies::CookieSpec>,
     pub headers: http::HeaderMap,
+    pub visibility: VisibilityPolicy,
 }
 
 /// Result for a single crawled page.
@@ -612,7 +623,8 @@ fn process_ok_fetch(
         .with_layout_json(page.layout_json.as_deref())
         .with_visibility_json(page.visibility_json.as_deref())
         .with_inner_text(page.inner_text.as_deref())
-        .with_selector(ctx.opts.selector.as_deref());
+        .with_selector(ctx.opts.selector.as_deref())
+        .with_visibility(ctx.opts.visibility);
 
     let content = if ctx.opts.json {
         crate::extract::extract_article(&input).and_then(|article| serde_json::to_string(&article).map_err(Into::into))
@@ -713,6 +725,7 @@ mod tests {
         assert!(opts.exclude.is_empty());
         assert_eq!(opts.concurrency, 1);
         assert_eq!(opts.delay, Some(Duration::from_millis(500)));
+        assert_eq!(opts.visibility, VisibilityPolicy::moderate());
     }
 
     #[test]
@@ -724,13 +737,15 @@ mod tests {
             .include(&["/docs/**"])
             .exclude(&["/docs/archive/**"])
             .concurrency(4)
-            .delay(None);
+            .delay(None)
+            .visibility(VisibilityPolicy::off());
         assert_eq!(opts.limit, 100);
         assert_eq!(opts.max_depth, 5);
         assert_eq!(opts.include, vec!["/docs/**"]);
         assert_eq!(opts.exclude, vec!["/docs/archive/**"]);
         assert_eq!(opts.concurrency, 4);
         assert_eq!(opts.delay, None);
+        assert_eq!(opts.visibility, VisibilityPolicy::off());
     }
 
     #[test]
@@ -918,6 +933,7 @@ mod tests {
             delay: None,
             cookies: Vec::new(),
             headers: http::HeaderMap::new(),
+            visibility: VisibilityPolicy::default(),
         }
     }
 
@@ -1226,21 +1242,8 @@ mod tests {
             ("https://example.com/d", final_page),
         ]);
         let opts = CrawlPlan {
-            seed: Url::parse("https://example.com/").unwrap(),
             limit: 4,
-            max_depth: 3,
-            timeout_secs: 30,
-            settle_ms: 0,
-            include: None,
-            exclude: None,
-            selector: None,
-            json: false,
-            user_agent: None,
-            robots_user_agent: None,
-            concurrency: 1,
-            delay: None,
-            cookies: Vec::new(),
-            headers: http::HeaderMap::new(),
+            ..test_plan("https://example.com/")
         };
         let mut results = Vec::new();
         let mut suppressed = 0;
@@ -1274,23 +1277,7 @@ mod tests {
             ("https://example.com/a", same),
             ("https://example.com/b", same),
         ]);
-        let opts = CrawlPlan {
-            seed: Url::parse("https://example.com/").unwrap(),
-            limit: 50,
-            max_depth: 3,
-            timeout_secs: 30,
-            settle_ms: 0,
-            include: None,
-            exclude: None,
-            selector: None,
-            json: false,
-            user_agent: None,
-            robots_user_agent: None,
-            concurrency: 1,
-            delay: None,
-            cookies: Vec::new(),
-            headers: http::HeaderMap::new(),
-        };
+        let opts = test_plan("https://example.com/");
         let mut results = 0;
         let mut suppressed = Vec::new();
         run(opts, RobotsPolicy::Unavailable, &fetcher, |event| {

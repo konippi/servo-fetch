@@ -367,6 +367,7 @@ async fn run_crawl(p: CrawlRequest, ct: CancellationToken) -> Result<Outcome<Cal
         exclude: p.exclude.as_deref(),
         concurrency: p.concurrency,
         delay_ms: p.delay_ms,
+        visibility: tools::visibility_policy(p.visibility),
         options: tools::ResolvedRequestOptions::try_from(p.options)?,
     };
     let crawl = tools::build_crawl_options(&spec);

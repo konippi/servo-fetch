@@ -319,6 +319,10 @@ pub struct CrawlRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub format: Option<FetchFormat>,
+    /// Visibility filtering policy (default: moderate).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub visibility: Option<Visibility>,
     /// Truncate each page result to this many characters (default: 5000).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]

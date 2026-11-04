@@ -82,7 +82,8 @@ fn build_crawl_options(args: &CrawlArgs, json: bool) -> servo_fetch::CrawlOption
         } else {
             Some(Duration::from_millis(args.delay_ms))
         })
-        .json(json);
+        .json(json)
+        .visibility(args.visibility.to_policy());
     if !args.include.is_empty() {
         opts = opts.include(&args.include.iter().map(String::as_str).collect::<Vec<_>>());
     }

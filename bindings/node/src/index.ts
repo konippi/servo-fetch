@@ -202,6 +202,7 @@ export async function* crawl(url: string, options: CrawlOptions = {}): AsyncGene
     concurrency: options.concurrency,
     delayMs: options.delayMs,
     selector: options.selector,
+    visibility: options.visibility,
     ...common(options),
   } satisfies CrawlRequest;
   for await (const event of stream<CrawlEvent>("crawl", params, options.signal)) {

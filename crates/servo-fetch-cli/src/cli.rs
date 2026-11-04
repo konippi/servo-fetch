@@ -219,6 +219,10 @@ pub(crate) struct CrawlArgs {
     #[arg(long, value_name = "CSS", value_parser = NonEmptyStringValueParser::new())]
     pub selector: Option<String>,
 
+    /// Visibility-aware filtering policy.
+    #[arg(long, value_name = "POLICY", value_enum, default_value_t = VisibilityArg::Moderate)]
+    pub visibility: VisibilityArg,
+
     /// Timeout in seconds per page
     #[arg(short = 't', long, default_value_t = 30, value_parser = value_parser!(u64).range(1..), value_name = "SECS")]
     pub timeout: u64,

@@ -6876,7 +6876,7 @@ dependencies = [
 
 [[package]]
 name = "servo-fetch"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "anyhow",
  "bitflags 2.13.2",
@@ -6916,7 +6916,7 @@ dependencies = [
 
 [[package]]
 name = "servo-fetch-cli"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -6953,7 +6953,7 @@ dependencies = [
 
 [[package]]
 name = "servo-fetch-python"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "humantime",
  "pyo3",
@@ -6965,7 +6965,7 @@ dependencies = [
 
 [[package]]
 name = "servo-fetch-types"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "schemars 1.2.3",
  "serde",

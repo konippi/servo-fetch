@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.3](https://github.com/konippi/servo-fetch/compare/0.15.2..0.15.3) - 2026-11-07
+
+### Features
+
+- *(crawl)* Add visibility policy option ([#569](https://github.com/konippi/servo-fetch/pull/569))
+
+### Bug Fixes
+
+- *(extract)* Apply visibility filtering to --selector and crawl output ([#568](https://github.com/konippi/servo-fetch/pull/568))
+- *(net)* Enforce network policy on every resource load ([#566](https://github.com/konippi/servo-fetch/pull/566))
+- *(session)* Keep servo http disk cache out of shared TMPDIR ([#564](https://github.com/konippi/servo-fetch/pull/564))
+
+### Refactor
+
+- *(bridge)* Give each webview its own delegate ([#567](https://github.com/konippi/servo-fetch/pull/567))
+
 ## [0.15.2](https://github.com/konippi/servo-fetch/compare/0.15.1..0.15.2) - 2026-11-01
 
 ### Bug Fixes

@@ -5,7 +5,7 @@ default-members = ["crates/servo-fetch-cli"]
 resolver = "3"
 
 [workspace.package]
-version = "0.15.2"
+version = "0.15.3"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.88.0"
@@ -55,8 +55,8 @@ servo = { version = "0.7.0", default-features = false, features = [
   "webcrypto",
   "webgl",
 ] }
-servo-fetch = { path = "crates/servo-fetch", version = "0.15.2" }
-servo-fetch-types = { path = "crates/servo-fetch-types", version = "0.15.2" }
+servo-fetch = { path = "crates/servo-fetch", version = "0.15.3" }
+servo-fetch-types = { path = "crates/servo-fetch-types", version = "0.15.3" }
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread"] }

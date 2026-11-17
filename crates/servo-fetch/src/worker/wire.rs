@@ -605,6 +605,7 @@ impl ConsoleMessageWire {
             "error" => ConsoleLevel::Error,
             "trace" => ConsoleLevel::Trace,
             "dir" => ConsoleLevel::Dir,
+            "table" => ConsoleLevel::Table,
             _ => return Err(worker_error("worker page contains an unknown console level")),
         };
         Ok(ConsoleMessage {
@@ -869,6 +870,32 @@ mod tests {
         })
         .unwrap();
         assert_eq!(page.into_page(None).unwrap().viewport, viewport);
+    }
+
+    #[test]
+    fn every_console_level_round_trips_through_page_wire() {
+        let console_messages: Vec<_> = [
+            ConsoleLevel::Log,
+            ConsoleLevel::Debug,
+            ConsoleLevel::Info,
+            ConsoleLevel::Warn,
+            ConsoleLevel::Error,
+            ConsoleLevel::Trace,
+            ConsoleLevel::Dir,
+            ConsoleLevel::Table,
+        ]
+        .into_iter()
+        .map(|level| ConsoleMessage {
+            level,
+            message: level.to_string(),
+        })
+        .collect();
+        let (page, _) = PageWire::from_page(Page {
+            console_messages: console_messages.clone(),
+            ..Page::default()
+        })
+        .unwrap();
+        assert_eq!(page.into_page(None).unwrap().console_messages, console_messages);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Crawl and map pyclasses and helpers.
 
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// One page from a crawl — either a successful extraction or an error, plus metadata.
@@ -55,8 +56,10 @@ impl CrawlResult {
     /// Wall-clock time when the fetch completed, formatted as RFC 3339 with
     /// millisecond precision (e.g. `2026-05-21T11:30:00.123Z`).
     #[getter]
-    fn fetched_at(&self) -> String {
-        humantime::format_rfc3339_millis(self.inner.fetched_at).to_string()
+    fn fetched_at(&self) -> PyResult<String> {
+        let fetched_at =
+            jiff::Timestamp::try_from(self.inner.fetched_at).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(format!("{fetched_at:.3}"))
     }
 
     fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {

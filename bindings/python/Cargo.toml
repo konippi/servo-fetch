@@ -20,5 +20,5 @@ pyo3 = { version = "0.29", features = ["abi3-py311"] }
 pythonize = "0.29"
 servo-fetch = { workspace = true }
 serde_json = { workspace = true }
-humantime = { workspace = true }
+jiff = { workspace = true }
 url = "2"

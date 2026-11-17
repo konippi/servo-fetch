@@ -197,7 +197,9 @@ pub struct CrawlPage {
 impl serde::Serialize for CrawlResult {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
-        let fetched_at = humantime::format_rfc3339_millis(self.fetched_at).to_string();
+        let fetched_at = jiff::Timestamp::try_from(self.fetched_at)
+            .map(|fetched_at| format!("{fetched_at:.3}"))
+            .map_err(serde::ser::Error::custom)?;
         match &self.outcome {
             Ok(page) => {
                 let mut map = serializer.serialize_map(None)?;

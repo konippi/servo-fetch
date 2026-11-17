@@ -31,6 +31,7 @@ globset = { workspace = true }
 htmd = { workspace = true }
 http = { workspace = true }
 image = { workspace = true }
+jiff = { workspace = true }
 pdf-extract = { workspace = true }
 pkcs1 = { workspace = true }
 postcard = { workspace = true }
@@ -46,7 +47,6 @@ tracing = { workspace = true }
 url = { workspace = true }
 quick-xml = { workspace = true }
 flate2 = { workspace = true }
-humantime = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

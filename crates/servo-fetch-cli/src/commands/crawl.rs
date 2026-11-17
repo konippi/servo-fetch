@@ -100,7 +100,7 @@ fn build_crawl_options(args: &CrawlArgs, json: bool) -> servo_fetch::CrawlOption
 }
 
 fn emit_json(url: &str, result: servo_fetch::CrawlResult, sink: Sink<'_>) -> anyhow::Result<()> {
-    let line = serde_json::to_string(&crate::wire::crawl_event(result)).expect("CrawlEvent is always serializable");
+    let line = serde_json::to_string(&crate::wire::crawl_event(result)?).expect("CrawlEvent is always serializable");
     sink.writeln(url, Ext::Json, &line)
 }
 

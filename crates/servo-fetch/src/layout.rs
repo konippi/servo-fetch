@@ -3,10 +3,7 @@
 
 use serde::Deserialize;
 
-/// Default viewport width used by Servo for rendering.
-pub(crate) const VIEWPORT_WIDTH: u32 = 1280;
-/// Default viewport height used by Servo for rendering.
-pub(crate) const VIEWPORT_HEIGHT: u32 = 800;
+use crate::viewport::Viewport;
 
 /// ARIA roles that influence our layout heuristics.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -57,33 +54,33 @@ pub(crate) struct LayoutElement {
 }
 
 impl LayoutElement {
-    fn is_navbar(&self) -> bool {
-        self.position.is_stacking() && self.h < f64::from(VIEWPORT_HEIGHT) * 0.2
+    fn is_navbar(&self, viewport: Viewport) -> bool {
+        self.position.is_stacking() && self.h < f64::from(viewport.height()) * 0.2
     }
 
-    fn is_sidebar(&self) -> bool {
-        let is_narrow = self.w < f64::from(VIEWPORT_WIDTH) * 0.3;
+    fn is_sidebar(&self, viewport: Viewport) -> bool {
+        let is_narrow = self.w < f64::from(viewport.width()) * 0.3;
         let is_side_tag = matches!(self.tag.as_str(), "ASIDE" | "NAV");
         let is_side_role = matches!(self.role, Some(Role::Navigation | Role::Complementary));
         is_narrow && (is_side_tag || is_side_role)
     }
 
-    fn is_footer(&self) -> bool {
-        let is_full_width = self.w >= f64::from(VIEWPORT_WIDTH) * 0.8;
+    fn is_footer(&self, viewport: Viewport) -> bool {
+        let is_full_width = self.w >= f64::from(viewport.width()) * 0.8;
         (self.tag == "FOOTER" && is_full_width) || self.role == Some(Role::Contentinfo)
     }
 
-    fn should_remove(&self) -> bool {
-        self.is_navbar() || self.is_sidebar() || self.is_footer()
+    fn should_remove(&self, viewport: Viewport) -> bool {
+        self.is_navbar(viewport) || self.is_sidebar(viewport) || self.is_footer(viewport)
     }
 }
 
 /// CSS selectors for elements that should be stripped before passing to readability.
 #[must_use]
-pub(crate) fn selectors_to_strip(elements: &[LayoutElement]) -> Vec<String> {
+pub(crate) fn selectors_to_strip(elements: &[LayoutElement], viewport: Viewport) -> Vec<String> {
     let mut sels: Vec<String> = elements
         .iter()
-        .filter(|el| el.should_remove())
+        .filter(|el| el.should_remove(viewport))
         .map(|el| {
             let tag = el.tag.to_lowercase();
             match &el.role {
@@ -101,6 +98,10 @@ pub(crate) fn selectors_to_strip(elements: &[LayoutElement]) -> Vec<String> {
 mod tests {
     use super::*;
 
+    fn strip(elements: &[LayoutElement]) -> Vec<String> {
+        selectors_to_strip(elements, Viewport::default())
+    }
+
     fn el(tag: &str, w: f64, h: f64, position: Position, role: Option<Role>) -> LayoutElement {
         LayoutElement {
             tag: tag.to_string(),
@@ -113,44 +114,51 @@ mod tests {
 
     #[test]
     fn detects_fixed_navbar() {
-        let sels = selectors_to_strip(&[el("HEADER", 1280.0, 60.0, Position::Fixed, None)]);
+        let sels = strip(&[el("HEADER", 1280.0, 60.0, Position::Fixed, None)]);
         assert_eq!(sels, vec!["header"]);
     }
 
     #[test]
     fn detects_sticky_navbar() {
-        let sels = selectors_to_strip(&[el("NAV", 1280.0, 50.0, Position::Sticky, None)]);
+        let sels = strip(&[el("NAV", 1280.0, 50.0, Position::Sticky, None)]);
         assert_eq!(sels, vec!["nav"]);
     }
 
     #[test]
     fn ignores_tall_fixed_element() {
-        let sels = selectors_to_strip(&[el("DIV", 1280.0, 400.0, Position::Fixed, None)]);
+        let sels = strip(&[el("DIV", 1280.0, 400.0, Position::Fixed, None)]);
         assert!(sels.is_empty());
     }
 
     #[test]
     fn detects_narrow_aside_as_sidebar() {
-        let sels = selectors_to_strip(&[el("ASIDE", 300.0, 800.0, Position::Other, None)]);
+        let sels = strip(&[el("ASIDE", 300.0, 800.0, Position::Other, None)]);
         assert_eq!(sels, vec!["aside"]);
     }
 
     #[test]
     fn detects_footer() {
-        let sels = selectors_to_strip(&[el("FOOTER", 1280.0, 100.0, Position::Other, None)]);
+        let sels = strip(&[el("FOOTER", 1280.0, 100.0, Position::Other, None)]);
         assert_eq!(sels, vec!["footer"]);
     }
 
     #[test]
     fn ignores_narrow_footer() {
         // A <footer> inside an <article> is typically narrow — should not be stripped.
-        let sels = selectors_to_strip(&[el("FOOTER", 600.0, 50.0, Position::Other, None)]);
+        let sels = strip(&[el("FOOTER", 600.0, 50.0, Position::Other, None)]);
         assert!(sels.is_empty());
     }
 
     #[test]
+    fn widths_are_relative_to_the_viewport() {
+        let footer = [el("FOOTER", 1280.0, 100.0, Position::Other, None)];
+        let wide = Viewport::new(1920, 1080).unwrap();
+        assert_eq!(selectors_to_strip(&footer, wide), Vec::<String>::new());
+    }
+
+    #[test]
     fn detects_contentinfo_role_as_footer() {
-        let sels = selectors_to_strip(&[el("DIV", 1280.0, 100.0, Position::Other, Some(Role::Contentinfo))]);
+        let sels = strip(&[el("DIV", 1280.0, 100.0, Position::Other, Some(Role::Contentinfo))]);
         assert_eq!(sels, vec!["div[role=\"contentinfo\"]"]);
     }
 
@@ -160,13 +168,13 @@ mod tests {
             el("NAV", 200.0, 50.0, Position::Fixed, None),
             el("NAV", 250.0, 40.0, Position::Sticky, None),
         ];
-        let sels = selectors_to_strip(&elements);
+        let sels = strip(&elements);
         assert_eq!(sels, vec!["nav"]);
     }
 
     #[test]
     fn detects_complementary_role_as_sidebar() {
-        let sels = selectors_to_strip(&[el("DIV", 250.0, 800.0, Position::Other, Some(Role::Complementary))]);
+        let sels = strip(&[el("DIV", 250.0, 800.0, Position::Other, Some(Role::Complementary))]);
         assert_eq!(sels, vec!["div[role=\"complementary\"]"]);
     }
 
@@ -194,13 +202,13 @@ mod tests {
 
     #[test]
     fn navigation_role_sidebar() {
-        let sels = selectors_to_strip(&[el("NAV", 250.0, 800.0, Position::Other, Some(Role::Navigation))]);
+        let sels = strip(&[el("NAV", 250.0, 800.0, Position::Other, Some(Role::Navigation))]);
         assert_eq!(sels, vec!["nav[role=\"navigation\"]"]);
     }
 
     #[test]
     fn empty_elements_returns_empty() {
-        let sels = selectors_to_strip(&[]);
+        let sels = strip(&[]);
         assert!(sels.is_empty());
     }
 }

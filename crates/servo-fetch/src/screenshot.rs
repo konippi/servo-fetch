@@ -9,7 +9,7 @@ use image::RgbaImage;
 use servo::{DevicePixel, WebView, WebViewRect};
 
 use crate::bridge::{EngineError, PageHandle, WaitError};
-use crate::layout;
+use crate::viewport::Viewport;
 
 /// Matches the GPU texture limit on most modern hardware and caps the RGBA framebuffer at ~1 GB.
 const MAX_SCREENSHOT_DIMENSION: u32 = 16_384;
@@ -33,9 +33,13 @@ impl From<WaitError> for CaptureError {
 
 /// Capture a PNG screenshot of the page, temporarily resizing the viewport
 /// to the full content size when `full_page` is set.
-pub(crate) fn capture(page: &PageHandle<'_>, full_page: bool) -> Result<Option<RgbaImage>, EngineError> {
+pub(crate) fn capture(
+    page: &PageHandle<'_>,
+    full_page: bool,
+    viewport: Viewport,
+) -> Result<Option<RgbaImage>, EngineError> {
     let result = if full_page {
-        capture_full_page(page)
+        capture_full_page(page, viewport.physical_size())
     } else {
         take_screenshot(page, None)
     };
@@ -53,8 +57,7 @@ pub(crate) fn capture(page: &PageHandle<'_>, full_page: bool) -> Result<Option<R
     }
 }
 
-fn capture_full_page(page: &PageHandle<'_>) -> Result<RgbaImage, CaptureError> {
-    let viewport = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
+fn capture_full_page(page: &PageHandle<'_>, viewport: PhysicalSize<u32>) -> Result<RgbaImage, CaptureError> {
     let Some(measured) = measure_full_page(page) else {
         tracing::warn!("failed to measure full page size; falling back to viewport screenshot");
         return take_screenshot(page, None);

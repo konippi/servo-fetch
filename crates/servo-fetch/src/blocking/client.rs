@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use crate::error::{Error, Result};
 use crate::fetch::{FetchOptions, Page, fetch_blocking};
+use crate::viewport::Viewport;
 use crate::visibility::VisibilityPolicy;
 use crate::{ScreenshotOptions, client};
 
@@ -108,6 +109,12 @@ impl ClientBuilder {
         self
     }
 
+    /// Default layout viewport size (default 1280x800).
+    pub fn viewport(mut self, viewport: Viewport) -> Self {
+        self.inner = self.inner.viewport(viewport);
+        self
+    }
+
     /// Build the [`Client`].
     #[must_use]
     pub fn build(self) -> Client {
@@ -142,6 +149,13 @@ mod tests {
     fn client_builder_sets_visibility() {
         let client = Client::builder().visibility(VisibilityPolicy::off()).build();
         assert_eq!(client.inner.visibility, VisibilityPolicy::off());
+    }
+
+    #[test]
+    fn client_builder_sets_viewport() {
+        let viewport = Viewport::new(390, 844).unwrap();
+        let client = Client::builder().viewport(viewport).build();
+        assert_eq!(client.inner.viewport, viewport);
     }
 
     #[test]

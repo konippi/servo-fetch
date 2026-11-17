@@ -44,8 +44,8 @@ base64 = { workspace = true }
 clap = { workspace = true }
 console = { workspace = true }
 futures-util = { workspace = true }
-humantime = { workspace = true }
 indicatif = { workspace = true }
+jiff = { workspace = true }
 libc = { workspace = true }
 rmcp = { workspace = true }
 rustls = { workspace = true }

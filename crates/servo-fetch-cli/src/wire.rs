@@ -34,10 +34,10 @@ pub(crate) fn mapped_url(m: &servo_fetch::MappedUrl) -> wire::MappedUrl {
     }
 }
 
-pub(crate) fn crawl_event(result: CrawlResult) -> wire::CrawlEvent {
-    let fetched_at = humantime::format_rfc3339_millis(result.fetched_at).to_string();
+pub(crate) fn crawl_event(result: CrawlResult) -> Result<wire::CrawlEvent, jiff::Error> {
+    let fetched_at = format!("{:.3}", jiff::Timestamp::try_from(result.fetched_at)?);
     let depth = result.depth as u64;
-    match result.outcome {
+    Ok(match result.outcome {
         Ok(page) => wire::CrawlEvent::Page {
             url: result.url,
             depth,
@@ -52,7 +52,7 @@ pub(crate) fn crawl_event(result: CrawlResult) -> wire::CrawlEvent {
             fetched_at,
             error: e.report(),
         },
-    }
+    })
 }
 
 pub(crate) fn crawl_stats(crawled: u64, errors: u64, elapsed_ms: u64) -> wire::CrawlEvent {

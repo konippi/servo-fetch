@@ -255,7 +255,9 @@ async fn crawl(params: Value, id: &RequestId, tx: &UnboundedSender<String>) -> R
             } else {
                 *errors += 1;
             }
-            if let Ok(value) = serde_json::to_value(crate::wire::crawl_event(result)) {
+            if let Ok(event) = crate::wire::crawl_event(result)
+                && let Ok(value) = serde_json::to_value(event)
+            {
                 let note = Notification::new("$/progress", json!({ "token": &id, "value": value }));
                 if let Ok(line) = serde_json::to_string(&note) {
                     let _ = tx.send(line);

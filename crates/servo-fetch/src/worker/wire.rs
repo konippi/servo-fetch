@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::{MAX_WORKER_FRAME_BYTES, worker_error};
 use crate::error::{Error, Result};
 use crate::fetch::{ConsoleLevel, ConsoleMessage, FetchMode, FetchOptions, Page};
-use crate::{CrawlOptions, CrawlPage, CrawlResult, VisibilityPolicy};
+use crate::{CrawlOptions, CrawlPage, CrawlResult, Viewport, VisibilityPolicy};
 
 // Generic protocol labels are open-ended, so cap their wire payload in both directions.
 const MAX_ERROR_KIND_BYTES: usize = 64;
@@ -382,6 +382,7 @@ pub(crate) struct FetchWire {
     schema: Option<SchemaWire>,
     visibility_bits: u32,
     headers: Vec<(String, Vec<u8>)>,
+    viewport: ViewportWire,
 }
 
 impl FetchWire {
@@ -400,6 +401,7 @@ impl FetchWire {
             schema: opts.extract_schema.as_ref().map(SchemaWire::from_schema),
             visibility_bits: opts.effective_visibility().strip_if_any.bits(),
             headers: encode_headers(&opts.headers),
+            viewport: ViewportWire::from(opts.effective_viewport()),
         }
     }
 
@@ -423,7 +425,8 @@ impl FetchWire {
         .visibility(VisibilityPolicy {
             strip_if_any: visibility,
         })
-        .headers(decode_headers(self.headers)?);
+        .headers(decode_headers(self.headers)?)
+        .viewport(self.viewport.decode()?);
         if let Some(schema) = self.schema {
             opts = opts.schema(schema.into_schema()?);
         }
@@ -467,6 +470,7 @@ pub(crate) struct PageWire {
     extracted_json: Option<Vec<u8>>,
     screenshot_png_bytes: Option<u32>,
     visibility_bits: u32,
+    viewport: ViewportWire,
     url: String,
 }
 
@@ -506,6 +510,7 @@ impl PageWire {
             extracted_json,
             screenshot_png_bytes,
             visibility_bits: page.visibility_policy.strip_if_any.bits(),
+            viewport: ViewportWire::from(page.viewport),
             url: page.url,
         };
         let frame_size = encoded_size(&wire)?.saturating_add(RESPONSE_FRAME_HEADROOM);
@@ -572,6 +577,7 @@ impl PageWire {
             visibility_policy: VisibilityPolicy {
                 strip_if_any: visibility,
             },
+            viewport: self.viewport.decode()?,
         })
     }
 }
@@ -623,6 +629,7 @@ pub(crate) struct CrawlWire {
     concurrency: usize,
     delay_ms: Option<u64>,
     headers: Vec<(String, Vec<u8>)>,
+    viewport: ViewportWire,
 }
 
 impl CrawlWire {
@@ -643,6 +650,7 @@ impl CrawlWire {
                 .delay
                 .map(|delay| u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)),
             headers: encode_headers(&opts.headers),
+            viewport: ViewportWire::from(opts.viewport),
         }
     }
 
@@ -688,7 +696,8 @@ impl CrawlWire {
             .json(self.json)
             .concurrency(self.concurrency)
             .delay(delay)
-            .headers(decode_headers(self.headers)?);
+            .headers(decode_headers(self.headers)?)
+            .viewport(self.viewport.decode()?);
         opts.robots_user_agent = robots_user_agent;
         if let Some(selector) = self.selector {
             opts = opts.selector(selector);
@@ -779,6 +788,27 @@ fn encode_headers(headers: &http::HeaderMap) -> Vec<(String, Vec<u8>)> {
         .collect()
 }
 
+#[derive(Serialize, Deserialize)]
+struct ViewportWire {
+    width: u32,
+    height: u32,
+}
+
+impl From<Viewport> for ViewportWire {
+    fn from(viewport: Viewport) -> Self {
+        Self {
+            width: viewport.width(),
+            height: viewport.height(),
+        }
+    }
+}
+
+impl ViewportWire {
+    fn decode(self) -> Result<Viewport> {
+        Viewport::new(self.width, self.height).map_err(worker_error)
+    }
+}
+
 fn decode_headers(headers: Vec<(String, Vec<u8>)>) -> Result<http::HeaderMap> {
     crate::headers::from_wire_pairs(headers)
 }
@@ -811,6 +841,10 @@ mod tests {
         let mut headers = FetchWire::from_options(&FetchOptions::new("https://example.com"));
         headers.headers = vec![("host".into(), b"other.example".to_vec())];
         assert!(matches!(headers.into_options(), Err(Error::InvalidHeader(_))));
+
+        let mut viewport = FetchWire::from_options(&FetchOptions::new("https://example.com"));
+        viewport.viewport.width = Viewport::MAX_DIMENSION + 1;
+        assert!(matches!(viewport.into_options(), Err(Error::WorkerUnavailable { .. })));
     }
 
     #[test]
@@ -818,6 +852,23 @@ mod tests {
         let wire = FetchWire::from_options(&FetchOptions::new("https://user:secret@example.com/path"));
         let options = wire.into_options().unwrap();
         assert_eq!(options.url, "https://example.com/path");
+    }
+
+    #[test]
+    fn viewport_round_trips_through_every_wire() {
+        let viewport = Viewport::new(390, 844).unwrap();
+        let fetch = FetchWire::from_options(&FetchOptions::new("https://example.com").viewport(viewport));
+        assert_eq!(fetch.into_options().unwrap().viewport, Some(viewport));
+
+        let crawl = CrawlWire::from_options(&CrawlOptions::new("https://example.com").viewport(viewport));
+        assert_eq!(crawl.into_options(None).unwrap().viewport, viewport);
+
+        let (page, _) = PageWire::from_page(Page {
+            viewport,
+            ..Page::default()
+        })
+        .unwrap();
+        assert_eq!(page.into_page(None).unwrap().viewport, viewport);
     }
 
     #[test]

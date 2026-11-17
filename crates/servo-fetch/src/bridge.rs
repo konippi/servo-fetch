@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 use std::{fmt, thread};
 
 use anyhow::{Result, anyhow};
-use dpi::PhysicalSize;
 use image::RgbaImage;
 use serde_json::Value;
 use servo::{
@@ -21,7 +20,8 @@ use tokio::sync::{mpsc, oneshot};
 use url::Url;
 
 use crate::cookies::CookieSpec;
-use crate::{layout, visibility};
+use crate::viewport::Viewport;
+use crate::visibility;
 
 const EXTRACTION_BUDGET: Duration = Duration::from_secs(10);
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(1);
@@ -339,6 +339,7 @@ pub(crate) struct PageOptions<'a> {
     pub user_agent: Option<&'a str>,
     pub cookies: &'a [CookieSpec],
     pub headers: &'a http::HeaderMap,
+    pub viewport: Viewport,
 }
 
 /// What to do once the page has loaded. Variants are mutually exclusive.
@@ -372,6 +373,7 @@ struct PageRequest {
     user_agent: Option<String>,
     cookies: Vec<CookieSpec>,
     headers: http::HeaderMap,
+    viewport: Viewport,
     reply: Reply<ServoPage>,
 }
 
@@ -548,6 +550,7 @@ pub(crate) fn fetch_page(opts: PageOptions<'_>) -> Result<ServoPage, EngineError
             user_agent: opts.user_agent.map(String::from),
             cookies: opts.cookies.to_vec(),
             headers: opts.headers.clone(),
+            viewport: opts.viewport,
             reply,
         })
     })
@@ -568,6 +571,7 @@ pub(crate) async fn fetch_page_async(opts: PageOptions<'_>) -> Result<ServoPage,
                 user_agent: opts.user_agent.map(String::from),
                 cookies: opts.cookies.to_vec(),
                 headers: opts.headers.clone(),
+                viewport: opts.viewport,
                 reply,
             })
         })
@@ -798,22 +802,25 @@ impl EngineLoop {
 
         crate::cookies::seed(&self.servo, &parsed_url, &req.cookies);
 
-        let dedicated_ctx = if matches!(req.mode, FetchMode::Screenshot { .. }) {
-            let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
-            match SoftwareRenderingContext::new(size) {
+        // Webviews sharing a context share its size, so resizing one needs its own context.
+        let dedicated_ctx = if matches!(req.mode, FetchMode::Screenshot { .. })
+            || req.viewport.physical_size() != self.rendering_context.size()
+        {
+            match SoftwareRenderingContext::new(req.viewport.physical_size()) {
                 Ok(ctx) => {
                     if let Err(error) = ctx.make_current() {
-                        let _ = req.reply.send(Err(
-                            anyhow!("failed to make screenshot context current: {error:?}").into()
-                        ));
+                        let _ = req.reply.send(Err(anyhow!(
+                            "failed to make dedicated rendering context current: {error:?}"
+                        )
+                        .into()));
                         return None;
                     }
                     Some(Rc::new(ctx))
                 }
                 Err(error) => {
-                    let _ = req
-                        .reply
-                        .send(Err(anyhow!("failed to create screenshot context: {error:?}").into()));
+                    let _ = req.reply.send(Err(
+                        anyhow!("failed to create dedicated rendering context: {error:?}").into()
+                    ));
                     return None;
                 }
             }
@@ -894,7 +901,10 @@ impl EngineLoop {
         // visibility.js stamps data-vf-id on the DOM; the snapshot must include those stamps.
         let html = page.eval(HTML_SNAPSHOT_JS)?;
         let (screenshot, js_result) = match &pending.request.mode {
-            FetchMode::Screenshot { full_page } => (crate::screenshot::capture(&page, *full_page)?, None),
+            FetchMode::Screenshot { full_page } => (
+                crate::screenshot::capture(&page, *full_page, pending.request.viewport)?,
+                None,
+            ),
             FetchMode::ExecuteJs { expression } => (None, Some(page.eval(expression)?)),
             FetchMode::Content { .. } => (None, None),
         };
@@ -918,7 +928,7 @@ fn resolved_user_agent<'a>(request: Option<&'a str>, baseline: &'a str) -> &'a s
 }
 
 fn build_servo(waker: FlagWaker, config: &EngineConfig) -> Result<(Rc<SoftwareRenderingContext>, servo::Servo)> {
-    let size = PhysicalSize::new(layout::VIEWPORT_WIDTH, layout::VIEWPORT_HEIGHT);
+    let size = Viewport::default().physical_size();
     let ctx = {
         let ctx =
             SoftwareRenderingContext::new(size).map_err(|e| anyhow!("failed to create rendering context: {e:?}"))?;

@@ -56,9 +56,10 @@ let md = page.markdown()?;
 ### Screenshot
 
 ```rust
-use servo_fetch::{fetch, FetchOptions};
+use servo_fetch::{fetch, FetchOptions, Viewport};
 
-let page = fetch(&FetchOptions::screenshot("https://example.com", true)).await?;
+let viewport = Viewport::new(1920, 1080)?;
+let page = fetch(&FetchOptions::screenshot("https://example.com", true).viewport(viewport)).await?;
 std::fs::write("page.png", page.screenshot_png().unwrap())?;
 ```
 

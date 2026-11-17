@@ -11,6 +11,7 @@ use serde::Serialize;
 use servo::accesskit::{Node, NodeId};
 
 use crate::layout::{self, LayoutElement};
+use crate::viewport::Viewport;
 use crate::visibility::{self, A11yIndex, VisibilityPolicy};
 
 /// Errors that can occur during content extraction.
@@ -83,6 +84,8 @@ pub struct ExtractInput<'a> {
     pub selector: Option<&'a str>,
     /// Visibility policy controlling which hidden content is stripped.
     pub visibility: VisibilityPolicy,
+    /// Viewport the page was laid out in, scaling the layout heuristics.
+    pub viewport: Viewport,
 }
 
 impl<'a> ExtractInput<'a> {
@@ -98,6 +101,7 @@ impl<'a> ExtractInput<'a> {
             inner_text: None,
             selector: None,
             visibility: VisibilityPolicy::default(),
+            viewport: Viewport::default(),
         }
     }
 
@@ -140,6 +144,13 @@ impl<'a> ExtractInput<'a> {
     #[must_use]
     pub fn with_visibility(mut self, policy: VisibilityPolicy) -> Self {
         self.visibility = policy;
+        self
+    }
+
+    /// Set the viewport the page was laid out in.
+    #[must_use]
+    pub fn with_viewport(mut self, viewport: Viewport) -> Self {
+        self.viewport = viewport;
         self
     }
 }
@@ -281,7 +292,7 @@ fn filter<'a>(input: &'a ExtractInput<'a>) -> Cow<'a, str> {
     if let Some(lj) = input.layout_json
         && let Ok(els) = serde_json::from_str::<Vec<LayoutElement>>(lj)
     {
-        selectors.extend(layout::selectors_to_strip(&els));
+        selectors.extend(layout::selectors_to_strip(&els, input.viewport));
     }
 
     let a11y_index = input.a11y.map(A11yIndex::new);

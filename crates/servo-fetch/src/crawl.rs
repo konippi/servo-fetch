@@ -12,6 +12,7 @@ use crate::bridge::{self, PageFetcher};
 use crate::net;
 use crate::robots::RobotsPolicy;
 use crate::scope::{is_same_site, matches_scope, normalize_url};
+use crate::viewport::Viewport;
 use crate::visibility::VisibilityPolicy;
 
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
@@ -36,6 +37,7 @@ pub struct CrawlOptions {
     pub(crate) cookies: Vec<crate::cookies::CookieSpec>,
     pub(crate) headers: http::HeaderMap,
     pub(crate) visibility: VisibilityPolicy,
+    pub(crate) viewport: Viewport,
 }
 
 impl CrawlOptions {
@@ -58,6 +60,7 @@ impl CrawlOptions {
             cookies: Vec::new(),
             headers: http::HeaderMap::new(),
             visibility: VisibilityPolicy::default(),
+            viewport: Viewport::default(),
         }
     }
 
@@ -155,6 +158,12 @@ impl CrawlOptions {
     /// Visibility filtering policy applied to every page (default: moderate).
     pub fn visibility(mut self, policy: VisibilityPolicy) -> Self {
         self.visibility = policy;
+        self
+    }
+
+    /// Layout viewport size for every page (default: 1280x800).
+    pub fn viewport(mut self, viewport: Viewport) -> Self {
+        self.viewport = viewport;
         self
     }
 }
@@ -365,6 +374,7 @@ fn build_crawl_plan(opts: &CrawlOptions) -> crate::error::Result<CrawlPlan> {
         cookies: opts.cookies.clone(),
         headers: opts.headers.clone(),
         visibility: opts.visibility,
+        viewport: opts.viewport,
     })
 }
 
@@ -389,6 +399,7 @@ pub(crate) struct CrawlPlan {
     pub cookies: Vec<crate::cookies::CookieSpec>,
     pub headers: http::HeaderMap,
     pub visibility: VisibilityPolicy,
+    pub viewport: Viewport,
 }
 
 /// Result for a single crawled page.
@@ -565,6 +576,7 @@ fn spawn_fetch(
     let user_agent = opts.user_agent.clone();
     let cookies = opts.cookies.clone();
     let headers = opts.headers.clone();
+    let viewport = opts.viewport;
     let f = fetcher.clone();
     in_flight.spawn_blocking(move || {
         let result = f
@@ -576,6 +588,7 @@ fn spawn_fetch(
                 user_agent: user_agent.as_deref(),
                 cookies: &cookies,
                 headers: &headers,
+                viewport,
             })
             .map_err(|error| match error {
                 bridge::EngineError::Timeout(timeout_secs) => crate::error::Error::Timeout {
@@ -624,7 +637,8 @@ fn process_ok_fetch(
         .with_visibility_json(page.visibility_json.as_deref())
         .with_inner_text(page.inner_text.as_deref())
         .with_selector(ctx.opts.selector.as_deref())
-        .with_visibility(ctx.opts.visibility);
+        .with_visibility(ctx.opts.visibility)
+        .with_viewport(ctx.opts.viewport);
 
     let content = if ctx.opts.json {
         crate::extract::extract_article(&input).and_then(|article| serde_json::to_string(&article).map_err(Into::into))
@@ -726,6 +740,7 @@ mod tests {
         assert_eq!(opts.concurrency, 1);
         assert_eq!(opts.delay, Some(Duration::from_millis(500)));
         assert_eq!(opts.visibility, VisibilityPolicy::moderate());
+        assert_eq!(opts.viewport, Viewport::default());
     }
 
     #[test]
@@ -738,7 +753,8 @@ mod tests {
             .exclude(&["/docs/archive/**"])
             .concurrency(4)
             .delay(None)
-            .visibility(VisibilityPolicy::off());
+            .visibility(VisibilityPolicy::off())
+            .viewport(Viewport::new(1920, 1080).unwrap());
         assert_eq!(opts.limit, 100);
         assert_eq!(opts.max_depth, 5);
         assert_eq!(opts.include, vec!["/docs/**"]);
@@ -746,6 +762,7 @@ mod tests {
         assert_eq!(opts.concurrency, 4);
         assert_eq!(opts.delay, None);
         assert_eq!(opts.visibility, VisibilityPolicy::off());
+        assert_eq!(opts.viewport, Viewport::new(1920, 1080).unwrap());
     }
 
     #[test]
@@ -934,6 +951,7 @@ mod tests {
             cookies: Vec::new(),
             headers: http::HeaderMap::new(),
             visibility: VisibilityPolicy::default(),
+            viewport: Viewport::default(),
         }
     }
 

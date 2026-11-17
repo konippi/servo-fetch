@@ -41,6 +41,7 @@ pub(crate) mod screenshot;
 pub(crate) mod session;
 pub(crate) mod sys;
 pub(crate) mod transfer;
+pub(crate) mod viewport;
 pub(crate) mod worker;
 
 pub use client::{Client, ClientBuilder, ScreenshotOptions};
@@ -55,6 +56,7 @@ pub use session::{
     BrowserSession, BrowserSessionConfig, SessionBroker, SessionBrokerConfig, SessionCancellation, WorkerCommand,
     configure_default_broker, initialize_default_broker, set_default_worker_command,
 };
+pub use viewport::{InvalidViewport, Viewport};
 pub use visibility::{VisibilityFlags, VisibilityPolicy};
 #[doc(hidden)]
 pub use worker::run_worker_stdio;

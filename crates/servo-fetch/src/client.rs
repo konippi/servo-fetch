@@ -6,6 +6,7 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use crate::fetch::{self, FetchOptions, Page};
 use crate::net::sanitize_user_agent;
+use crate::viewport::Viewport;
 use crate::visibility::VisibilityPolicy;
 
 /// Async client carrying reusable fetch defaults.
@@ -21,6 +22,7 @@ pub(crate) struct ClientInner {
     pub(crate) user_agent: Option<String>,
     pub(crate) visibility: VisibilityPolicy,
     pub(crate) headers: http::HeaderMap,
+    pub(crate) viewport: Viewport,
 }
 
 impl ClientInner {
@@ -29,6 +31,7 @@ impl ClientInner {
         opts.timeout.get_or_insert(self.timeout);
         opts.settle.get_or_insert(self.settle);
         opts.visibility.get_or_insert(self.visibility);
+        opts.viewport.get_or_insert(self.viewport);
         if let Some(ua) = &self.user_agent {
             opts.user_agent.get_or_insert_with(|| ua.clone());
         }
@@ -122,6 +125,7 @@ pub struct ClientBuilder {
     user_agent: Option<String>,
     visibility: Option<VisibilityPolicy>,
     headers: http::HeaderMap,
+    viewport: Option<Viewport>,
 }
 
 impl ClientBuilder {
@@ -155,6 +159,12 @@ impl ClientBuilder {
         self
     }
 
+    /// Default layout viewport size (default 1280x800).
+    pub fn viewport(mut self, viewport: Viewport) -> Self {
+        self.viewport = Some(viewport);
+        self
+    }
+
     /// Build the [`Client`].
     #[must_use]
     pub fn build(self) -> Client {
@@ -170,6 +180,7 @@ impl ClientBuilder {
             user_agent: self.user_agent,
             visibility: self.visibility.unwrap_or_default(),
             headers: self.headers,
+            viewport: self.viewport.unwrap_or_default(),
         }
     }
 }
@@ -220,22 +231,27 @@ mod tests {
             .timeout(Duration::from_secs(60))
             .user_agent("ClientBot")
             .build();
+        let user_viewport = Viewport::new(390, 844).unwrap();
         let user_opts = FetchOptions::new("https://example.com")
             .timeout(Duration::from_secs(10))
-            .user_agent("UserBot");
+            .user_agent("UserBot")
+            .viewport(user_viewport);
         let merged = client.inner.apply_defaults(user_opts);
         // Caller's explicit values win
         assert_eq!(merged.timeout, Some(Duration::from_secs(10)));
         assert_eq!(merged.user_agent.as_deref(), Some("UserBot"));
+        assert_eq!(merged.viewport, Some(user_viewport));
     }
 
     #[test]
     fn client_apply_defaults_fills_unset_fields() {
+        let client_viewport = Viewport::new(1920, 1080).unwrap();
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
             .settle(Duration::from_millis(750))
             .user_agent("ClientBot")
             .visibility(VisibilityPolicy::off())
+            .viewport(client_viewport)
             .build();
         let user_opts = FetchOptions::new("https://example.com");
         let merged = client.inner.apply_defaults(user_opts);
@@ -244,6 +260,7 @@ mod tests {
         assert_eq!(merged.settle, Some(Duration::from_millis(750)));
         assert_eq!(merged.user_agent.as_deref(), Some("ClientBot"));
         assert_eq!(merged.visibility, Some(VisibilityPolicy::off()));
+        assert_eq!(merged.viewport, Some(client_viewport));
     }
 
     #[test]

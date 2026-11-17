@@ -49,6 +49,9 @@ pub struct Page {
     /// Visibility policy that was active when this page was fetched.
     #[serde(skip)]
     pub(crate) visibility_policy: crate::visibility::VisibilityPolicy,
+    /// Viewport the page was laid out in.
+    #[serde(skip)]
+    pub(crate) viewport: crate::viewport::Viewport,
 }
 
 impl Page {
@@ -112,6 +115,7 @@ impl Page {
             .with_inner_text(Some(&self.inner_text))
             .with_selector(selector)
             .with_visibility(self.visibility_policy)
+            .with_viewport(self.viewport)
     }
 }
 
@@ -141,6 +145,7 @@ impl From<crate::bridge::ServoPage> for Page {
             a11y: page.a11y.map(Arc::new),
             extracted: None,
             visibility_policy: crate::visibility::VisibilityPolicy::default(),
+            viewport: crate::viewport::Viewport::default(),
         }
     }
 }
@@ -242,6 +247,7 @@ pub struct FetchOptions {
     pub(crate) visibility: Option<crate::visibility::VisibilityPolicy>,
     pub(crate) cookies: Vec<crate::cookies::CookieSpec>,
     pub(crate) headers: http::HeaderMap,
+    pub(crate) viewport: Option<crate::viewport::Viewport>,
 }
 
 impl FetchOptions {
@@ -265,6 +271,7 @@ impl FetchOptions {
             visibility: None,
             cookies: Vec::new(),
             headers: http::HeaderMap::new(),
+            viewport: None,
         }
     }
 
@@ -326,6 +333,12 @@ impl FetchOptions {
         self
     }
 
+    /// Layout viewport size (default: 1280x800).
+    pub fn viewport(mut self, viewport: crate::viewport::Viewport) -> Self {
+        self.viewport = Some(viewport);
+        self
+    }
+
     /// Capture the page's accessibility tree (read via [`Page::accessibility_tree`]).
     pub fn accessibility(mut self, on: bool) -> Self {
         if let FetchMode::Content { include_a11y } = &mut self.mode {
@@ -347,6 +360,11 @@ impl FetchOptions {
     /// Resolve the effective visibility policy, falling back to its default.
     pub(crate) fn effective_visibility(&self) -> crate::visibility::VisibilityPolicy {
         self.visibility.unwrap_or_default()
+    }
+
+    /// Resolve the effective viewport, falling back to its default.
+    pub(crate) fn effective_viewport(&self) -> crate::viewport::Viewport {
+        self.viewport.unwrap_or_default()
     }
 }
 
@@ -473,6 +491,7 @@ fn build_bridge_options(opts: &FetchOptions) -> crate::bridge::PageOptions<'_> {
         user_agent: opts.user_agent.as_deref(),
         cookies: &opts.cookies,
         headers: &opts.headers,
+        viewport: opts.effective_viewport(),
         mode: match opts.mode {
             FetchMode::Content { include_a11y } => crate::bridge::FetchMode::Content { include_a11y },
             FetchMode::Screenshot { full_page } => crate::bridge::FetchMode::Screenshot { full_page },
@@ -486,6 +505,7 @@ fn build_bridge_options(opts: &FetchOptions) -> crate::bridge::PageOptions<'_> {
 fn finalize_page(servo_page: crate::bridge::ServoPage, opts: &FetchOptions) -> Page {
     let mut page = Page::from(servo_page);
     page.visibility_policy = opts.effective_visibility();
+    page.viewport = opts.effective_viewport();
     if let Some(schema) = opts.extract_schema.as_ref() {
         page.extracted = Some(schema.extract_from(&page.html));
     }
@@ -513,6 +533,7 @@ mod tests {
         assert_eq!(opts.timeout, None);
         assert_eq!(opts.settle, None);
         assert_eq!(opts.visibility, None);
+        assert_eq!(opts.viewport, None);
         assert!(matches!(opts.mode, FetchMode::Content { .. }));
     }
 

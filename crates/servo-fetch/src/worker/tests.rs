@@ -114,7 +114,12 @@ fn protocol_golden_encoding_is_stable() {
             response: WorkerResponse::FetchResult(page),
         })
         .unwrap(),
-        vec![7, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, b'u']
+        vec![
+            7, 1, // request ID, FetchResult
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // empty page fields
+            0x80, 0x0a, 0xa0, 0x06, // viewport 1280x800 as varints
+            1, b'u', // url
+        ]
     );
     let cookie = crate::CookieSpec::new("sid", "secret", "example.com")
         .unwrap()

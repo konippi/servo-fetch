@@ -179,6 +179,8 @@ pub enum ConsoleLevel {
     Trace,
     /// Object inspection from `console.dir`.
     Dir,
+    /// Tabular data from `console.table`.
+    Table,
 }
 
 impl ConsoleLevel {
@@ -193,6 +195,7 @@ impl ConsoleLevel {
             Self::Error => "error",
             Self::Trace => "trace",
             Self::Dir => "dir",
+            Self::Table => "table",
         }
     }
 }
@@ -214,6 +217,7 @@ impl From<crate::bridge::ConsoleLevel> for ConsoleLevel {
             Bridge::Error => Self::Error,
             Bridge::Trace => Self::Trace,
             Bridge::Dir => Self::Dir,
+            Bridge::Table => Self::Table,
         }
     }
 }
@@ -820,7 +824,7 @@ mod tests {
         }
 
         #[test]
-        fn console_messages_preserve_all_seven_levels() {
+        fn console_messages_preserve_every_level() {
             let cases = [
                 (bridge::ConsoleLevel::Log, ConsoleLevel::Log, "log"),
                 (bridge::ConsoleLevel::Debug, ConsoleLevel::Debug, "debug"),
@@ -829,6 +833,7 @@ mod tests {
                 (bridge::ConsoleLevel::Error, ConsoleLevel::Error, "error"),
                 (bridge::ConsoleLevel::Trace, ConsoleLevel::Trace, "trace"),
                 (bridge::ConsoleLevel::Dir, ConsoleLevel::Dir, "dir"),
+                (bridge::ConsoleLevel::Table, ConsoleLevel::Table, "table"),
             ];
             for (src, expected, label) in cases {
                 let mut sp = empty_servo_page();

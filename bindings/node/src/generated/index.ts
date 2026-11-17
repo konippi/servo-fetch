@@ -81,7 +81,7 @@ headers?: { [key in string]: string }, };
 /**
  * Level or category of a captured console message.
  */
-export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug" | "trace" | "dir";
+export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug" | "trace" | "dir" | "table";
 
 /**
  * A console message captured while evaluating JavaScript.

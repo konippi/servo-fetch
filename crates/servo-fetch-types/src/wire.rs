@@ -63,6 +63,8 @@ pub enum ConsoleLevel {
     Trace,
     /// `console.dir`.
     Dir,
+    /// `console.table`.
+    Table,
 }
 
 /// A console message captured while evaluating JavaScript.

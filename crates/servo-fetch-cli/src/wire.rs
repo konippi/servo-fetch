@@ -79,6 +79,7 @@ fn console_level(level: servo_fetch::ConsoleLevel) -> wire::ConsoleLevel {
         C::Error => wire::ConsoleLevel::Error,
         C::Trace => wire::ConsoleLevel::Trace,
         C::Dir => wire::ConsoleLevel::Dir,
+        C::Table => wire::ConsoleLevel::Table,
         _ => wire::ConsoleLevel::Log,
     }
 }

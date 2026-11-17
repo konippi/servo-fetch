@@ -313,6 +313,34 @@ fn slow_first_byte_is_not_mistaken_for_a_crash() {
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
+fn page_that_stops_its_own_load_is_extracted() {
+    block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page(concat!(
+                "<!doctype html><html><body><h1>Stopped</h1>",
+                r#"<img src="/pending"><script>window.stop()</script>"#,
+                "</body></html>",
+            )))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/pending"))
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(60)))
+            .mount(&server)
+            .await;
+
+        servo_fetch()
+            .args(["--allow-private-addresses", TIMEOUT, &server.uri()])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Stopped"));
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
 fn cookie_jar_captures_http_and_javascript_cookies_without_json_leakage() {
     block_on(async {
         const HTTP_SECRET: &str = "HTTP_ONLY_SECRET_395";

@@ -184,7 +184,7 @@ struct EngineDelegate {
 }
 
 fn gate_resource_load(policy: crate::net::NetworkPolicy, load: WebResourceLoad) {
-    let url = &load.request().url;
+    let url = load.request().url.as_url();
     if !policy.allows_load(url) {
         tracing::warn!(%url, "blocked resource load");
         // Servo never finishes a cancelled frame load, so respond with an empty 403 instead of `cancel()`.
@@ -211,6 +211,7 @@ pub(crate) enum ConsoleLevel {
     Error,
     Trace,
     Dir,
+    Table,
 }
 
 impl fmt::Display for ConsoleLevel {
@@ -223,6 +224,7 @@ impl fmt::Display for ConsoleLevel {
             Self::Error => f.write_str("error"),
             Self::Trace => f.write_str("trace"),
             Self::Dir => f.write_str("dir"),
+            Self::Table => f.write_str("table"),
         }
     }
 }
@@ -237,6 +239,7 @@ impl From<ConsoleLogLevel> for ConsoleLevel {
             ConsoleLogLevel::Error => Self::Error,
             ConsoleLogLevel::Trace => Self::Trace,
             ConsoleLogLevel::Dir => Self::Dir,
+            ConsoleLogLevel::Table => Self::Table,
         }
     }
 }
@@ -253,7 +256,7 @@ impl WebViewDelegate for PageDelegate {
             if let Some(request) = self.state.deferred_load.take() {
                 webview.load_request(request);
             }
-        } else if status == LoadStatus::Complete {
+        } else if matches!(status, LoadStatus::Complete | LoadStatus::Stopped) {
             self.state.loaded_at.set(Some(Instant::now()));
         }
     }
@@ -333,7 +336,7 @@ pub(crate) struct ServoPage {
 pub(crate) struct PageOptions<'a> {
     pub url: &'a str,
     pub timeout_secs: u64,
-    /// Extra wait after Servo fires `LoadStatus::Complete`.
+    /// Extra wait after Servo fires `LoadStatus::Complete` or `LoadStatus::Stopped`.
     pub settle_ms: u64,
     pub mode: FetchMode,
     pub user_agent: Option<&'a str>,
@@ -1034,6 +1037,7 @@ mod tests {
             (ConsoleLevel::Error, "error"),
             (ConsoleLevel::Trace, "trace"),
             (ConsoleLevel::Dir, "dir"),
+            (ConsoleLevel::Table, "table"),
         ];
         for (level, expected) in cases {
             assert_eq!(level.to_string(), expected);
@@ -1186,6 +1190,7 @@ mod tests {
             (ConsoleLogLevel::Error, ConsoleLevel::Error),
             (ConsoleLogLevel::Trace, ConsoleLevel::Trace),
             (ConsoleLogLevel::Dir, ConsoleLevel::Dir),
+            (ConsoleLogLevel::Table, ConsoleLevel::Table),
         ];
         for (source, expected) in cases {
             assert_eq!(ConsoleLevel::from(source), expected);

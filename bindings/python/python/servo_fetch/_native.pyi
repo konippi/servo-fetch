@@ -1,12 +1,18 @@
 import os
 import threading
 from collections.abc import Callable
-from typing import Any, Literal, TypeAlias, final
+from typing import Any, Literal, TypeAlias, TypedDict, final
 
 __version__: str
 
 ConsoleLevel: TypeAlias = Literal["log", "debug", "info", "warn", "error", "trace", "dir", "table"]
 FieldType: TypeAlias = Literal["text", "attribute", "html", "inner_html", "nested_list"]
+
+class Viewport(TypedDict):
+    """Layout viewport size in CSS pixels, 1 to 4096 per side (default 1280x800)."""
+
+    width: int
+    height: int
 
 @final
 class ConsoleMessage:
@@ -116,6 +122,7 @@ class Session:
         screenshot: bool = False,
         javascript: str | None = None,
         headers: dict[str, str] | None = None,
+        viewport: Viewport | None = None,
     ) -> Page: ...
     def close(self) -> None: ...
     @property
@@ -133,6 +140,7 @@ class Client:
         timeout: float = 30.0,
         settle: float = 0.0,
         user_agent: str | None = None,
+        viewport: Viewport | None = None,
     ) -> Client: ...
     def fetch(
         self,
@@ -145,6 +153,7 @@ class Client:
         schema: Schema | None = None,
         cookies_file: str | os.PathLike[str] | None = None,
         headers: dict[str, str] | None = None,
+        viewport: Viewport | None = None,
     ) -> Page: ...
     def crawl(
         self,
@@ -203,4 +212,5 @@ def fetch(
     schema: Schema | None = None,
     cookies_file: str | os.PathLike[str] | None = None,
     headers: dict[str, str] | None = None,
+    viewport: Viewport | None = None,
 ) -> Page: ...

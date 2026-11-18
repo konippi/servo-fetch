@@ -2,8 +2,9 @@
 
 use std::time::Duration;
 
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyMapping;
 
 pub(crate) const MAX_TIMEOUT_SECS: f64 = 3600.0;
 pub(crate) const MAX_SETTLE_SECS: f64 = 60.0;
@@ -26,6 +27,16 @@ pub(crate) fn settle(s: f64) -> PyResult<Duration> {
         )));
     }
     Ok(Duration::from_secs_f64(s))
+}
+
+/// Validate the `viewport` kwarg against the shared wire shape and the engine bounds.
+pub(crate) fn viewport(v: Option<&Bound<'_, PyMapping>>) -> PyResult<Option<servo_fetch::Viewport>> {
+    let Some(v) = v else { return Ok(None) };
+    let servo_fetch_types::Viewport { width, height } =
+        pythonize::depythonize(v).map_err(|e| PyTypeError::new_err(format!("invalid viewport: {e}")))?;
+    servo_fetch::Viewport::new(width, height)
+        .map(Some)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 pub(crate) fn url(u: &str) -> PyResult<()> {

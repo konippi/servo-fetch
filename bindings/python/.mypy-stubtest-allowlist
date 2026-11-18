@@ -1,3 +1,4 @@
 servo_fetch._native.__all__
 servo_fetch._native.ConsoleLevel
 servo_fetch._native.FieldType
+servo_fetch._native.Viewport

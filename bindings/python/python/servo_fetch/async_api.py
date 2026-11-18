@@ -6,12 +6,15 @@ import asyncio
 import os
 import threading
 from collections.abc import AsyncIterator
-from typing import Self, cast
+from typing import TYPE_CHECKING, Self, cast
 
 from ._native import Client as _SyncClient
 from ._native import CrawlResult, MappedUrl, Page, Schema, ServoFetchError
 from ._native import Session as _SyncSession
 from ._native import fetch as _sync_fetch
+
+if TYPE_CHECKING:
+    from ._native import Viewport
 
 __all__ = ["AsyncClient", "AsyncSession", "fetch_async"]
 
@@ -29,6 +32,7 @@ async def fetch_async(
     schema: Schema | None = None,
     cookies_file: str | os.PathLike[str] | None = None,
     headers: dict[str, str] | None = None,
+    viewport: Viewport | None = None,
 ) -> Page:
     """Asynchronously fetch a single URL."""
     return await asyncio.to_thread(
@@ -42,6 +46,7 @@ async def fetch_async(
         schema=schema,
         cookies_file=cookies_file,
         headers=headers,
+        viewport=viewport,
     )
 
 
@@ -54,8 +59,9 @@ class AsyncClient:
         timeout: float = 30.0,
         settle: float = 0.0,
         user_agent: str | None = None,
+        viewport: Viewport | None = None,
     ) -> None:
-        self._inner = _SyncClient(timeout=timeout, settle=settle, user_agent=user_agent)
+        self._inner = _SyncClient(timeout=timeout, settle=settle, user_agent=user_agent, viewport=viewport)
 
     async def fetch(
         self,
@@ -68,6 +74,7 @@ class AsyncClient:
         schema: Schema | None = None,
         cookies_file: str | os.PathLike[str] | None = None,
         headers: dict[str, str] | None = None,
+        viewport: Viewport | None = None,
     ) -> Page:
         return await asyncio.to_thread(
             self._inner.fetch,
@@ -79,6 +86,7 @@ class AsyncClient:
             schema=schema,
             cookies_file=cookies_file,
             headers=headers,
+            viewport=viewport,
         )
 
     async def crawl(
@@ -223,6 +231,7 @@ class AsyncSession:
         screenshot: bool = False,
         javascript: str | None = None,
         headers: dict[str, str] | None = None,
+        viewport: Viewport | None = None,
     ) -> Page:
         session = await self._session()
         return await asyncio.to_thread(
@@ -233,6 +242,7 @@ class AsyncSession:
             screenshot=screenshot,
             javascript=javascript,
             headers=headers,
+            viewport=viewport,
         )
 
     @property

@@ -46,3 +46,8 @@ def test_client_fetch() -> None:
     client = servo_fetch.Client(user_agent="servo-fetch-test/1.0")
     page = client.fetch(URL)
     assert page.url == URL
+
+
+def test_viewport_sets_layout_size() -> None:
+    page = servo_fetch.fetch(URL, javascript="`${innerWidth}x${innerHeight}`", viewport={"width": 640, "height": 480})
+    assert page.js_result == "640x480"

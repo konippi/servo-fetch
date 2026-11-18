@@ -102,6 +102,18 @@ page = servo_fetch.fetch("https://api.example.com", headers={"Authorization": "B
 Framing headers (`Host`, `Content-Length`, …) are rejected, and `User-Agent` /
 `Cookie` have dedicated options; invalid headers raise `ValueError`.
 
+## Viewport
+
+Set the layout viewport via `viewport` (default 1280x800, 1 to 4096 per side).
+Accepted by `fetch`, `Client`, `Client.fetch`, `Session.fetch`, and their async
+equivalents. A `Client` viewport also applies to its crawls.
+
+```python
+import servo_fetch
+
+page = servo_fetch.fetch("https://example.com", screenshot=True, viewport={"width": 390, "height": 844})
+```
+
 ## Async
 
 ```python

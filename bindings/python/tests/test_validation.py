@@ -21,6 +21,8 @@ import servo_fetch
         ({"headers": {"Host": "evil"}}, "managed by the engine"),
         ({"headers": {"User-Agent": "x"}}, "custom header"),
         ({"headers": {"X-A": "a\r\nb"}}, "invalid value"),
+        ({"viewport": {"width": 0, "height": 800}}, "viewport 0x800"),
+        ({"viewport": {"width": 1280, "height": 4097}}, "viewport 1280x4097"),
     ],
     ids=[
         "timeout_negative",
@@ -34,6 +36,8 @@ import servo_fetch
         "header_reserved",
         "header_user_agent",
         "header_crlf",
+        "viewport_zero",
+        "viewport_above_max",
     ],
 )
 def test_fetch_rejects_invalid_kwargs(kwargs: dict, match: str) -> None:
@@ -52,8 +56,9 @@ def test_url_length_capped() -> None:
         ({"timeout": -1.0}, "timeout"),
         ({"timeout": 0.0}, "timeout"),
         ({"settle": -0.1}, "settle"),
+        ({"viewport": {"width": 4097, "height": 800}}, "viewport 4097x800"),
     ],
-    ids=["client_timeout_neg", "client_timeout_zero", "client_settle_neg"],
+    ids=["client_timeout_neg", "client_timeout_zero", "client_settle_neg", "client_viewport_above_max"],
 )
 def test_client_rejects_invalid_kwargs(kwargs: dict, match: str) -> None:
     with pytest.raises(ValueError, match=match):
@@ -64,3 +69,17 @@ def test_timeout_at_max_accepted() -> None:
     """3600.0 is the ceiling — should not raise."""
     with pytest.raises(Exception, match=r"(?!timeout must)"):
         servo_fetch.fetch("https://192.0.2.1", timeout=3600.0)
+
+
+@pytest.mark.parametrize(
+    ("viewport", "match"),
+    [
+        ({"width": 800}, "missing field `height`"),
+        ({"width": 800, "height": 600, "scale": 2}, "unknown field `scale`"),
+        ("800x600", "not an instance of 'Mapping'"),
+    ],
+    ids=["missing_key", "extra_key", "not_a_dict"],
+)
+def test_viewport_rejects_malformed_shape(viewport: object, match: str) -> None:
+    with pytest.raises(TypeError, match=match):
+        servo_fetch.fetch("https://example.com", viewport=viewport)

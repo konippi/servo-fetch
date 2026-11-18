@@ -47,9 +47,16 @@ describe.runIf(e2e)("real binary E2E", () => {
     const { Session } = await import("../src/index.js");
     const session = await Session.open();
     try {
-      const markdown = await session.fetch(pageUrl());
-      expect(typeof markdown).toBe("string");
-      expect(markdown.length).toBeGreaterThan(0);
+      expect((await session.fetch(pageUrl())).markdown).toContain("Hermetic fixture");
+      const page = await session.fetch(pageUrl(), {
+        formats: ["markdown", "html", "text", "article"],
+      });
+      expect(page.url).toBe(pageUrl());
+      expect(page.title).toBe("servo-fetch e2e");
+      expect(page.markdown).toContain("Hermetic fixture");
+      expect(page.html).toContain("<h1>Hermetic fixture</h1>");
+      expect(page.text).toContain("Hermetic fixture");
+      expect(page.article.title).toBe("servo-fetch e2e");
     } finally {
       await session.close();
     }

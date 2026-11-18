@@ -31,17 +31,10 @@ pub(crate) fn render_page<'a>(
         FetchFormat::Html => Cow::Borrowed(page.html.as_str()),
         FetchFormat::Text => Cow::Borrowed(page.inner_text.as_str()),
         FetchFormat::AccessibilityTree => Cow::Borrowed(page.accessibility_tree.as_deref().unwrap_or_default()),
-        FetchFormat::Json => {
-            let data = match selector {
-                Some(s) => page.article_with_selector(url, s),
-                None => page.article(url),
-            }
-            .map_err(ToolError::from)?;
-            Cow::Owned(
-                serde_json::to_string_pretty(&crate::wire::article(data))
-                    .map_err(|e| ToolError::internal(e.to_string()))?,
-            )
-        }
+        FetchFormat::Json => Cow::Owned(
+            serde_json::to_string_pretty(&article(page, url, selector)?)
+                .map_err(|e| ToolError::internal(e.to_string()))?,
+        ),
         FetchFormat::Markdown => Cow::Owned(
             match selector {
                 Some(s) => page.markdown_with_selector(url, s),
@@ -50,6 +43,15 @@ pub(crate) fn render_page<'a>(
             .map_err(ToolError::from)?,
         ),
     })
+}
+
+/// Extract the Readability article, narrowed to `selector` when given.
+pub(crate) fn article(page: &Page, url: &str, selector: Option<&str>) -> ToolResult<servo_fetch_types::Article> {
+    let data = match selector {
+        Some(s) => page.article_with_selector(url, s),
+        None => page.article(url),
+    }?;
+    Ok(crate::wire::article(data))
 }
 
 /// Paginate by character offset/count.

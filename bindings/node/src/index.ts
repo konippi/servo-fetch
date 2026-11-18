@@ -10,6 +10,7 @@ import type {
   InitializeResult,
   MappedUrl,
   MapRequest,
+  PageFormat,
   RequestOptions,
   SchemaExtractRequest,
   SchemaExtractResult,
@@ -18,6 +19,7 @@ import type {
   SessionFetchRequest,
   SessionOpenRequest,
   SessionOpenResult,
+  SessionPage,
   Viewport,
   Visibility,
 } from "./generated/index.js";
@@ -33,7 +35,14 @@ export {
   NetworkError,
   ServoFetchError,
 } from "./errors.js";
-export type { Article, MappedUrl, Viewport, Visibility } from "./generated/index.js";
+export type {
+  Article,
+  MappedUrl,
+  PageFormat,
+  SessionPage,
+  Viewport,
+  Visibility,
+} from "./generated/index.js";
 export { shutdown } from "./rpc-client.js";
 export type { Field, Schema } from "./schema.js";
 export type { BatchResult, CrawlOptions, CrawlResult, FetchOptions, MapOptions } from "./types.js";
@@ -262,12 +271,14 @@ export async function version(): Promise<string> {
   return info.serverInfo.version;
 }
 /** Options for `Session.fetch`; session identity (user agent, cookies) is fixed at `Session.open`. */
-export interface SessionFetchOptions {
+export interface SessionFetchOptions<F extends PageFormat = "markdown"> {
+  /** Formats rendered from the single page load (default: ["markdown"]). */
+  formats?: readonly F[];
   /** Seconds to wait for the page (default: 30). */
   timeout?: number;
   /** Extra milliseconds to wait after load for late JS (default: 0). */
   settle?: number;
-  /** CSS selector to extract a specific section. */
+  /** CSS selector to extract a specific section (Markdown and article only). */
   selector?: string;
   /** Visibility filtering policy (default: moderate). */
   visibility?: Visibility;
@@ -278,6 +289,10 @@ export interface SessionFetchOptions {
   /** Abort the in-flight request. */
   signal?: AbortSignal;
 }
+
+/** A session page carrying every requested format. */
+export type SessionFetchResult<F extends PageFormat> = Omit<SessionPage, PageFormat> &
+  Required<Pick<SessionPage, F>>;
 
 /** A process-isolated browser session; state persists across fetches and never leaks between sessions. */
 export class Session {
@@ -311,15 +326,18 @@ export class Session {
     }
   }
 
-  /** Fetch a URL inside this session and return readable Markdown. */
-  async fetch(url: string, options: SessionFetchOptions = {}): Promise<string> {
+  /** Load a URL inside this session once and render each requested format from it. */
+  async fetch<F extends PageFormat = "markdown">(
+    url: string,
+    options: SessionFetchOptions<F> = {},
+  ): Promise<SessionFetchResult<F>> {
     this.guard();
     return await request(
       "session/fetch",
       {
         sessionId: this.id,
         url,
-        format: "markdown",
+        formats: options.formats?.slice(),
         selector: options.selector,
         visibility: options.visibility,
         timeout: options.timeout,

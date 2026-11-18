@@ -24,6 +24,12 @@ const ERROR = {
   error: "boom",
 };
 const STATS = { type: "stats", crawled: 2, errors: 1, elapsedMs: 5 };
+const RENDERED = {
+  markdown: "# Title\n\nbody\n",
+  html: "<p>c</p>",
+  text: "c",
+  article: { title: "T", content: "<p>c</p>", textContent: "c" },
+};
 
 function finishCrawl(id) {
   progress(id, ERROR);
@@ -90,6 +96,18 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         id,
         result: [{ url: "https://e.com/" }, { url: "https://e.com/a", lastmod: "2024-01-01" }],
       });
+      break;
+    case "session/open":
+      send({ jsonrpc: "2.0", id, result: { sessionId: 1 } });
+      break;
+    case "session/fetch": {
+      const formats = params.formats ?? ["markdown"];
+      const rendered = Object.fromEntries(formats.map((format) => [format, RENDERED[format]]));
+      send({ jsonrpc: "2.0", id, result: { url: params.url, title: "T", ...rendered } });
+      break;
+    }
+    case "session/close":
+      send({ jsonrpc: "2.0", id, result: null });
       break;
     case "crawl":
       progress(id, PAGE);

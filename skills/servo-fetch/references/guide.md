@@ -112,7 +112,7 @@ Field `type` values: `text`, `attribute`, `html`, `inner_html`, `nested_list`. A
 
 ## Screenshots
 
-Default viewport is 1280×800. Screenshots are rendered with Servo's software renderer (no GPU).
+Default viewport is 1280×800. Pass `viewport: { width, height }` (CLI `--viewport WxH`, 1 to 4096 per side) to change it. Screenshots are rendered with Servo's software renderer (no GPU).
 
 ## Accessibility tree
 

@@ -96,6 +96,9 @@ fn build_crawl_options(args: &CrawlArgs, json: bool) -> servo_fetch::CrawlOption
     if let Some(ref ua) = args.user_agent {
         opts = opts.user_agent(ua);
     }
+    if let Some(viewport) = args.viewport {
+        opts = opts.viewport(viewport);
+    }
     opts
 }
 

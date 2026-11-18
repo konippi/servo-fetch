@@ -583,6 +583,32 @@ fn js_eval_returns_result() {
 
 #[test]
 #[ignore = "e2e: requires Servo engine"]
+fn viewport_sets_layout_size() {
+    block_on(async {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(mock_page("<!doctype html><html><body></body></html>"))
+            .mount(&s)
+            .await;
+        servo_fetch()
+            .args([
+                "--js",
+                "`${innerWidth}x${innerHeight}`",
+                "--viewport",
+                "640x480",
+                "--allow-private-addresses",
+                TIMEOUT,
+                &s.uri(),
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("640x480"));
+    });
+}
+
+#[test]
+#[ignore = "e2e: requires Servo engine"]
 fn format_png_creates_file() {
     block_on(async {
         let s = MockServer::start().await;

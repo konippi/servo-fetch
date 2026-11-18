@@ -1,4 +1,4 @@
-import type { Visibility } from "./generated/index.js";
+import type { Viewport, Visibility } from "./generated/index.js";
 
 /** Options shared by every single-page operation. */
 export interface FetchOptions {
@@ -14,6 +14,8 @@ export interface FetchOptions {
   selector?: string;
   /** Visibility filtering policy. Default: "moderate". */
   visibility?: Visibility;
+  /** Layout viewport size in CSS pixels. Default: 1280x800. */
+  viewport?: Viewport;
   /** Custom request headers sent with the navigation request. */
   headers?: Record<string, string>;
   /** Abort the in-flight request. */
@@ -50,6 +52,8 @@ export interface CrawlOptions {
   selector?: string;
   /** Visibility filtering policy. Default: "moderate". */
   visibility?: Visibility;
+  /** Layout viewport size in CSS pixels. Default: 1280x800. */
+  viewport?: Viewport;
   /** Custom request headers sent with each page's navigation request. */
   headers?: Record<string, string>;
   signal?: AbortSignal;

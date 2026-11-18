@@ -33,6 +33,24 @@ pub struct RequestOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub headers: Option<BTreeMap<String, String>>,
+    /// Layout viewport size in CSS pixels (default: 1280x800).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub viewport: Option<Viewport>,
+}
+
+/// Layout viewport size in CSS pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct Viewport {
+    /// Width in CSS pixels (1 to 4096).
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 4096)))]
+    pub width: u32,
+    /// Height in CSS pixels (1 to 4096).
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 4096)))]
+    pub height: u32,
 }
 
 /// Output format for the `fetch` method (all string-valued).
@@ -105,6 +123,10 @@ pub struct SessionRequestOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub headers: Option<BTreeMap<String, String>>,
+    /// Layout viewport size in CSS pixels (default: 1280x800).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub viewport: Option<Viewport>,
 }
 
 /// Parameters for the `session/open` method.

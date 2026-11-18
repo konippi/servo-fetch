@@ -95,7 +95,7 @@ async fn list_tools_preserves_required_and_representative_camel_case_fields() {
     let expectations = [
         ("fetch", &["url"][..], &["maxLength", "startIndex"][..]),
         ("batch_fetch", &["urls"][..], &["maxLength", "settleMs"][..]),
-        ("screenshot", &["url"][..], &["fullPage", "userAgent"][..]),
+        ("screenshot", &["url"][..], &["fullPage", "userAgent", "viewport"][..]),
         ("execute_js", &["url", "expression"][..], &["settleMs"][..]),
         ("crawl", &["url"][..], &["maxDepth", "delayMs", "maxLength"][..]),
         ("map", &["url"][..], &["noFallback", "userAgent"][..]),

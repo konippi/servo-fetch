@@ -120,6 +120,7 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
         let visibility = args.visibility.to_policy();
         let cookies = cookies.clone();
         let headers = headers.clone();
+        let viewport = args.viewport;
         tokio::task::spawn_blocking(move || {
             let mut opts = FetchOptions::new(&url_str)
                 .timeout(Duration::from_secs(timeout))
@@ -133,6 +134,9 @@ async fn run_batch(args: &FetchArgs, urls: &[String]) -> Result<()> {
             }
             if let Some(c) = cookies {
                 opts = opts.cookies(c);
+            }
+            if let Some(v) = viewport {
+                opts = opts.viewport(v);
             }
             opts = opts.headers(headers);
             let result = servo_fetch::blocking::fetch(&opts);
@@ -235,6 +239,10 @@ fn build_session_fetch_options(args: &FetchArgs, url: &str) -> Result<FetchOptio
         .visibility(args.visibility.to_policy());
     let opts = match args.schema {
         Some(ref path) => opts.schema(load_schema(path)?),
+        None => opts,
+    };
+    let opts = match args.viewport {
+        Some(viewport) => opts.viewport(viewport),
         None => opts,
     };
     let opts = opts.headers(servo_fetch::headers::parse_lines(&args.headers)?);

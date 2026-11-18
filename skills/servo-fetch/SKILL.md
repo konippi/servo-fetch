@@ -38,7 +38,7 @@ Parameters:
 - `maxLength`: max characters to return (default 5000)
 - `startIndex`: character offset for pagination
 - `visibility`: `"moderate"` (default), `"strict"`, or `"off"`
-- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`, `viewport` (`{ width, height }`, default 1280x800)
 
 ```text
 fetch(url: "https://docs.rs/tokio", format: "markdown")
@@ -59,7 +59,7 @@ Parameters:
 - `selector`: CSS selector to extract a specific section
 - `maxLength`: max characters per URL result (default 5000)
 - `visibility`: `"moderate"` (default), `"strict"`, or `"off"`
-- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`, `viewport` (`{ width, height }`, default 1280x800)
 
 ```text
 batch_fetch(urls: ["https://a.com", "https://b.com"], format: "markdown")
@@ -81,7 +81,7 @@ Parameters:
 - `maxLength`: max characters per page result (default 5000)
 - `selector`: CSS selector to extract a specific section per page
 - `visibility`: `"moderate"` (default), `"strict"`, or `"off"`
-- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`, `viewport` (`{ width, height }`, default 1280x800)
 
 ```text
 crawl(url: "https://docs.example.com", limit: 20, maxDepth: 3)
@@ -96,7 +96,7 @@ Parameters:
 
 - `url` (required): URL to capture
 - `fullPage`: capture the full scrollable page (default false)
-- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`, `viewport` (`{ width, height }`, default 1280x800)
 
 ```text
 screenshot(url: "https://example.com")
@@ -111,7 +111,7 @@ Parameters:
 
 - `url` (required): URL to load
 - `expression` (required): JavaScript expression to evaluate
-- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`
+- common: `timeout` (s, default 30), `settleMs` (ms, default 0), `userAgent`, `cookiesFile`, `headers`, `viewport` (`{ width, height }`, default 1280x800)
 
 ```text
 execute_js(url: "https://example.com", expression: "document.title")
@@ -126,6 +126,7 @@ servo-fetch https://example.com --format json                    # Structured JS
 servo-fetch URL1 URL2 URL3                                       # Parallel batch (Markdown with separators)
 servo-fetch URL1 URL2 --format json                              # Parallel batch (NDJSON)
 servo-fetch https://example.com --format png -o out.png          # Save PNG screenshot
+servo-fetch https://example.com --format png --viewport 390x844  # Screenshot at a mobile viewport
 servo-fetch https://example.com --js "document.title"            # Run JavaScript and print result
 servo-fetch https://example.com --selector article               # Extract a section by CSS selector
 servo-fetch https://example.com --schema schema.json             # Schema-driven JSON

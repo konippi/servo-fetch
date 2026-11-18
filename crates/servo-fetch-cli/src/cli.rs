@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use clap::builder::NonEmptyStringValueParser;
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum, value_parser};
+use servo_fetch::Viewport;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -98,6 +99,19 @@ pub(crate) struct FetchArgs {
     /// Visibility-aware filtering policy.
     #[arg(long, value_name = "POLICY", value_enum, default_value_t = VisibilityArg::Moderate)]
     pub visibility: VisibilityArg,
+
+    /// Layout viewport size in CSS pixels (default: 1280x800).
+    #[arg(long, value_name = "WxH", value_parser = parse_viewport)]
+    pub viewport: Option<Viewport>,
+}
+
+/// Parse `WIDTHxHEIGHT` into a viewport within the engine bounds.
+fn parse_viewport(s: &str) -> Result<Viewport, String> {
+    let (width, height) = s
+        .split_once('x')
+        .and_then(|(width, height)| Some((width.parse().ok()?, height.parse().ok()?)))
+        .ok_or("expected WIDTHxHEIGHT, e.g. 1280x800")?;
+    Viewport::new(width, height).map_err(|e| e.to_string())
 }
 
 /// Visibility filtering policy.
@@ -222,6 +236,10 @@ pub(crate) struct CrawlArgs {
     /// Visibility-aware filtering policy.
     #[arg(long, value_name = "POLICY", value_enum, default_value_t = VisibilityArg::Moderate)]
     pub visibility: VisibilityArg,
+
+    /// Layout viewport size in CSS pixels (default: 1280x800).
+    #[arg(long, value_name = "WxH", value_parser = parse_viewport)]
+    pub viewport: Option<Viewport>,
 
     /// Timeout in seconds per page
     #[arg(short = 't', long, default_value_t = 30, value_parser = value_parser!(u64).range(1..), value_name = "SECS")]
@@ -358,6 +376,19 @@ mod tests {
             error_kind(&["--settle", "10001", "https://example.com"]),
             ErrorKind::ValueValidation,
         );
+    }
+
+    #[test]
+    fn viewport_parses_width_x_height_within_bounds() {
+        let cli = parse(&["--viewport", "640x480", "https://example.com"]).unwrap();
+        assert_eq!(cli.fetch.viewport, Viewport::new(640, 480).ok());
+        for bad in ["640", "640x", "x480", "640x480x1", "0x480", "4097x480"] {
+            assert_eq!(
+                error_kind(&["--viewport", bad, "https://example.com"]),
+                ErrorKind::ValueValidation,
+                "{bad}"
+            );
+        }
     }
 
     #[test]

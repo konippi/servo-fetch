@@ -76,7 +76,11 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
 
 /**
  * Level or category of a captured console message.
@@ -220,7 +224,11 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
 
 /**
  * Terminal summary returned by the `crawl` method once the stream completes.
@@ -284,7 +292,11 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
 
 /**
  * Result of evaluating a JavaScript expression on a page.
@@ -338,7 +350,11 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
 
 /**
  * Output format for the `fetch` method (all string-valued).
@@ -392,7 +408,11 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
 
 /**
  * Result of the `initialize` handshake.
@@ -484,7 +504,11 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
 
 /**
  * Parameters for the `extractSchema` method.
@@ -521,7 +545,11 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
 
 /**
  * Structured-extraction result for the `--schema` path.
@@ -567,7 +595,11 @@ cookiesFile?: string,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
 
 /**
  * Capabilities advertised by the server (none yet; reserved for forward compatibility).
@@ -639,7 +671,11 @@ settleMs?: number,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
 
 /**
  * Parameters for the `session/open` method.
@@ -674,7 +710,24 @@ settleMs?: number,
 /**
  * Custom request headers.
  */
-headers?: { [key in string]: string }, };
+headers?: { [key in string]: string }, 
+/**
+ * Layout viewport size in CSS pixels (default: 1280x800).
+ */
+viewport?: Viewport, };
+
+/**
+ * Layout viewport size in CSS pixels.
+ */
+export type Viewport = { 
+/**
+ * Width in CSS pixels (1 to 4096).
+ */
+width: number, 
+/**
+ * Height in CSS pixels (1 to 4096).
+ */
+height: number, };
 
 /**
  * Visibility-aware filtering policy applied during extraction.

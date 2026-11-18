@@ -18,6 +18,7 @@ import type {
   SessionFetchRequest,
   SessionOpenRequest,
   SessionOpenResult,
+  Viewport,
   Visibility,
 } from "./generated/index.js";
 import { generation, request, stream } from "./rpc-client.js";
@@ -32,14 +33,14 @@ export {
   NetworkError,
   ServoFetchError,
 } from "./errors.js";
-export type { Article, MappedUrl, Visibility } from "./generated/index.js";
+export type { Article, MappedUrl, Viewport, Visibility } from "./generated/index.js";
 export { shutdown } from "./rpc-client.js";
 export type { Field, Schema } from "./schema.js";
 export type { BatchResult, CrawlOptions, CrawlResult, FetchOptions, MapOptions } from "./types.js";
 
 type CommonOptions = Pick<
   FetchOptions,
-  "timeout" | "settle" | "userAgent" | "cookiesFile" | "headers"
+  "timeout" | "settle" | "userAgent" | "cookiesFile" | "headers" | "viewport"
 >;
 
 function common(o: CommonOptions): RequestOptions {
@@ -49,6 +50,7 @@ function common(o: CommonOptions): RequestOptions {
     userAgent: o.userAgent,
     cookiesFile: o.cookiesFile,
     headers: o.headers,
+    viewport: o.viewport,
   };
 }
 
@@ -271,6 +273,8 @@ export interface SessionFetchOptions {
   visibility?: Visibility;
   /** Custom request headers. */
   headers?: Record<string, string>;
+  /** Layout viewport size in CSS pixels (default: 1280x800). */
+  viewport?: Viewport;
   /** Abort the in-flight request. */
   signal?: AbortSignal;
 }
@@ -321,6 +325,7 @@ export class Session {
         timeout: options.timeout,
         settleMs: options.settle,
         headers: options.headers,
+        viewport: options.viewport,
       } satisfies SessionFetchRequest,
       options.signal,
     );

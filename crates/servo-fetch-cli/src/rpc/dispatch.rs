@@ -73,10 +73,13 @@ async fn session_fetch(params: Value, sessions: &super::Sessions) -> Result<Valu
         .ok_or_else(|| ResponseError::invalid_params(format!("unknown session {}", req.session_id)))?;
 
     let format = req.format.unwrap_or_default();
-    let opts = tools::content_options(&url, format, tools::visibility_policy(req.visibility))
+    let mut opts = tools::content_options(&url, format, tools::visibility_policy(req.visibility))
         .timeout(tools::resolve_timeout(req.options.timeout))
         .settle(tools::resolve_settle(req.options.settle_ms))
         .headers(tools::build_headers(req.options.headers)?);
+    if let Some(viewport) = tools::resolve_viewport(req.options.viewport)? {
+        opts = opts.viewport(viewport);
+    }
     let mut guard = slot.lock().await;
     let session = guard
         .as_mut()

@@ -51,6 +51,7 @@ servo-fetch URL1 URL2 --output-dir ./out/      # One file per URL (auto-created)
 ```bash
 servo-fetch "https://example.com" --format png -o page.png
 servo-fetch "https://example.com" --format png --full-page -o full.png
+servo-fetch "https://example.com" --format png --viewport 390x844 -o mobile.png
 servo-fetch "https://example.com" --format png | chafa            # pipe to terminal renderer
 servo-fetch "https://example.com" --format png -o -               # stdout (explicit)
 ```
@@ -159,6 +160,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `--format json` | Structured JSON output (NDJSON for multiple URLs) |
 | `--format png` | PNG screenshot of the rendered page (single URL only) |
 | `--full-page` | Capture full scrollable page (requires `--format png`) |
+| `--viewport <WxH>` | Layout viewport size in CSS pixels, 1 to 4096 per side (default: 1280x800) |
 | `--js <EXPR>` | Execute JavaScript and print result |
 | `--selector <CSS>` | Extract specific section by CSS selector |
 | `--format html\|text` | Raw HTML or plain text output |
@@ -199,6 +201,7 @@ Self-contained `/health` probe for any orchestrator that runs a command and insp
 | `--format json` | Output content as JSON per page |
 | `--selector <CSS>` | Extract specific section per page |
 | `--visibility <POLICY>` | `moderate` (default), `strict`, or `off` |
+| `--viewport <WxH>` | Layout viewport size in CSS pixels per page (default: 1280x800) |
 | `--concurrency <N>` | Maximum parallel page fetches (default: 1; completion order when >1) |
 | `--delay-ms <MS>` | Minimum dispatch interval in ms (default: 500; 0 disables rate limiting) |
 | `--user-agent <UA>` | Override the User-Agent string |
@@ -302,6 +305,7 @@ All page-fetching tools (`fetch`, `batch_fetch`, `crawl`, `screenshot`, `execute
 | `userAgent` | string? | Override the User-Agent header |
 | `cookiesFile` | string? | Path to a Netscape-format cookies.txt file |
 | `headers` | object? | Custom request headers (name → value) |
+| `viewport` | object? | Layout viewport `{ "width", "height" }` in CSS pixels, 1 to 4096 per side (default 1280x800) |
 
 <details>
 <summary><b>fetch</b> — extract readable content from a URL</summary>

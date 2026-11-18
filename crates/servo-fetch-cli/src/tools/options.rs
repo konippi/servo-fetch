@@ -3,7 +3,9 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use servo_fetch::{BrowserSessionConfig, CookieSpec, CrawlOptions, FetchOptions, HeaderMap, VisibilityPolicy};
+use servo_fetch::{
+    BrowserSessionConfig, CookieSpec, CrawlOptions, FetchOptions, HeaderMap, Viewport, VisibilityPolicy,
+};
 use servo_fetch_types::{FetchFormat, RequestOptions, Visibility};
 
 use super::error::{ToolError, ToolResult};
@@ -35,7 +37,15 @@ pub(crate) fn resolve_settle(ms: Option<u64>) -> Duration {
     Duration::from_millis(ms.unwrap_or(0).min(MAX_SETTLE_MS))
 }
 
-/// Apply the common request options (timeout, settle, UA, cookies, headers).
+/// Validate the wire viewport against the engine bounds.
+pub(crate) fn resolve_viewport(viewport: Option<servo_fetch_types::Viewport>) -> ToolResult<Option<Viewport>> {
+    viewport
+        .map(|v| Viewport::new(v.width, v.height))
+        .transpose()
+        .map_err(|e| ToolError::invalid_params(e.to_string()))
+}
+
+/// Apply the common request options (timeout, settle, UA, cookies, headers, viewport).
 pub(crate) fn apply_options(opts: FetchOptions, options: RequestOptions) -> ToolResult<FetchOptions> {
     Ok(ResolvedRequestOptions::try_from(options)?.apply(opts))
 }
@@ -48,6 +58,7 @@ pub(crate) struct ResolvedRequestOptions {
     user_agent: Option<String>,
     cookies: Vec<CookieSpec>,
     headers: HeaderMap,
+    viewport: Option<Viewport>,
 }
 
 impl TryFrom<RequestOptions> for ResolvedRequestOptions {
@@ -60,6 +71,7 @@ impl TryFrom<RequestOptions> for ResolvedRequestOptions {
             user_agent,
             cookies_file,
             headers,
+            viewport,
         } = options;
         Ok(Self {
             timeout: resolve_timeout(timeout),
@@ -70,6 +82,7 @@ impl TryFrom<RequestOptions> for ResolvedRequestOptions {
                 None => Vec::new(),
             },
             headers: build_headers(headers)?,
+            viewport: resolve_viewport(viewport)?,
         })
     }
 }
@@ -77,13 +90,19 @@ impl TryFrom<RequestOptions> for ResolvedRequestOptions {
 impl ResolvedRequestOptions {
     /// Split into one-use session identity (UA, cookies) and per-fetch settings.
     pub(crate) fn into_session(self, url: &str, opts: FetchOptions) -> (BrowserSessionConfig, FetchOptions) {
-        let opts = opts.timeout(self.timeout).settle(self.settle).headers(self.headers);
+        let mut opts = opts.timeout(self.timeout).settle(self.settle).headers(self.headers);
+        if let Some(viewport) = self.viewport {
+            opts = opts.viewport(viewport);
+        }
         (session_identity(url, self.user_agent, self.cookies), opts)
     }
 
     /// Crawl counterpart of [`Self::into_session`].
     pub(crate) fn into_crawl_session(self, url: &str, opts: CrawlOptions) -> (BrowserSessionConfig, CrawlOptions) {
-        let opts = opts.timeout(self.timeout).settle(self.settle).headers(self.headers);
+        let mut opts = opts.timeout(self.timeout).settle(self.settle).headers(self.headers);
+        if let Some(viewport) = self.viewport {
+            opts = opts.viewport(viewport);
+        }
         (session_identity(url, self.user_agent, self.cookies), opts)
     }
 
@@ -97,6 +116,9 @@ impl ResolvedRequestOptions {
         if let Some(user_agent) = &self.user_agent {
             opts = opts.user_agent(user_agent.clone());
         }
+        if let Some(viewport) = self.viewport {
+            opts = opts.viewport(viewport);
+        }
         opts
     }
 
@@ -109,6 +131,9 @@ impl ResolvedRequestOptions {
             .headers(self.headers.clone());
         if let Some(user_agent) = &self.user_agent {
             opts = opts.user_agent(user_agent.clone());
+        }
+        if let Some(viewport) = self.viewport {
+            opts = opts.viewport(viewport);
         }
         opts
     }
@@ -186,6 +211,10 @@ mod tests {
             user_agent: Some("test-agent".to_string()),
             cookies_file: Some(cookies.path().to_string_lossy().into_owned()),
             headers: Some(headers),
+            viewport: Some(servo_fetch_types::Viewport {
+                width: 640,
+                height: 480,
+            }),
         })
         .expect("options are valid");
 
@@ -194,6 +223,7 @@ mod tests {
         assert_eq!(settings.user_agent.as_deref(), Some("test-agent"));
         assert_eq!(settings.cookies.len(), 1);
         assert_eq!(settings.headers["x-test"], "kept");
+        assert_eq!(settings.viewport, Viewport::new(640, 480).ok());
     }
 
     #[test]
@@ -204,9 +234,24 @@ mod tests {
             user_agent: None,
             cookies_file: Some("/nonexistent/cookies.txt".to_string()),
             headers: None,
+            viewport: None,
         })
         .unwrap_err();
 
         assert!(error.to_string().contains("cookie"));
+    }
+
+    #[test]
+    fn settings_with_an_out_of_range_viewport_fail() {
+        let error = ResolvedRequestOptions::try_from(RequestOptions {
+            viewport: Some(servo_fetch_types::Viewport { width: 0, height: 800 }),
+            ..RequestOptions::default()
+        })
+        .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "viewport 0x800 must have both sides between 1 and 4096"
+        );
     }
 }

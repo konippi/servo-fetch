@@ -6885,6 +6885,7 @@ dependencies = [
  "pythonize",
  "serde_json",
  "servo-fetch",
+ "servo-fetch-types",
  "url",
 ]
 

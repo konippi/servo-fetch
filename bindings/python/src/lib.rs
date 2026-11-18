@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use pyo3::prelude::*;
+use pyo3::types::PyMapping;
 
 mod client;
 mod console;
@@ -20,7 +21,7 @@ use crate::opts::{BuildOpts, prepare};
 
 /// Fetch, render, and extract a single URL.
 #[pyfunction]
-#[pyo3(signature = (url, *, timeout=None, settle=None, user_agent=None, screenshot=false, javascript=None, schema=None, cookies_file=None, headers=None))]
+#[pyo3(signature = (url, *, timeout=None, settle=None, user_agent=None, screenshot=false, javascript=None, schema=None, cookies_file=None, headers=None, viewport=None))]
 #[allow(clippy::too_many_arguments)]
 fn fetch(
     py: Python<'_>,
@@ -33,6 +34,7 @@ fn fetch(
     schema: Option<Bound<'_, schema::Schema>>,
     cookies_file: Option<PathBuf>,
     headers: Option<HashMap<String, String>>,
+    viewport: Option<&Bound<'_, PyMapping>>,
 ) -> PyResult<page::Page> {
     let prepared = prepare(BuildOpts {
         url,
@@ -44,6 +46,7 @@ fn fetch(
         schema,
         cookies_file,
         headers,
+        viewport: validate::viewport(viewport)?,
     })?;
     let servo_page = py
         .detach(|| servo_fetch::blocking::fetch(&prepared.opts))

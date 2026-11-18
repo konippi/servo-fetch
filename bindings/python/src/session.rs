@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 use pyo3::prelude::*;
+use pyo3::types::PyMapping;
 
 use crate::errors::map_error;
 use crate::opts::{BuildOpts, prepare};
@@ -76,7 +77,7 @@ impl Session {
     }
 
     /// Fetch a URL inside this session, preserving cookies and storage across calls.
-    #[pyo3(signature = (url, *, timeout=None, settle=None, screenshot=false, javascript=None, headers=None))]
+    #[pyo3(signature = (url, *, timeout=None, settle=None, screenshot=false, javascript=None, headers=None, viewport=None))]
     #[allow(clippy::too_many_arguments)]
     fn fetch(
         &self,
@@ -87,6 +88,7 @@ impl Session {
         screenshot: bool,
         javascript: Option<String>,
         headers: Option<HashMap<String, String>>,
+        viewport: Option<&Bound<'_, PyMapping>>,
     ) -> PyResult<Page> {
         let prepared = prepare(BuildOpts {
             url,
@@ -98,6 +100,7 @@ impl Session {
             schema: None,
             cookies_file: None,
             headers,
+            viewport: validate::viewport(viewport)?,
         })?;
         let servo_page = py
             .detach(|| {

@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use pyo3::prelude::*;
+use pyo3::types::PyMapping;
 
 use crate::crawl::{CrawlResult, MappedUrl, strings_from_any};
 use crate::errors::map_error;
@@ -15,28 +16,35 @@ use crate::page::Page;
 use crate::schema::Schema;
 use crate::validate;
 
-/// Reusable client that shares timeout / settle / user_agent defaults across calls.
+/// Reusable client that shares timeout / settle / user_agent / viewport defaults across calls.
 #[pyclass(frozen, module = "servo_fetch._native")]
 pub(crate) struct Client {
     timeout: Duration,
     settle: Duration,
     user_agent: Option<String>,
+    viewport: Option<servo_fetch::Viewport>,
 }
 
 #[pymethods]
 impl Client {
     #[new]
-    #[pyo3(signature = (*, timeout=30.0, settle=0.0, user_agent=None))]
-    fn new(timeout: f64, settle: f64, user_agent: Option<String>) -> PyResult<Self> {
+    #[pyo3(signature = (*, timeout=30.0, settle=0.0, user_agent=None, viewport=None))]
+    fn new(
+        timeout: f64,
+        settle: f64,
+        user_agent: Option<String>,
+        viewport: Option<&Bound<'_, PyMapping>>,
+    ) -> PyResult<Self> {
         Ok(Self {
             timeout: validate::timeout(timeout)?,
             settle: validate::settle(settle)?,
             user_agent,
+            viewport: validate::viewport(viewport)?,
         })
     }
 
     /// Fetch a single URL, merging client defaults with per-call overrides.
-    #[pyo3(signature = (url, *, timeout=None, settle=None, screenshot=false, javascript=None, schema=None, cookies_file=None, headers=None))]
+    #[pyo3(signature = (url, *, timeout=None, settle=None, screenshot=false, javascript=None, schema=None, cookies_file=None, headers=None, viewport=None))]
     #[allow(clippy::too_many_arguments)]
     fn fetch(
         &self,
@@ -49,6 +57,7 @@ impl Client {
         schema: Option<Bound<'_, Schema>>,
         cookies_file: Option<PathBuf>,
         headers: Option<HashMap<String, String>>,
+        viewport: Option<&Bound<'_, PyMapping>>,
     ) -> PyResult<Page> {
         let timeout = timeout.or(Some(self.timeout.as_secs_f64()));
         let settle = settle.or(Some(self.settle.as_secs_f64()));
@@ -62,6 +71,7 @@ impl Client {
             schema,
             cookies_file,
             headers,
+            viewport: validate::viewport(viewport)?.or(self.viewport),
         })?;
         let page = py
             .detach(|| servo_fetch::blocking::fetch(&prepared.opts))
@@ -101,6 +111,7 @@ impl Client {
             self.timeout,
             self.settle,
             self.user_agent.as_deref(),
+            self.viewport,
             max_pages,
             max_depth,
             include,
@@ -137,6 +148,7 @@ impl Client {
             self.timeout,
             self.settle,
             self.user_agent.as_deref(),
+            self.viewport,
             max_pages,
             max_depth,
             include,
@@ -223,8 +235,12 @@ impl Client {
     fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
         let name = slf.get_type().qualname()?;
         let this = slf.borrow();
+        let viewport = this.viewport.map_or_else(
+            || "None".to_owned(),
+            |v| format!("{{'width': {}, 'height': {}}}", v.width(), v.height()),
+        );
         Ok(format!(
-            "{name}(timeout={}, settle={}, user_agent={:?})",
+            "{name}(timeout={}, settle={}, user_agent={:?}, viewport={viewport})",
             this.timeout.as_secs_f64(),
             this.settle.as_secs_f64(),
             this.user_agent.as_deref().unwrap_or("")
@@ -238,6 +254,7 @@ fn build_crawl_opts(
     timeout: Duration,
     settle: Duration,
     user_agent: Option<&str>,
+    viewport: Option<servo_fetch::Viewport>,
     max_pages: usize,
     max_depth: usize,
     include: Option<&Bound<'_, PyAny>>,
@@ -267,6 +284,9 @@ fn build_crawl_opts(
     };
     if let Some(ua) = user_agent {
         opts = opts.user_agent(ua);
+    }
+    if let Some(viewport) = viewport {
+        opts = opts.viewport(viewport);
     }
     if let Some(path) = &cookies_file {
         let cookies = servo_fetch::load_cookies(path).map_err(map_error)?;

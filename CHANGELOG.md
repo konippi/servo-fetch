@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0](https://github.com/konippi/servo-fetch/compare/0.15.2..0.16.0) - 2026-11-19
+
+
+### Breaking Changes
+
+- *(node)* Render requested formats from one Session.fetch load ([#595](https://github.com/konippi/servo-fetch/pull/595))
+
+### Features
+
+- *(node)* [**breaking**] Render requested formats from one Session.fetch load ([#595](https://github.com/konippi/servo-fetch/pull/595))
+- *(cli)* Expose viewport option across CLI, MCP, HTTP, and RPC ([#593](https://github.com/konippi/servo-fetch/pull/593))
+- *(crawl)* Add visibility policy option ([#569](https://github.com/konippi/servo-fetch/pull/569))
+- *(fetch)* Add viewport option ([#587](https://github.com/konippi/servo-fetch/pull/587))
+
+### Bug Fixes
+
+- *(deps)* Bump servo to 0.8.0 ([#589](https://github.com/konippi/servo-fetch/pull/589))
+- *(deps)* Replace humantime with jiff and bump libz-sys ([#590](https://github.com/konippi/servo-fetch/pull/590))
+- *(extract)* Apply visibility filtering to --selector and crawl output ([#568](https://github.com/konippi/servo-fetch/pull/568))
+- *(net)* Enforce network policy on every resource load ([#566](https://github.com/konippi/servo-fetch/pull/566))
+- *(session)* Keep servo http disk cache out of shared TMPDIR ([#564](https://github.com/konippi/servo-fetch/pull/564))
+
+### Refactor
+
+- *(bridge)* Give each webview its own delegate ([#567](https://github.com/konippi/servo-fetch/pull/567))
+
 ## [0.15.2](https://github.com/konippi/servo-fetch/compare/0.15.1..0.15.2) - 2026-11-01
 
 ### Bug Fixes

@@ -1,5 +1,6 @@
 //! JSON-RPC method handlers — request DTO in, typed wire result out.
 
+use std::collections::BTreeSet;
 use std::time::Instant;
 
 use base64::Engine as _;
@@ -7,15 +8,15 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use servo_fetch::FetchOptions;
 use servo_fetch_types::{
-    CrawlRequest, CrawlStats, ErrorKind, EvaluateRequest, ExtractRequest, FetchRequest, InitializeResult, MapRequest,
-    SchemaExtractRequest, ScreenshotRequest, ServerCapabilities, ServerInfo, SessionCloseRequest, SessionFetchRequest,
-    SessionOpenRequest, SessionOpenResult,
+    CrawlRequest, CrawlStats, ErrorKind, EvaluateRequest, ExtractRequest, FetchFormat, FetchRequest, InitializeResult,
+    MapRequest, PageFormat, SchemaExtractRequest, ScreenshotRequest, ServerCapabilities, ServerInfo,
+    SessionCloseRequest, SessionFetchRequest, SessionOpenRequest, SessionOpenResult, SessionPage,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::protocol::{Notification, PROTOCOL_VERSION, RequestId, ResponseError, code};
 use crate::tools::limits::MAX_JS_LEN;
-use crate::tools::{self, ToolError};
+use crate::tools::{self, ToolError, ToolResult};
 
 /// Route a request to its handler (`id`/`tx` drive `crawl` progress streaming).
 pub(crate) async fn dispatch(
@@ -72,8 +73,8 @@ async fn session_fetch(params: Value, sessions: &super::Sessions) -> Result<Valu
         .cloned()
         .ok_or_else(|| ResponseError::invalid_params(format!("unknown session {}", req.session_id)))?;
 
-    let format = req.format.unwrap_or_default();
-    let mut opts = tools::content_options(&url, format, tools::visibility_policy(req.visibility))
+    let mut opts = FetchOptions::new(&url)
+        .visibility(tools::visibility_policy(req.visibility))
         .timeout(tools::resolve_timeout(req.options.timeout))
         .settle(tools::resolve_settle(req.options.settle_ms))
         .headers(tools::build_headers(req.options.headers)?);
@@ -90,10 +91,29 @@ async fn session_fetch(params: Value, sessions: &super::Sessions) -> Result<Valu
         .map_err(|e| ResponseError::from(ToolError::from(e)))?;
     drop(guard);
 
-    let full = tools::render_page(&page, &page.url, format, req.selector.as_deref())?;
-    let sanitized = servo_fetch::sanitize::sanitize(&full);
-    let content = tools::paginate_opt(&sanitized, req.start_index, req.max_length);
-    Ok(json!(content))
+    let formats = req.formats.unwrap_or_else(|| BTreeSet::from([PageFormat::Markdown]));
+    let selector = req.selector.as_deref();
+    let render = |format| -> ToolResult<String> {
+        let full = tools::render_page(&page, &page.url, format, selector)?;
+        Ok(servo_fetch::sanitize::sanitize(&full).into_owned())
+    };
+    let mut out = SessionPage {
+        url: page.url.clone(),
+        title: page.title.clone(),
+        markdown: None,
+        html: None,
+        text: None,
+        article: None,
+    };
+    for format in formats {
+        match format {
+            PageFormat::Markdown => out.markdown = Some(render(FetchFormat::Markdown)?),
+            PageFormat::Html => out.html = Some(render(FetchFormat::Html)?),
+            PageFormat::Text => out.text = Some(render(FetchFormat::Text)?),
+            PageFormat::Article => out.article = Some(tools::article(&page, &page.url, selector)?),
+        }
+    }
+    Ok(serde_json::to_value(out)?)
 }
 
 async fn session_close(params: Value, sessions: &super::Sessions) -> Result<Value, ResponseError> {
@@ -148,11 +168,8 @@ async fn extract(params: Value) -> Result<Value, ResponseError> {
     let opts = FetchOptions::new(&url).visibility(tools::visibility_policy(req.visibility));
     let page = tools::fetch_with(tools::apply_options(opts, req.options)?).await?;
 
-    let data = match req.selector.as_deref() {
-        Some(s) => page.article_with_selector(&page.url, s),
-        None => page.article(&page.url),
-    }?;
-    Ok(serde_json::to_value(crate::wire::article(data))?)
+    let article = tools::article(&page, &page.url, req.selector.as_deref())?;
+    Ok(serde_json::to_value(article)?)
 }
 
 async fn screenshot(params: Value) -> Result<Value, ResponseError> {

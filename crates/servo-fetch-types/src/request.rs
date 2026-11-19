@@ -1,7 +1,7 @@
 //! Request DTOs — the input counterpart to the output wire types, shared by the
 //! servo-fetch servers and language bindings.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -152,7 +152,23 @@ pub struct SessionOpenResult {
     pub session_id: u64,
 }
 
-/// Parameters for the `session/fetch` method (returns the formatted page as a string).
+/// A representation rendered from a session page load.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum PageFormat {
+    /// Readability-extracted Markdown.
+    Markdown,
+    /// Raw rendered HTML (post-JS execution).
+    Html,
+    /// Plain text (`document.body.innerText`).
+    Text,
+    /// Readability article.
+    Article,
+}
+
+/// Parameters for the `session/fetch` method (returns a [`SessionPage`](crate::SessionPage)).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -163,22 +179,14 @@ pub struct SessionFetchRequest {
     pub session_id: u64,
     /// URL to fetch (http/https only).
     pub url: String,
-    /// Output format (default: markdown).
+    /// Formats rendered from the single page load (default: markdown).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
-    pub format: Option<FetchFormat>,
-    /// CSS selector to extract a specific section (Markdown only).
+    pub formats: Option<BTreeSet<PageFormat>>,
+    /// CSS selector to extract a specific section (Markdown and article only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub selector: Option<String>,
-    /// Truncate the result to this many characters (default: 5000).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
-    pub max_length: Option<u64>,
-    /// Character offset to start the result from, for pagination (default: 0).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
-    pub start_index: Option<u64>,
     /// Visibility filtering policy (default: moderate).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]

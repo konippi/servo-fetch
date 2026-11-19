@@ -64,7 +64,9 @@ const products = await extractSchema("https://shop.example.com", {
 ## Isolated Sessions
 
 Each `Session` runs in its own one-use worker process, so cookies and storage
-persist across fetches within the session and never leak between sessions:
+persist across fetches within the session and never leak between sessions.
+`session.fetch` loads the page once and returns each format requested via
+`formats` (`markdown`, `html`, `text`, or `article`, default `markdown`).
 
 ```ts
 import { Session } from "servo-fetch";
@@ -72,7 +74,9 @@ import { Session } from "servo-fetch";
 const session = await Session.open();
 try {
   await session.fetch("https://example.com/login");
-  const page = await session.fetch("https://example.com/dashboard");
+  const { markdown, article } = await session.fetch("https://example.com/dashboard", {
+    formats: ["markdown", "article"],
+  });
 } finally {
   await session.close();
 }

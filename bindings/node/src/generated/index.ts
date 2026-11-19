@@ -482,6 +482,11 @@ url: string,
 lastmod?: string, };
 
 /**
+ * A representation rendered from a session page load.
+ */
+export type PageFormat = "markdown" | "html" | "text" | "article";
+
+/**
  * Request options common to every page-fetching method (flattened into each request).
  */
 export type RequestOptions = { 
@@ -629,7 +634,7 @@ export type SessionCloseRequest = {
 sessionId: number, };
 
 /**
- * Parameters for the `session/fetch` method (returns the formatted page as a string).
+ * Parameters for the `session/fetch` method (returns a [`SessionPage`](crate::SessionPage)).
  */
 export type SessionFetchRequest = { 
 /**
@@ -641,21 +646,13 @@ sessionId: number,
  */
 url: string, 
 /**
- * Output format (default: markdown).
+ * Formats rendered from the single page load (default: markdown).
  */
-format?: FetchFormat, 
+formats?: Array<PageFormat>, 
 /**
- * CSS selector to extract a specific section (Markdown only).
+ * CSS selector to extract a specific section (Markdown and article only).
  */
 selector?: string, 
-/**
- * Truncate the result to this many characters (default: 5000).
- */
-maxLength?: number, 
-/**
- * Character offset to start the result from, for pagination (default: 0).
- */
-startIndex?: number, 
 /**
  * Visibility filtering policy (default: moderate).
  */
@@ -694,6 +691,35 @@ export type SessionOpenResult = {
  * Identifier for subsequent `session/fetch` and `session/close` calls.
  */
 sessionId: number, };
+
+/**
+ * Result of the `session/fetch` method, with each requested format from one page load.
+ */
+export type SessionPage = { 
+/**
+ * Document URL after redirects and script navigation.
+ */
+url: string, 
+/**
+ * Document title, if any.
+ */
+title?: string, 
+/**
+ * Readability-extracted Markdown, if requested.
+ */
+markdown?: string, 
+/**
+ * Rendered HTML, if requested.
+ */
+html?: string, 
+/**
+ * Plain text, if requested.
+ */
+text?: string, 
+/**
+ * Readability article, if requested.
+ */
+article?: Article, };
 
 /**
  * Request options for `session/fetch`; session identity (user agent, cookies) is fixed at open.

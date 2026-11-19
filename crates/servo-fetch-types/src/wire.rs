@@ -43,6 +43,35 @@ pub struct Article {
     pub url: Option<String>,
 }
 
+/// Result of the `session/fetch` method, with each requested format from one page load.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPage {
+    /// Document URL after redirects and script navigation.
+    pub url: String,
+    /// Document title, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub title: Option<String>,
+    /// Readability-extracted Markdown, if requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub markdown: Option<String>,
+    /// Rendered HTML, if requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub html: Option<String>,
+    /// Plain text, if requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub text: Option<String>,
+    /// Readability article, if requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub article: Option<Article>,
+}
+
 /// Level or category of a captured console message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS), ts(export, export_to = "index.ts"))]
